@@ -1,0 +1,97 @@
+The protocol for agents (remote or local monitor scripts)
+to deliver failures to the mon server:
+
+Trap consists of tag/value pairs which are separated by newlines. The
+first tag must be "pro", which is the protocol version.
+
+Tags which are understood are:
+
+#
+# MON-specific tags
+# pro   protocol
+# aut   auth
+# typ   type (0=mon, 1=snmpv1)
+# spc   specific type (TRAP_*)
+# seq   sequence
+# grp   group
+# svc   service
+# hst   host
+# sta   status (opstatus)
+# tsp   timestamp as time(2) value
+# sum   summary output
+# dtl   detail (terminated by \n.\n)
+#
+# SNMP-specific tags
+# ent   enterprise OID
+# agt   agent address
+# gtp   generic trap type
+# stp   enterprise-specific trap type
+# tmp   sysUptime timestamp
+# vbl   varbindlist (OID = value)
+#
+
+SNMP-specific tags do nothing at this time.
+
+Rather than formulating the trap PDU yourself, it's a good idea to use
+Mon::Client::send_trap. See the POD for Mon::Client for more details,
+or see remote.alert for an example.
+
+If an alert for a watch or service is delivered to a mon server and
+its configuration does not include that watch or service, it will use
+the default watch/service "default" to deliver the alert. If "default"
+is not defined in the mon.cf, the alert will be logged and then discarded.
+
+NOTE: alert/upalert stats are not handled specially for 'default' traps,
+so if one unknown alert trap comes in, followed by a unknown upalert
+from a different host, then the alert output from mon may be confusing.
+Set up a default watch, and use it as a debugging guide to catch random
+trap and remind you to update your mon config file.
+
+watch default
+    service default
+	period wd {Sun-Sat}
+	    alert some.alert
+	    upalert some.alert -u
+
+See the mon.1 man page for the list of environment variables availble to
+monitor and alert programs. One particular environmet variable to note is
+the MON_TRAPINTEND variable. This is a colon (:) separated watch
+group / service pair which was the intended recipient when a default watch
+group and service were invoked for a trap.  This hopefully gives you
+some ability to figure out what to do with a trap caught by "default",
+and could be exploited to allow a lazy administrator to send useful
+information from alerts ;)
+
+There is a (very simple) alert script called "remote.alert" which
+delivers a failure detected locally to a remote mon process. This
+allows centralization of alert handling, and it allows distributed
+mon processes. Pass the mon host name via -H <host> and the port via
+-P <port>.
+
+you could use remote.alert to send a trap from one mon server to another
+mon server. this can be useful for implementing a hierarchy of mon
+servers, where the topmost level serves as the alert management node
+for the lower leaf nodes. for example:
+
+mon server "highlevel":
+
+watch pr-internet
+    service http_tp
+        period wd {Sun-Sat}
+            alert mail.alert name@address.com
+
+
+mon server "lowlevel":
+
+watch pr-internet
+    service http_tp
+	monitor http_tp.monitor
+	interval 5m
+	period wd {Sun-Sat}
+	    alert remote.alert -H highlevel
+
+
+when the pr-internet/http_tp service fails on the mon server "lowlevel",
+it will send a trap to the mon server "highlevel", which will then send
+the email alert.
+

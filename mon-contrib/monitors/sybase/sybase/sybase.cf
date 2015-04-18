@@ -1,0 +1,39 @@
+#
+# sybase.cf - configuration file for sybase.monitor
+#
+# Format:
+#
+#   SERVER  servername username password
+#      database  dbusage  minfree
+#
+#   servername  name of the Sybase server, as used in the "interfaces" file
+#               valid for all entries until next SERVER statement
+#
+#   database    name of the database to check, e.g. "master"
+#               NB: case sensitive even if your Sybase installation is not!
+#
+#   dbusage     "data_only", "log_only" or "data_and_log"
+#               must match actual usages, otherwise will not be compared
+#
+#   minfree     minimum amount of free space in the database, as "xxxMB"
+#
+
+SERVER       devdb       sa  sapassword
+
+warehouse    data_only       200MB
+warehouse    log_only        100MB
+tempdb       data_and_log     50MB
+
+SERVER       proddb      sa  sapassword
+
+budget       data_only        10MB
+budget       log_only         20MB
+warehouse    data_only       200MB
+warehouse    log_only        200MB
+personnel    data_only        10MB
+personnel    log_only          5MB
+sybsecurity  data_only        20MB
+sybsecurity  log_only         10MB
+tempdb       data_and_log     50MB
+master       data_and_log      5MB
+

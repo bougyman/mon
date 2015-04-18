@@ -1,0 +1,22 @@
+Subject: 
+         CONTRIB: storage monitor for HOSTMIB
+   Date: 
+         Tue, 13 Jun 2000 19:08:59 +0200
+   From: 
+         P.Holzleitner@unido.org (Peter HOLZLEITNER)
+     To: 
+         mon@linux.kernel.org
+
+
+
+
+
+The attached storage.monitor will work with anything that implements 
+hrStorageTable (Host Resources MIB), e.g. the UCSD snmpd.  Sample 
+configuration file included.
+
+Start by making at least one entry in storage.cf for every host you 
+want to monitor, then run it manually with the list option to see what 
+it does, e.g.
+
+        ./storage.monitor -l ns01 ns02

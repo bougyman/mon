@@ -1,0 +1,14 @@
+# File:         ntp.monitor
+# Author:       Daniel Hagerty, hag@linnaean.org
+# Date:         Sun Feb 20 00:38:21 2000
+# Description:  ntp monitor for mon.
+#
+# $Id: ntp.monitor.README,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+# Command Line options:
+# -s max_stratum
+#       Raise an error if stratum is above this number.
+# -c
+#       Raise an error if the read clock differs from the local clock
+#       by more than 30 seconds.
+#

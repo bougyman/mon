@@ -1,0 +1,477 @@
+#!/usr/bin/perl
+#
+############################################################################
+##                                                                        ##
+##  snmpvar.monitor                                        Version 1.6.0  ##
+##                                                            2003-05-21  ##
+##  Copyright (C) 2000-2003                                               ##
+##  Peter Holzleitner (peter@holzleitner.com)                             ##
+##                                                                        ##
+############################################################################
+#
+# A MON plug-in monitor to test numeric values retrieved via SNMP
+# against configured limits.
+#
+# Arguments:
+#
+#  [--community=cmn] [--group=groups] [--timeout=n] [--retries=n] [--debug]
+#    [--varconf=filename] [--config=filename] [--snmpconf=filename]
+#    [--mibs='mib1:mib2:mibn'] [--list[=linesperpage]] host [host ...]
+#
+#   For every host name passed on the command line, snmpval.monitor looks
+#   up the list of variables and corresponding limits in the configuration
+#   file (snmpmon.cf).
+#
+#   If a --groups option is present, only those variables are checked
+#   which are in one of the specified groups.  To specify more than one
+#   group, separate group names with commas.  You can also exclude groups
+#   by prefixing the group name(s) with '-'.  Don't mix in- and exclusion.
+#   Examples:
+#      --groups=Power        only vars in the Power group
+#      --groups=Power,Env    vars in the Power or Env group
+#      --groups=-Power,-Env  all vars except those in Power or Env groups
+#      --groups=Power,-Env   won't work (only the exclusions)
+#
+#   For every such variable, it looks up the OID, description etc. from
+#   the variable definition file (snmpvar.def).
+#
+#   This monitor looks for configuration files in the current directory,
+#   in /etc/mon and /usr/lib/mon/etc.  Command line option --varconf 
+#   overrides the location of the variable definition file, option
+#   --config sets the configuration file name.
+#
+#   For formats, please refer to the sample configuration files.
+#
+#   By default, this monitor does not load any MIB, and OIDs are specified
+#   numerically in the configuration files.  Use the option --mibs
+#   to force certain MIBs to be loaded.
+#
+#   When invoked with the --list option, the output format is changed
+#   into a more human-readable form used to check and troubleshoot the
+#   configuration.  This option must not be used from within MON.
+#
+#
+# Exit values:
+#   0  if everything is OK
+#   1  if any observed value is outside the specified interval
+#   2  in case of an SNMP error (e.g. no response from host)
+#
+# Requirements:
+#
+#   UCD SNMP library (3.6.2 or higher)
+#   G.S. Marzot's Perl SNMP module (from CPAN).
+#
+#
+# License:
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+#
+#
+# History:
+#
+#   1.6.0  21 May 2003  Equal and Non-Equal tests in addition to < and > (P.H.)
+#   1.5.1  09 Apr 2003  change \w to ^\s in FriendlyName detection to allow
+#                       indices containing "." like IP Addresses
+#   1.5.0  04 Dec 2002  per-host SNMP options          (Ryan VanderBijl + P.H.)
+#                       --list shows all hosts if none specified      (Ryan V.)
+#                       more output with --debug option                  (P.H.)
+#   1.4.0  10 Sep 2002  extended SNMP configuration                 (Dan Urist)
+#   1.3.0  15 May 2002  added GROUP option                         (Dave Alden)
+#                       added DEFAULTGROUP, group exclusion              (P.H.)
+#                       decimals OK in limits                         (britcey)
+#                       added DefaultMin/Max                             (P.H.)
+#   1.2.0  21 Mar 2001  added FriendlyName option                        (P.H.)
+#   1.1.2  10 Jul 2000  fixed -l output with plausibility checks         (P.H.)
+#   1.1.1  04 Apr 2000  automatically add dot between OID and index      (P.H.)
+#   1.1.0  30 Mar 2000  added upper and lower plausibility limits        (P.H.)
+#   1.0.1  24 Jan 2000  bugfix: reading Decode definitions               (P.H.)
+#   1.0.0  13 Jan 2000	initial release                                  (P.H.)
+#
+
+use SNMP;
+use Getopt::Long;
+use Sys::Syslog;
+
+sub ReadVarDef;
+sub ReadVarList;
+sub ReadSNMPConf;
+sub GetSNMPArgs;
+sub Decode;
+
+GetOptions (\%opt, "config=s", "groups=s", "varconf=s",
+		   "snmpconf=s", "community=s",
+		   "port=i", "timeout=i", "retries=i", "mibs=s", 
+		   "list:i", "debug");
+
+die "no host arguments\n" if ( (@ARGV == 0) &&  !exists($opt{'list'}) );
+
+$RET     = 0;
+@ERRS    = ();
+@HOSTS   = ();
+
+
+($^O eq "linux" || $^O eq "openbsd") && Sys::Syslog::setlogsock('unix');
+openlog('snmpvar.mon', 'cons,pid', 'daemon');
+
+
+# find config files
+$CF1 = '/etc/mon';
+$CF2 = '/usr/lib/mon/etc';
+
+$VARCONF_FILE  = (-d $CF1 ? $CF1 : $CF2) . '/snmpvar.def';
+$MONCONF_FILE  = (-d $CF1 ? $CF1 : $CF2) . '/snmpvar.cf';
+$SNMPCONF_FILE = (-d $CF1 ? $CF1 : $CF2) . '/snmpopt.cf';
+
+# pick up local config files for testing
+$VARCONF_FILE  = './snmpvar.def' if -e './snmpvar.def';
+$MONCONF_FILE  = './snmpvar.cf'  if -e './snmpvar.cf';
+$SNMPCONF_FILE = './snmpopt.cf'  if -e './snmpopt.cf';
+
+# commandline ovverides ini any case
+$VARCONF_FILE  = $opt{'varconf'}  || $VARCONF_FILE;
+$MONCONF_FILE  = $opt{'config'}   || $MONCONF_FILE;
+$SNMPCONF_FILE = $opt{'snmpconf'} || $SNMPCONF_FILE;
+
+print STDERR "\nsnmpvar.monitor: configured from $VARCONF_FILE, $MONCONF_FILE\n\n" if $opt{'debug'};
+
+ReadVarDef($VARCONF_FILE)  || die "could not read variable definition: $!\n";
+ReadVarList($MONCONF_FILE) || die "could not read config: $!\n";
+ReadSNMPConf($SNMPCONF_FILE);   # this is optional stuff
+
+# load only the necessary MIBs:
+$ENV{'MIBS'} = $opt{'mibs'} || '';
+
+$FORMAT_LINES_PER_PAGE = $opt{'list'} || 25;
+$GROUPS   = "," . $opt{'groups'} . "," if ($opt{'groups'});
+
+@ARGV = keys %VARLIST if ( exists($opt{'list'}) && @ARGV == 0 );
+
+foreach $host (@ARGV) {
+    $VARS = $VARLIST{$host};	# %VARLIST{$host}{$var}{'MIN'|'MAX'}
+    next unless $VARS;
+
+    my $SNMPARGS = &GetSNMPArgs($host);
+    if($opt{'debug'}) {
+      print STDERR "$host SNMP Parameters:\n";
+      foreach $so (keys %SNMPARGS) { print "  $so = $SNMPARGS{$so}\n"; } 
+      print STDERR "\n";
+      }
+    
+    if (!defined($s = new SNMP::Session(DestHost => $host, %SNMPARGS))) {
+	$RET = 2 unless $RET > 2;
+	$errmsg = "could not create session to $host: " . $SNMP::Session::ErrorStr;
+	print STDERR "$errmsg\n" if $opt{'debug'};
+	push (@HOSTS, $host);
+	push (@ERRS, $errmsg);
+	next;
+        }
+
+    @HE = ();	# list of errors for THIS host
+
+    foreach $var (sort keys %$VARS) {
+        # skip vars that are not in selected group, if any:
+        if($GROUPS ne '') {
+	  $g = $$VARS{$var}{'GROUP'};	# assigned group of this variable
+	  next if $GROUPS =~ /,-$g,/i;                        # excluded group
+	  next if !($GROUPS =~ /-/) && !($GROUPS =~ /,$g,/i); # included group
+	  }
+	  
+
+	$oid  = $VARDEF{$var}{'OID'};
+	@IDX  = split(/ +/, $$VARS{$var}{'IDX'});
+	if(@IDX == ()) {
+          @IDX  = ('');
+	  }
+	else {
+          $oid .= '.' unless $oid =~ /.+\.$/;
+	  }
+
+	foreach $i (@IDX) {
+	    $ioid = $oid . $i;
+	    $pi = $i ne '' ? " [$i]" : '';
+	    $descr = $VARDEF{$var}{'DESCR'};
+	    $fn = $FRIENDLYNAME{$host}{$var}{$i} || 
+	          $VARDEF{$var}{'FNAME'}{$i};
+	    $fn =~ s/^@/$descr /;
+	    $vardescr = $fn || $descr . $pi;
+	    
+    	    $rawval = $s->get($ioid);
+    	    if ($s->{ErrorNum}) {
+		$RET = 2 unless $RET > 2;
+		$errmsg = "error retrieving $host:$var$pi($ioid): " . $s->{ErrorStr};
+                print STDERR "$errmsg\n" if $opt{'debug'};
+		push (@HE, $errmsg);
+		next;
+		}
+    	    $val      = eval ($rawval . $VARDEF{$var}{'SCALE'}); 
+	    $min      = $$VARS{$var}{'MIN'};
+	    $max      = $$VARS{$var}{'MAX'};
+	    $eq       = $$VARS{$var}{'EQ'};
+	    $neq      = $$VARS{$var}{'NEQ'};
+	    $minvalid = $$VARS{$var}{'MINVALID'};
+	    $maxvalid = $$VARS{$var}{'MAXVALID'};
+    	    $stat     = 'OK';
+
+	    $DEC = $VARDEF{$var}{'DEC'};
+	    $pval = Decode($DEC, $val);
+	    $pmin = Decode($DEC, $min);
+	    $pmax = Decode($DEC, $max);
+	    $peq  = Decode($DEC, $eq);
+	    $pneq = Decode($DEC, $neq);
+
+	    $pmin = $pmax = $peq         if defined($eq);
+	    $pmin = $pmax = '!' . $pneq  if defined($neq);
+
+	    if(defined($minvalid) && ($val < $minvalid)) {
+    		$stat = 'INV<';
+	        syslog('warning', "$host: $vardescr less than lower plausibility limit: $pval");
+                write if defined $opt{'list'};
+	        next;
+	        }
+	    if(defined($maxvalid) && ($val > $maxvalid)) {
+    		$stat = 'INV>';
+	        syslog('warning', "$host: $vardescr larger than upper plausibility limit: $pval");
+                write if defined $opt{'list'};
+	        next;
+	        }
+	    
+	    if(defined($min) && ($val < $min)) {
+    		$stat = 'FAIL<';
+		push (@HE, "$vardescr LOW: $pval $VARDEF{$var}{'UNIT'} (<$pmin)");
+    		}
+	    if(defined($max) && ($val > $max)) {
+    		$stat = 'FAIL>';
+		push (@HE, "$vardescr HIGH: $pval $VARDEF{$var}{'UNIT'} (>$pmax)");
+        	}
+
+	    if(defined($eq) && ($val != $eq)) {
+    		$stat = 'FAIL<>';
+		push (@HE, "$vardescr: $pval $VARDEF{$var}{'UNIT'} (<> $peq)");
+    		}
+	    if(defined($neq) && ($val == $neq)) {
+    		$stat = 'FAIL=';
+		push (@HE, "$vardescr: $pval $VARDEF{$var}{'UNIT'} (== $pneq)");
+    		}
+
+	    write if defined $opt{'list'};
+	    } # foreach(index)
+        } # foreach(var)
+
+    if (@HE) {
+	push (@HOSTS, $host);
+	push (@ERRS, $host . ":\n" . join("\n", @HE));
+
+	$RET = 1 unless $RET > 1;   # previous error level 2 takes precedence
+	}
+	
+    }  # foreach(host)
+
+# in case of list output, suppress error listing by exiting here:
+exit 0 if defined $opt{'list'};
+
+if ($RET) {
+    print "@HOSTS\n\n";
+    print join("\n", @ERRS), "\n";
+    }
+
+exit $RET;
+
+
+
+# ----------------------------------------------------------------------
+#                         subroutines begin
+# ----------------------------------------------------------------------
+
+#
+# decode enumerations
+#
+
+sub Decode {
+    my ($D, $v) = @_;
+    my $dv;
+    
+    return $v unless $D;	# can only decode with valid decoder hash
+    $dv = $$D{$v} || '?';	# look up value
+    return "$dv($v)";
+}
+
+
+#
+# read variable definitions from file
+#
+
+sub ReadVarDef {
+    my ($f) = @_;
+    my ($curvar, $keyword, $param);
+    
+    $curvar = '';
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+	/^\s*(\w*)\s*(.*)/;  $keyword = $1; $param = $2;
+	$curvar = $param if $keyword =~ /Variable/i;
+	if($curvar ne '') {
+	    $VARDEF{$curvar}{'OID'}       = $param if $keyword =~ /OID/i;
+	    $VARDEF{$curvar}{'DESCR'}     = $param if $keyword =~ /Descr.*/i;
+	    $VARDEF{$curvar}{'UNIT'}      = $param if $keyword =~ /Unit/i;
+	    $VARDEF{$curvar}{'SCALE'}     = $param if $keyword =~ /Scale/i;
+	    $VARDEF{$curvar}{'DEFIDX'}    = $param if $keyword =~ /DefaultIndex/i;
+	    $VARDEF{$curvar}{'DEFGRP'}    = $param if $keyword =~ /DefaultGroup/i;
+	    $VARDEF{$curvar}{'DEFMIN'}    = $param if $keyword =~ /DefaultMin/i;
+	    $VARDEF{$curvar}{'DEFMAX'}    = $param if $keyword =~ /DefaultMax/i;
+	    $VARDEF{$curvar}{'DEFEQ'}     = $param if $keyword =~ /DefaultEq/i;
+	    $VARDEF{$curvar}{'DEFNEQ'}    = $param if $keyword =~ /DefaultNEq/i;
+	    $VARDEF{$curvar}{'DEFMINVAL'} = $param if $keyword =~ /DefaultMinValid/i;
+	    $VARDEF{$curvar}{'DEFMAXVAL'} = $param if $keyword =~ /DefaultMaxValid/i;
+	    if($keyword =~ /Decode/i)  {
+		$param =~ /\s*([^\s]+)\s+(.*)$/;
+		$VARDEF{$curvar}{'DEC'}{$1} = $2;
+		}
+	    if($keyword =~ /FriendlyName/i)  {
+		$param =~ /\s*([^\s]+)\s+(.*)$/;
+		$VARDEF{$curvar}{'FNAME'}{$1} = $2;
+		}
+	    }
+	} # while(<CF>)
+    close (CF);
+    return 1;
+    }
+
+#
+# read list of variables to be monitored
+#
+
+sub ReadVarList {
+    my ($f) = @_;
+    my ($curhost, $curvar, $var, $param);
+    
+    $curhost = '';
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+	if(/Host\s+(\S+)/i) {
+	    $curhost = $1; $curvar = '';
+	    next;
+	    }
+	if(/\s+SNMP\s+(\S+)\s+(.+)/i) {
+	    next unless $curhost;
+	    
+print "READVARLIST($curhost): SNMP: $1 $2\n";
+	    $SNMP{$curhost}{lc $1} = $2;
+	    next;
+	    }
+	if(/\s+FriendlyName\s+([^\s]+)\s+(.+)/i) {
+	    next unless $curhost;
+	    next unless $curvar;
+	    
+	    $FRIENDLYNAME{$curhost}{$curvar}{$1} = $2;
+	    next;
+	    }
+	/^\s+(\S+)\s*(.*)$/;  
+	$curvar = $1; $param = $2;
+	
+	if($curhost) {
+	    $VARLIST{$curhost}{$curvar}{'MIN'}      = $VARDEF{$curvar}{'DEFMIN'};
+	    $VARLIST{$curhost}{$curvar}{'MIN'}      = $1 if $param =~ /Min\s+([\d\.]+)/i;
+	    $VARLIST{$curhost}{$curvar}{'MAX'}      = $VARDEF{$curvar}{'DEFMAX'};
+	    $VARLIST{$curhost}{$curvar}{'MAX'}      = $1 if $param =~ /Max\s+([\d\.]+)/i;
+	    $VARLIST{$curhost}{$curvar}{'EQ'}       = $VARDEF{$curvar}{'DEFEQ'};
+	    $VARLIST{$curhost}{$curvar}{'EQ'}       = $1 if $param =~ /Eq\s+([\d\.]+)/i;
+	    $VARLIST{$curhost}{$curvar}{'NEQ'}      = $VARDEF{$curvar}{'DEFNEQ'};
+	    $VARLIST{$curhost}{$curvar}{'NEQ'}      = $1 if $param =~ /NEq\s+([\d\.]+)/i;
+	    $VARLIST{$curhost}{$curvar}{'MINVALID'} = $VARDEF{$curvar}{'DEFMINVAL'};
+	    $VARLIST{$curhost}{$curvar}{'MINVALID'} = $1 if $param =~ /MinValid\s+([\d\.]+)/i;
+	    $VARLIST{$curhost}{$curvar}{'MAXVALID'} = $VARDEF{$curvar}{'DEFMAXVAL'};
+	    $VARLIST{$curhost}{$curvar}{'MAXVALID'} = $1 if $param =~ /MaxValid\s+([\d\.]+)/i;
+	    $VARLIST{$curhost}{$curvar}{'IDX'}      = $VARDEF{$curvar}{'DEFIDX'};
+	    $VARLIST{$curhost}{$curvar}{'IDX'}      = $1 if $param =~ /Index\s+(.+)$/i;
+	    $VARLIST{$curhost}{$curvar}{'GROUP'}    = $VARDEF{$curvar}{'DEFGRP'};
+	    $VARLIST{$curhost}{$curvar}{'GROUP'}    = $1 if $param =~ /Group\s+(.+)$/i;
+	    }
+	} # while(<CF>)
+    close (CF);
+    return 1;
+    }
+    
+
+sub ReadSNMPConf {
+  my ($f) = @_;
+  my $tag;
+  my $val;
+  
+  if (-r $f) {
+    print STDERR "\nsnmpvar.monitor: reading SNMP options from $f\n" if $opt{'debug'};
+
+    open(SNMPCONF, $f)  or die "Huh?  $f readable but open fails?";
+    while(<SNMPCONF>) {
+      chomp;
+      next if (/^\s*#/ || /^\s*$/);
+      next unless /^\s*(\S+)\s*=\s*(.+)$/;
+      $SNMPDEF{ lc $1 } = $2;
+      print STDERR "snmpvar.monitor: $1 = $2\n" if $opt{'debug'};
+      
+      }
+    close SNMPCONF;
+    }
+  print STDERR "\n\n" if $opt{'debug'};
+  }
+
+
+sub GetSNMPArgs {
+  my ($host) = @_;
+  my $SNMPARGS;  
+
+  # Common options
+  $SNMPARGS{Version}    = $SNMP{$host}{version} || $SNMPDEF{version}  || 1;
+  $SNMPARGS{RemotePort} = $SNMP{$host}{port}    || $opt{'port'}    || $SNMPDEF{remoteport} || 161;
+  $SNMPARGS{Retries}    = $SNMP{$host}{retries} || $opt{'retries'} || $SNMPDEF{retries}    || 8;
+  $SNMPARGS{Timeout}    = $SNMP{$host}{timeout} || $opt{'timeout'} || $SNMPDEF{timeout}    || 5;
+  # some people may prefer microseconds, but small values should mean seconds:
+  $SNMPARGS{Timeout} *= 1000000 if $SNMPARGS{Timeout} < 1000;
+
+  # SNMP v.1/v.2 options
+  if ($SNMPARGS{Version} < 3) {
+    $SNMPARGS{Community} = $SNMP{$host}{community} || $opt{'community'}  || $SNMPDEF{community} || 'public';
+    }
+    
+  # SNMP v.3 options
+  if ($SNMPARGS{Version} == 3) {
+    $SNMPARGS{SecName}         = $SNMP{$host}{secname}         || $SNMPDEF{secname}         || 'initial';
+    $SNMPARGS{SecLevel}        = $SNMP{$host}{seclevel}        || $SNMPDEF{seclevel}        || 'noAuthNoPriv';
+    $SNMPARGS{AuthPass}        = $SNMP{$host}{authpass}        || $SNMPDEF{authpass}        || '';
+    $SNMPARGS{SecEngineId}     = $SNMP{$host}{secengineid}     || $SNMPDEF{secengineid}     || '';
+    $SNMPARGS{ContextEngineId} = $SNMP{$host}{contextengineid} || $SNMPDEF{contextengineid} || '';
+    $SNMPARGS{Context}         = $SNMP{$host}{context}         || $SNMPDEF{context}         || '';
+    $SNMPARGS{AuthProto}       = $SNMP{$host}{authproto}       || $SNMPDEF{authproto}       || 'MD5';
+    $SNMPARGS{PrivProto}       = $SNMP{$host}{privproto}       || $SNMPDEF{privproto}       || 'DES';
+    $SNMPARGS{PrivPass}        = $SNMP{$host}{privpass}        || $SNMPDEF{privpass}        || '';
+    }
+  
+  return %SNMPARGS;
+  }
+
+
+format STDOUT_TOP =
+Host        Variable                         min     value         max  stat
+----------------------------------------------------------------------------
+.
+format STDOUT =
+@<<<<<<<<<  @<<<<<<<<<<<<<<<<<<<<<<<<<<<< @>>>>>  @>>>>>> @<<<  @>>>>>  @<<<<<
+$host, $vardescr, $pmin, $pval, $VARDEF{$var}{'UNIT'}, $pmax, $stat
+.

@@ -1,0 +1,45 @@
+# Monitor external programs via SNMP (v. 1-3)
+# (based on netsnmp-freespace.monitor)
+#
+# Usage: 
+#       [-h]                # Usage
+#       [-t Timeout]        # Timeout in ms (default: 1000000)
+#       [-r Retries]        # Retries before failure (default: 5)
+#       [-v SNMPversion]    # 1,2 or 3 (default: 1)
+#       [-c Community]      # For SNMP v.2 (default: public)
+#       [-u snmpuser]       # For SNMP v.3 (default: initial)
+#       [-l seclevel]       # For SNMP v.3 (default: noAuthNoPriv)
+#       [-A authpassphrase] # For SNMP v.3 
+#       [-n num[,num...]]   # Zero-indexed external program number(s); programs
+#                           # are numbered by the order they appear in the
+#	                    # remote snmpd.conf. If monitoring specific programs
+#	                    # on multiple hosts, they must be consistent!
+#	                    # Default is to monitor all.
+#       host [host ...]
+#
+# This script monitors one or more external programs run by the UCD
+# SNMP agent. Specific programs to monitor can be specified with the
+# "-n" option; these are zero-indexed in the order they appear in the
+# monitored host's snmpd.conf file. Default is to monitor all.
+#
+# The summary output line will be of the form "host:name[,host:name]"
+# where "name" is the name of the failing program (the "extNames"
+# field as defined in snmpd.conf; not the path to the program). The
+# detail lines will contain full error text from the failing program
+# and the error value it returned.
+#
+# The script will exit with 0 value 1 for an extNames program failure
+# and 2 for an SNMP error.
+#
+# BUGS AND LIMITATIONS: This is designed to handle programs that only
+# return one line of output via snmpd; that is, with simple programs
+# run via the "sh" or "exec" directives in the snmpd.conf file and NOT
+# with programs run by "exec" and returning data in their own MIB
+# tables. Actually, I've only gotten the "sh" directive to work with
+# ucd-snmp-4.2.1 under Solaris. Also note that when given an external
+# program number that doesn't exist on the monitored host, the script
+# will return the output for program number 0 and will not report an
+# error. In some situations (e.g. sending v. 1 request to a host
+# configured only to respond to v. 3) the script will fail silently,
+# because the SNMP module doesn't report an error.
+#

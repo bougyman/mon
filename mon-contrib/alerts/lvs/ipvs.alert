@@ -1,0 +1,108 @@
+#!/usr/bin/perl
+
+
+# ipvs.alert - Linux Virtual Server alert for mon
+#   Bring a realserver up or down, or remove the entire virtual server.
+#
+# Invocation:
+#   To remove a realserver from a virtual service:
+#     ipvs.alert -P <protocol> -V <virtual_server:port> -R <real_server:port>
+#   To add a realserver to an existing virtual service:
+#     ipvs.alert -u -P <protocol> -V <virtual_server:port> -R <real_server:port> -W <weight> -F <forwarding>
+#   To remove a virtual service along with any associated realservers:
+#     ipvs.alert -D -P <protocol> -V <virtual_server:port>
+#   To create a virtual service with the given realserver:
+#     ipvs.alert -u -B -P <protocol> -V <virtual_server:port> -S <scheduler> -R <real_server:port> -W <weight> -F <forwarding>
+#
+# Options:
+#   -P protocol (tcp|udp)
+#   -V virtual server
+#   -R realserver
+#   -W weight
+#   -F forwarding type (nat|tun|dr)
+#   -S scheduler (rr|wrr|lc|wlc|lblc|lblcr|dh|sh|sed|nq)
+#   -D delete the entire virtual server
+#   -B rebuild the virtual server
+#
+# Notes:
+#   - -u is  added automatically  when    ipvs.alert  is  part  of  an
+#   ``upalert''. You can leave it out or append a dozen, this does not
+#   matter.
+#   - You   can't   build  (-B) a   virtual service  without  giving a
+#   realserver, but   you *can* add  a  realserver without  building a
+#   virtual service.
+#   - the comments are almost double the  volume of the script itself.
+#   Good, bad or just plain ugly?
+#   -  Since it  uses ipvsadm,  this  script (and  therefore Mon) must
+#   unfortunately run as root :(
+
+
+use Getopt::Std;
+
+getopts ("uDBs:g:h:t:l:P:V:R:W:F:S:");
+
+$ipvsadm = "/sbin/ipvsadm";
+$virtual_service = "$opt_V";
+$realserver = "-r $opt_R";
+$scheduler = "-s $opt_S";
+%proto = (
+			"tcp" => "-t",
+			"udp" => "-u",
+		 );
+%type = (
+		 "nat" => "-m",
+		 "tun" => "-i",
+		 "dr"  => "-g",
+		);
+
+if ($opt_u) { # bring up the realserver
+	if ($opt_B) { # build the virtual service first
+		system("$ipvsadm -A $proto{$opt_P} $virtual_service $scheduler");
+	}
+	$weight = "-w $opt_W";
+	system("$ipvsadm -a $proto{$opt_P} $virtual_service $realserver $weight $type{$opt_F}");
+} elsif ($opt_D) { # tear down the entire virtual server
+	system("$ipvsadm -D $proto{$opt_P} $virtual_service");
+} else { # delete the realserver
+	system("$ipvsadm -d $proto{$opt_P} $virtual_service $realserver");
+};
+
+
+# # ## ### ##### ######## ############# #####################
+# CHANGELOG
+# Mon Jul 12 14:12:49 MYT 2004
+#   Initial [messy] version
+#   Christopher DeMarco <cdemarco@md.com.my>
+# Thu Jul 15 11:02:06 MYT 2004
+#   Added -D to delete the entire virtual server
+#   Bringing up a service also adds the virtual server
+#   General code overhaul
+#   Christopher DeMarco <cdemarco@md.com.my>
+# Mon Jul 26 10:09:34 MYT 2004
+#   Renamed "lvs" to "ipvs"
+#   Christopher DeMarco <cdemarco@md.com.my>
+# Wed Oct  1 18:34:27 CEST 2008
+#   fixed inline documentation
+#   fixed whitespace/tab
+#   Richard Hartmann <richih@net.in.tun.de>
+
+
+# # ## ### ##### ######## ############# #####################
+#   Copyright (C) 2004, Christopher DeMarco
+#   Copyright (C) 2008, Richard Hartmann
+#
+#   This program is  free  software; you  can  redistribute it  and/or
+#   modify it  under the terms  of the GNU  General  Public License as
+#   published by the Free Software Foundation; either version 2 of the
+#   License, or (at your option) any later version.
+#
+#   This program is  distributed in the hope  that it will  be useful,
+#   but WITHOUT  ANY WARRANTY; without  even  the implied warranty  of
+#   MERCHANTABILITY or FITNESS FOR A  PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of  the GNU General Public License
+#   along  with this program;  if   not, write  to the Free   Software
+#   Foundation,  Inc.,  59  Temple   Place,   Suite 330,  Boston,   MA
+#   02111-1307 USA
+

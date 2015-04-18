@@ -1,0 +1,217 @@
+#!/usr/local/bin/perl
+#
+# NAME
+#  dtgrep
+#
+#
+# SYNOPSIS
+#  dtgrep [-v] [-b time] [-e time] [file]
+#
+#
+# DESCRIPTION
+#  This script greps entries out of a Mon downtime log, according to 
+#  criteria that you specify. It is meant as an aid for pruning and 
+#  rotating downtime logs, although it might also have other uses, 
+#  e.g., querying a downtime log for failures over a certain period. 
+#  The returned results are sent to STDOUT.
+#
+#  The format of a downtime log is a header consisting of comment lines,
+#  which serves to tell the format of the dtlog as well as when the dtlog
+#  was (re)started. The most recent comment string is preserved along with
+#  all of the log entries from that time. If no matching log entries are
+#  found, nothing is printed.
+#
+#  If no input file is specified, dtgrep reads from STDIN.
+#
+#
+# OPTIONS
+#  -v  Writes information about what dtgrep is doing to STDERR.
+#
+#
+#  -b  Time, counting back from the present, to BEGIN retrieving 
+#      downtime log entries.
+#
+#      Time must be specified as {number}[dhms], e.g. "3m" (3 minutes), 
+#      "2.5h" (2.5 hours), or "5d" (5 days) are all valid formats. 
+#      If no -b option is specified, the default time to go back in 
+#      the log is "30d" (30 days).
+#
+#
+#  -e  Time, counting back from the present, to END retrieving 
+#      downtime log entries. 
+#
+#      Time must be specified as {number}[dhms], e.g. "3m" (3 minutes), 
+#      "2.5h" (2.5 hours), or "5d" (5 days) are all valid formats. 
+#      If no -e option is specified, the default time to stop going 
+#      back in the log is "0s" (0 seconds, i.e. "the time at which 
+#      the script is run").
+#
+#
+# EXIT STATUS
+#  0   The command completed successfully.
+#
+#  1   The specified input file could not be opened for reading.
+#
+#
+# SEE ALSO
+#  Mon, by Jim Trocki <trockij@transmeta.com>.
+#   http://www.kernel.org/software/mon/
+#
+#
+# EXAMPLES
+#  The following 2 commands are identical ways of bringing back the
+#  last 2 days' downtime log from a file called "dt.log":
+#   dtgrep -b 2d -e0s dt.log
+#   dtgrep -b 2d  dt.log
+#
+#  Grab the downtime log for the time period beginning 30 days ago
+#  and ending 48 hours ago, and print some more verbose information
+#  about what is being returned:
+#   dtgrep -b 30d -e48h dt.log
+#
+#  Here is an example of "rotating" a dtlog file, by invoking dtgrep
+#  twice, once to grab all downtimes between some arbitrarily large amount
+#  of time (1000 days in this case) and the last 60 days ; and another
+#  dtgrep job to put the last 60 days in another file. Finally we move
+#  the "last 60 days" log file to dt.log so it becomes the new default dtlog.
+#   dtgrep -b1000d -e60d dt.log > dt.allbutlast60d
+#   dtgrep -b60d dt.log > dt.last60d
+#   mv dt.last60d dt.log
+#
+#
+# NOTES
+#
+#
+#
+# AUTHORS
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  $Id: dtgrep,v 1.1.1.1 2005/02/18 17:52:20 trockij Exp $
+#
+#
+# BUGS
+#  Report bugs to the author.
+#
+#
+# COPYRIGHT
+#    Copyright (C) 2000 Andrew Ryan
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+
+
+use vars qw /$opt_v $opt_b $opt_e/;
+
+use strict;
+use Getopt::Std;
+
+Getopt::Std::getopts('b:e:v');
+
+my ($dtlogfile) = (@ARGV);
+$dtlogfile = "-" if $dtlogfile eq "";   #Use STDIN if no filename specified
+
+my $time_now = time;
+my $time_younger_than = &dhmstos($opt_b) || &dhmstos("30d") ;     #default time younger than is 30 days
+my $time_younger_than_min = $time_now -  $time_younger_than;
+
+my $time_older_than = &dhmstos($opt_e) || &dhmstos("0s") ;     #default time older than is 0 seconds
+my $time_older_than_max = $time_now -  $time_older_than;
+
+
+my $found_oldest = 0;
+my $found_youngest = 0;
+my $last_line_was_comment = 0;
+my (@comment_lines, @line, @new_dtlog);
+
+
+if ($opt_v) {
+    print STDERR "Will look for all downtime events between $time_younger_than_min ";
+    print STDERR "(", &format_date($time_younger_than_min) , ")";
+    print STDERR " and $time_older_than_max ";
+    print STDERR "(", &format_date($time_older_than_max) , ")";
+    print STDERR "\n";
+}
+
+if ( open(DTLOG, "$dtlogfile") ) {
+    while (<DTLOG>) {
+	chomp;
+	if (/^\#/) {   #line is a comment, gather these separately
+	    undef @comment_lines if $last_line_was_comment == 0;
+	    push(@comment_lines, $_);
+	    $last_line_was_comment = 1;
+	    next;
+	} else {
+	    $last_line_was_comment = 0;
+	}
+	@line = split(' ' , $_);
+	if ( ($line[0] >= $time_younger_than_min) && ($line[0] <= $time_older_than_max) ) {   #line is in the specified time range, grab it
+	    print STDERR "Found dtlog entry exceeding youngest requested time at $line[0] (", &format_date($line[0]) , ")\n" if $opt_v && $found_oldest == 0;
+	    $found_oldest = 1;
+	    push(@new_dtlog, $_);
+	}
+	if ($line[0] > $time_older_than_max)  { #we've exceeded the end time, quit looking
+	    print STDERR "Found dtlog entry exceeding oldest requested time at $line[0] (", &format_date($line[0]) , ")\n" if $opt_v && $found_youngest == 0;
+	    $found_youngest = 1;
+	    last;
+	}
+    }
+    if ($opt_v) {
+	@line = split(' ', $new_dtlog[-1]);   #grab last entry in dtlog 
+	print STDERR "Last matching downtime event found at ", $line[0], " (", &format_date($line[0]) , ") \n";
+    }
+} else {
+    die "ERROR: Unable to open dtlogfile $dtlogfile: $!";
+    exit 1;
+}
+
+if (scalar(@new_dtlog) > 0) {
+    print join("\n", @comment_lines) , "\n" ;
+    print join("\n", @new_dtlog) , "\n";
+}
+
+exit 0;
+
+#
+# convert a string like "20m" into 20*60 seconds
+# stolen from Jim Trocki's mon
+#   (http://www.kernel.org/pub/software/admin/mon/html/)
+sub dhmstos {
+    my ($str) = @_;
+    my ($s);
+
+    if ($str =~ /^\s*(\d+(?:\.\d+)?)([dhms])\s*$/i) {
+        if ($2 eq "m") {
+            $s = $1 * 60;
+        } elsif ($2 eq "h") {
+            $s = $1 * 60 * 60;
+        } elsif ($2 eq "d") {
+            $s = $1 * 60 * 60 * 24;
+        } else {
+            $s = $1;
+        }
+    } else {
+        return undef;
+    }
+    $s;
+}
+
+sub format_date {
+    # takes a time() and returns a formatted date string
+    # no error checking or input validation!
+    my @localtime = localtime($_[0]);
+    my @year_months = ('Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec');
+    my @days_of_week = ('Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday');
+    return  sprintf  ("%s, %.2d-%s-%d %.2d:%.2d:%.2d", @days_of_week[$localtime[6]], $localtime[3], @year_months[$localtime[4]], $localtime[5] + 1900, @localtime[2,1,0]);
+}

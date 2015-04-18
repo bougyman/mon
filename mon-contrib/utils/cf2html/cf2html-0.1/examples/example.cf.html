@@ -1,0 +1,285 @@
+<html><head><title>pretty-printed mon config file</title></head><body BGCOLOR="#FFFFFF" TEXT="#333366" LINK="#333366" VLINK="#6666CC" ALINK="#333366"><h1>pretty-printed mon config file</h1><hr>
+<a name="TOP"></a><p>This report was generated at Tue Jan 23 16:49:19 2001.
+<p>Summary stats for this mon configuration file <a href="#zzzglobal_summary">(global settings summary)</a>:<ul>
+<li>Total hostgroups defined: 12<li>Total unique services defined: 12, 22 services total<li>Total alert scripts defined: 4, 35 alerts total <a href="#zzzalert_summary">(alert summary)</a><li>Total monitor scripts defined: 11, 22 monitors total <a href="#zzzmonitor_summary">(monitor summary)</a><li>Total unique hosts monitored: 26, 26 hosts total<li>Average hosts per hostgroup: 2.2<li>Average monitored services per hostgroup: 1.8</ul><p><a href="#zzz_timeperiods">Brief Introduction to Time Period Syntax As Used By mon</a><p>Jump directly to hostgroups:<ol><li><a href="#w_dialin"><b>dialin</b></a> &lt;no hosts in group&gt;
+<li><a href="#w_ftp"><b>ftp</b></a> (ftp)
+<li><a href="#w_hubs"><b>hubs</b></a> (cisco316t, hp800t, ssii10)
+<li><a href="#w_mailhost"><b>mailhost</b></a> &lt;no hosts in group&gt;
+<li><a href="#w_netapps"><b>netapps</b></a> (f330, f540)
+<li><a href="#w_news"><b>news</b></a> &lt;no hosts in group&gt;
+<li><a href="#w_printers"><b>printers</b></a> (hp5si, hp5c, hp750c)
+<li><a href="#w_routers"><b>routers</b></a> (cisco7000, linuxrouter, agsplus)
+<li><a href="#w_serversbd1"><b>serversbd1</b></a> (dns-yp1, foo1, bar1)
+<li><a href="#w_serversbd2"><b>serversbd2</b></a> (dns-yp2, foo2, bar2, ola3)
+<li><a href="#w_workstations"><b>workstations</b></a> (blue, yellow, red, green, cornflower, violet)
+<li><a href="#w_wwwservers"><b>wwwservers</b></a> (www)
+</ol>
+<hr>
+<a name="w_dialin"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>dialin</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>&lt;no hosts in group&gt;</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_dialin_555-1212">555-1212</a> <a href="#s_dialin_555-1213">555-1213</a> </td></tr>
+<tr><td><a name="s_dialin_555-1212"></a><b>Service details for service <i>555-1212</i>:</b><br><a href="#w_dialin">[back to <i>dialin</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>60 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>dialin.monitor.wrap -n 555-1212 -t 80 ;;</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>8 hours</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Upalert script 1 called:</b></td><td>mail.alert mis@domain.com</td></tr>
+<tr><td><a name="s_dialin_555-1213"></a><b>Service details for service <i>555-1213</i>:</b><br><a href="#w_dialin">[back to <i>dialin</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>33 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>dialin.monitor.wrap -n 555-1213 -t 80 ;;</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>8 hours</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Upalert script 1 called:</b></td><td>mail.alert mis@domain.com</td></tr>
+</table><br><br><br>
+<a name="w_ftp"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>ftp</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>ftp</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_ftp_ftp">ftp</a> </td></tr>
+<tr><td><a name="s_ftp_ftp"></a><b>Service details for service <i>ftp</i>:</b><br><a href="#w_ftp">[back to <i>ftp</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>ftp.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_hubs"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>hubs</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>cisco316t, hp800t, ssii10</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_hubs_ping">ping</a> </td></tr>
+<tr><td><a name="s_hubs_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_hubs">[back to <i>hubs</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>1 minute</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>45 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>qpage.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_mailhost"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>mailhost</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>&lt;no hosts in group&gt;</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_mailhost_imap">imap</a> <a href="#s_mailhost_pop">pop</a> <a href="#s_mailhost_smtp">smtp</a> <a href="#s_mailhost_telnet">telnet</a> </td></tr>
+<tr><td><a name="s_mailhost_imap"></a><b>Service details for service <i>imap</i>:</b><br><a href="#w_mailhost">[back to <i>mailhost</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>10 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>imap.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td><a name="s_mailhost_pop"></a><b>Service details for service <i>pop</i>:</b><br><a href="#w_mailhost">[back to <i>mailhost</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>10 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>pop3.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td><a name="s_mailhost_smtp"></a><b>Service details for service <i>smtp</i>:</b><br><a href="#w_mailhost">[back to <i>mailhost</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>10 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>smtp.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td><a name="s_mailhost_telnet"></a><b>Service details for service <i>telnet</i>:</b><br><a href="#w_mailhost">[back to <i>mailhost</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>10 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>telnet.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_netapps"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>netapps</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>f330, f540</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_netapps_freespace">freespace</a> </td></tr>
+<tr><td><a name="s_netapps_freespace"></a><b>Service details for service <i>freespace</i>:</b><br><a href="#w_netapps">[back to <i>netapps</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>15 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>freespace.monitor /f330:5000 /f540:5000 ;;</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_news"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>news</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>&lt;no hosts in group&gt;</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_news_nntp">nntp</a> <a href="#s_news_ping">ping</a> </td></tr>
+<tr><td><a name="s_news_nntp"></a><b>Service details for service <i>nntp</i>:</b><br><a href="#w_news">[back to <i>news</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>nntp.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td><a name="s_news_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_news">[back to <i>news</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_printers"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>printers</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>hp5si, hp5c, hp750c</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_printers_hpnp">hpnp</a> <a href="#s_printers_ping">ping</a> </td></tr>
+<tr><td><a name="s_printers_hpnp"></a><b>Service details for service <i>hpnp</i>:</b><br><a href="#w_printers">[back to <i>printers</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>hpnp.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td><a name="s_printers_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_printers">[back to <i>printers</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_routers"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>routers</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>cisco7000, linuxrouter, agsplus</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_routers_ping">ping</a> </td></tr>
+<tr><td><a name="s_routers_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_routers">[back to <i>routers</i> top]</a></td><td><b>Description:</b></td><td colspan=2>routers which connect bd1 and bd2</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>1 minute</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>LOGFILE: wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>file.alert</font></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>45 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>qpage.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_serversbd1"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>serversbd1</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>dns-yp1, foo1, bar1</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_serversbd1_ping">ping</a> <a href="#s_serversbd1_telnet">telnet</a> </td></tr>
+<tr><td><a name="s_serversbd1_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_serversbd1">[back to <i>serversbd1</i> top]</a></td><td><b>Description:</b></td><td colspan=2>ping servers in bd1</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sat-Sun}</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>NOALERTEVERY: wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td><a name="s_serversbd1_telnet"></a><b>Service details for service <i>telnet</i>:</b><br><a href="#w_serversbd1">[back to <i>serversbd1</i> top]</a></td><td><b>Description:</b></td><td colspan=2>telnet to servers in bd1</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>serversbd1:ping&nbsp;(suppress alerts if dependencies fail)</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>10 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>telnet.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_serversbd2"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>serversbd2</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>dns-yp2, foo2, bar2, ola3</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_serversbd2_ping">ping</a> <a href="#s_serversbd2_telnet">telnet</a> </td></tr>
+<tr><td><a name="s_serversbd2_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_serversbd2">[back to <i>serversbd2</i> top]</a></td><td><b>Description:</b></td><td colspan=2>ping servers in bd2</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>routers:ping&nbsp;(suppress alerts if dependencies fail)</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sat-Sun}</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+<tr><td><a name="s_serversbd2_telnet"></a><b>Service details for service <i>telnet</i>:</b><br><a href="#w_serversbd2">[back to <i>serversbd2</i> top]</a></td><td><b>Description:</b></td><td colspan=2>telnet to servers in bd2</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>routers:ping serversbd2:ping&nbsp;(suppress alerts if dependencies fail)</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>10 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>telnet.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_workstations"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>workstations</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>blue, yellow, red, green, cornflower, violet</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_workstations_ping">ping</a> </td></tr>
+<tr><td><a name="s_workstations_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_workstations">[back to <i>workstations</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>5 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+</table><br><br><br>
+<a name="w_wwwservers"></a><table border=1 cellspacing=2 cellpadding=2><tr><td colspan=4><font size=+2><b><i>wwwservers</i> Hostgroup</b></font> <a href="#TOP">[back to top]</a></td></tr>
+<tr><td><b>Members:</b></td><td colspan=3>www</td></tr>
+<tr><td><b>Monitored Services:</b></td><td colspan=3><a href="#s_wwwservers_http">http</a> <a href="#s_wwwservers_ping">ping</a> <a href="#s_wwwservers_telnet">telnet</a> </td></tr>
+<tr><td><a name="s_wwwservers_http"></a><b>Service details for service <i>http</i>:</b><br><a href="#w_wwwservers">[back to <i>wwwservers</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>4 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>http.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>45 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>qpage.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Upalert script 1 called:</b></td><td>mail.alert -S "web server is back up" mis</td></tr>
+<tr><td><a name="s_wwwservers_ping"></a><b>Service details for service <i>ping</i>:</b><br><a href="#w_wwwservers">[back to <i>wwwservers</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>2 minutes</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>fping.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Sun-Sat}</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>45 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>qpage.alert</font></td></tr>
+<tr><td><a name="s_wwwservers_telnet"></a><b>Service details for service <i>telnet</i>:</b><br><a href="#w_wwwservers">[back to <i>wwwservers</i> top]</a></td><td><b>Description:</b></td><td colspan=2>&lt;no description given&gt;</td></tr>
+<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>&lt;no dependencies&gt;</td></tr>
+<tr><td></td><td><b>Test interval:</b></td><td colspan=2>&lt;no interval specified&gt;</td></tr>
+<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>telnet.monitor</code></td></tr>
+<tr><td></td><td><b>Period:</b></td><td colspan=2>wd {Mon-Fri} hr {7am-10pm}</td></tr>
+<tr><td></td><td></td><td><b>Alertafter:</b></td><td>2 or more failures in 30 minutes</td></tr>
+<tr><td></td><td></td><td><b>Alertevery:</b></td><td>1 hour</td></tr>
+<tr><td></td><td></td><td><b>Alert script 1 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>mail.alert</font></td></tr>
+<tr><td></td><td></td><td><b>Alert script 2 invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face="courier" size=-1>page.alert</font></td></tr>
+</table><br><br><br>
+<hr><p><a name="zzzalert_summary"></a><h3>Alert Summary</h3><a href="#TOP">[back to top]</a><p> <table border=1><tr><td><b>Alert</b></td><td><b>Number of times this alert is used</b></td><td><b>Number of hostgroups using this alert</b></td></tr>
+<tr><td>file.alert</td><td>1</td><td>1</td></tr><tr><td>mail.alert</td><td>18</td><td>10</td></tr><tr><td>page.alert</td><td>12</td><td>4</td></tr><tr><td>qpage.alert</td><td>4</td><td>3</td></tr><tr><td><b>TOTALS</b></td><td><b>35</b></td><td><b>18</b></td></tr></table>
+<hr><p><a name="zzzglobal_summary"></a><h3>Global Settings Summary</h3><a href="#TOP">[back to top]</a><p> <table border=1><tr><td><b>Global Variable</b></td><td><b>Value</b></tr>
+<tr><td>alertdir</td><td>/usr/lib/mon/alert.d</td></tr><tr><td>authtype</td><td>getpwnam</td></tr><tr><td>dep_behavior</td><td>a</td></tr><tr><td>maxprocs</td><td>20</td></tr><tr><td>mondir</td><td>/usr/lib/mon/mon.d</td></tr><tr><td>randstart</td><td>60s</td></tr></table><hr><p><a name="zzzmonitor_summary"></a><h3>Monitor Summary</h3><a href="#TOP">[back to top]</a><p> <table border=1><tr><td><b>Monitor</b></td><td><b>Number of times this monitor is used</b></td><td><b>Number of hostgroups using this monitor</b></td><td><b>Total number of times run per 24-hour period</b><br>(not counting <code>exclude_period</code>s)</td></tr>
+<tr><td>dialin.monitor.wrap</td><td>2</td><td>1</td><td>67</td></tr><tr><td>fping.monitor</td><td>8</td><td>8</td><td>5040</td></tr><tr><td>freespace.monitor</td><td>1</td><td>1</td><td>96</td></tr><tr><td>ftp.monitor</td><td>1</td><td>1</td><td>288</td></tr><tr><td>hpnp.monitor</td><td>1</td><td>1</td><td>288</td></tr><tr><td>http.monitor</td><td>1</td><td>1</td><td>360</td></tr><tr><td>imap.monitor</td><td>1</td><td>1</td><td>144</td></tr><tr><td>nntp.monitor</td><td>1</td><td>1</td><td>288</td></tr><tr><td>pop3.monitor</td><td>1</td><td>1</td><td>144</td></tr><tr><td>smtp.monitor</td><td>1</td><td>1</td><td>144</td></tr><tr><td>telnet.monitor</td><td>4</td><td>4</td><td>432</td></tr><tr><td><b>TOTALS</b></td><td><b>22</b></td><td><b>21</b></td><td><b>7291</b></td></tr></table>
+<hr><h3>Brief Introduction to Time Period Syntax As Used By mon</h3><p><a href="#TOP">[back to top]</a><a name="zzz_timeperiods"></a><p>mon uses a special syntax to define time periods. Time periods are defined as per the Time::Period perl module. It is a simple and powerful syntax for specifying time periods, but may not be completely intuitive. This brief documentation, an excerpt from the Time::Period documentation, should get you started.<pre>     The period is specified as a string which adheres to the
+     format
+ 
+             sub-period[, sub-period...]
+ 
+     or the string "none" or whitespace.  The string "none" is
+     not case sensitive.
+ 
+     If the period is blank, then any time period is assumed
+     because the time period has not been restricted.  In that
+     case, inPeriod returns 1.  If the period is "none", then no
+     time period applies and inPeriod returns 0.
+ 
+     A sub-period is of the form
+ 
+             scale {range [range ...]} [scale {range [range ...]}]
+ 
+     Scale must be one of nine different scales (or their
+     equivalent codes):
+ 
+             Scale  | Scale | Valid Range Values
+                    | Code  |
+             *******|*******|************************************************
+             year   |  yr   | n     where n is an integer 0<=n<=99 or n>=1970
+             month  |  mo   | 1-12  or  jan, feb, mar, apr, may, jun, jul,
+                    |       |           aug, sep, oct, nov, dec
+             week   |  wk   | 1-6
+             yday   |  yd   | 1-365
+             mday   |  md   | 1-31
+             wday   |  wd   | 1-7   or  su, mo, tu, we, th, fr, sa
+             hour   |  hr   | 0-23  or  12am 1am-11am 12noon 12pm 1pm-11pm
+             minute |  min  | 0-59
+             second |  sec  | 0-59
+</pre></body></html>

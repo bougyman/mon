@@ -1,0 +1,39 @@
+$Id: README.hints,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+To be sure that mon works reliably, you may want to pay attention to the
+following hints:
+
+-Keep all alert and mon directories on a local filesystem. When
+ the daemon is run, be sure that PATH does not contain remote
+ filesystems.
+
+-Do your best to make the mon host maintain independence of all systems
+ that it is monitoring. Configurations may vary as different services
+ are being monitored. For example, if you need to monitor whether
+ DNS is operational, don't depend on DNS being available in the monitor
+ script. Use a local hosts table which contains all the hosts referred
+ to in the configuration file.
+
+-If you're monitoring a network resource, don't depend on using the network
+ to deliver alerts. If you subscribe to a paging service,
+ get "Quick Page" or "tpage", and hook a modem and phone line up to
+ the host which runs the daemon.
+
+-Be aware of dependencies on services so that you're not surprised
+ when one component fails, and then see that three more things fail
+ because of this. If you get burnt by this situation, learn from it and
+ see what you can do minimize the dependencies.
+
+-Remember the power of "m4" if you want to do more complex things with
+ the configuration file.
+
+To be sure that mon works efficiently, respect these rules:
+
+-Monitor programs should parallelize, like fping does. Instead of
+ doing a bunch of fork(2)s to send out a lot of pings, it does
+ it all from a single process, using nonblocking I/O, like Dan Farmer's
+ "fping" from the Satan package.
+
+-If you use hostnames in your hostgroups, consider keeping a local
+ /etc/hosts file on the mon server. Monitors can generate lots of DNS
+ traffic.

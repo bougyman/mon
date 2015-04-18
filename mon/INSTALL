@@ -1,0 +1,193 @@
+$Id: INSTALL,v 1.2 2004/11/15 14:45:16 vitroth Exp $
+
+OVERVIEW
+--------
+
+There are several components you'll need to get working to
+have a fully functional mon installation. 
+
+    1. mon, the server 
+    2. Mon::Client, the Perl library used by some clients
+    3. C programs in mon.d
+    4. Optional (but highly useful) monitors
+    5. A customized mon.cf to make the server do what you want
+
+
+1. MON SERVER
+-------------
+
+The "mon" daemon uses Perl 5.n, where n >= 005_01. 
+
+Mon requires that *.ph be created from the system header files.  If you try to
+run mon and Perl complains with the "did you run h2ph?" message, then chances
+are this step wasn't done, either by your package manager or manually after
+Perl installation. You can fix it by doing the following, as root:
+
+	cd /usr/include
+	h2ph -r -l .
+
+You'll need the following modules for the server to function, all of
+which are available from your nearest CPAN archive. The listed
+CPAN paths relative to /cpan/modules/by-authors/id/ -- versions of 
+modules on CPAN change quickly, so there may be newer versions available,
+but the following are known to work:
+
+    Time::Period	PRYAN/Period-1.20.tar.gz
+    Time::HiRes		J/JH/JHI/Time-HiRes-1.59.tar.gz
+    Convert::BER	G/GB/GBARR/Convert-BER-1.3101.tar.gz
+
+
+2. INSTALLING THE PERL CLIENT MODULE
+------------------------------------
+
+The Perl client module is distributed as a separate package. It is named
+"mon-client-*.tar.gz".  Refer to that for installation instructions. 
+It is available on kernel.org mirrors in the /pub/software/admin/mon directory,
+and in CVS on sourceforge.net.  Be sure to match the version of mon-client with
+the version of mon you are using.  At this time, branch "mon-1-0-0pre1" of the
+mon CVS module matches the "mon-client-1-0-0pre1" branch of the mon-client CVS
+module. See http://sourceforge.net/projects/mon/ for information on CVS access.
+
+
+3. COMPILING THE C CODE (optional)
+----------------------------------
+
+Some of the monitors included with mon are written in C and need to
+be compiled for your system. If you want to use the RPC monitor or the 
+dialin.monitor wrapper,
+
+    cd mon.d
+    (edit Makefile)
+    make
+    make install
+    cd ..
+
+Keep in mind that although this is known to work on Linux, Solaris, and AIX,
+it may not compile on your system. It is not required for the operation of mon
+itself.
+
+
+4. MONITORS
+-----------
+
+All of the monitor and alert scripts that are packaged with mon are
+actually *optional*. However, this is what you'll need for each special
+monitor, with CPAN paths relative to /cpan/modules/by-author/id/
+
+    freespace.monitor - requires Filesys::Diskspace from CPAN, 
+	in FTASSIN/Filesys-DiskSpace-0.05.tar.gz
+	
+
+    fping.monitor - requires the 'fping' binary, from http://www.fping.com
+	RPM packages available at http://dag.wieers.com/packages/fping/
+
+    telnet.monitor - requires the Net::Telnet from CPAN,
+	in J/JR/JROGERS/Net-Telnet-3.03.tar.gz
+
+    reboot.monitor
+    asyncreboot.monitor
+    netappfree.monitor
+    process.monitor
+    hpnp.monitor
+	Use the 'net-snmp' package (formerly UCD SNMP), from 
+	    http://sourceforge.net/projects/net-snmp
+	with G.S. Marzot's Perl module G/GS/GSM/SNMP-4.2.0.tar.gz
+
+    ldap.monitor - requires Net::LDAPapi from CPAN,
+	    CDONLEY/Net-LDAPapi-1.42.tar.gz
+    dialin.monitor - requires the Perl Expect module from CPAN,
+	    R/RG/RGIERSIG/Expect-1.15.tar.gz
+
+    dns.monitor - requires Net::DNS from CPAN,
+	    C/CR/CREIN/Net-DNS-0.47.tar.gz 
+
+    msql-mysql.monitor
+	requires the MSQL/MySQL DBD module and DBI front-end.
+
+There are a good number of useful monitors included which are not listed
+above, so please take the time to read doc/README.monitors to get the
+details.
+
+5. MON.CF CUSTOMIZATION AND STARTUP
+-----------------------------------
+
+-Read the man page for "mon" and "moncmd" in the doc/ directory to get
+ an overview of the directories involved, i.e. the configuration,
+ alert, monitors, state, and run directories.
+
+ cd doc
+ nroff -man mon.8 | more
+
+-read the "READMEs" in the doc/ directory for some useful
+ insight on system configuration.
+
+-Be sure you have the required Perl modules, which are listed in this
+ file.
+
+-Make your own mon.cf file, using the suppled "example.cf" (located
+ in the etc/ directory) as a template, or the m4-based "example.m4":
+
+ cp etc/example.cf mon.cf
+ 
+or
+
+ cp etc/example.m4 mon.m4
+
+-Edit the "auth.cf" file. This file controls which users can perform
+ what command. The default is pretty restrictive (read-only), but that's
+ only for safety. Currently, "moncmd", "monshow", and "mon.cgi" are the
+ only clients which are able to authenticate themselves to the server;
+ the 2-way pager interface does not yet perform authentication. However,
+ these programs work fine in read-only mode.
+
+
+-Add the following lines to /etc/services:
+
+mon             2583/tcp                        # MON
+mon             2583/udp                        # MON traps
+
+-You may want to make a DNS CNAME entry called "monhost" for your
+ host that will run "mon". You can then set the environment variable
+ MONHOST to be this host. "moncmd" uses this variable.
+
+-The Perl scripts look for perl in /usr/bin. You might want to change
+ this. I'd advise keeping a locally-installed copy of Perl if you're
+ going to monitor network resources and you expect this stuff to work
+ when some component of the network is down.
+
+-Test it by starting "mon" from the distribution directory. Use these
+ arguments if you chose the non-m4 config:
+
+    ./mon -f -c mon.cf -b `pwd`
+
+and these arguments for the m4-based config:
+
+    ./mon -f -M -c mon.m4 -b `pwd`
+
+To see if it's running on your machine:
+
+    ./clients/moncmd -s localhost list pids
+
+If you get some output, then things are probably OK. Check the
+syslog for further diagnostics.
+
+Mon doesn't really need to be installed in any special location.  Just
+keep it on the local disk of the machine which will be running the server.
+
+
+WEB INTERFACE
+-------------
+
+This distribution contains two web interfaces: monshow and mon.cgi.  monshow is
+a simple report-only tool which supports configurable "views" of the mon
+configuration. monshow also operates as a textmode report generator.
+
+mon.cgi, however, supports the full functionality of mon, including the ability
+to disable/enable groups and hosts and services, acknowledge failed services,
+show alert and downtime history, authenticate users, among many other things.
+
+To install monshow, simply copy clients/monshow into your web server's cgi-bin
+path and name it "monshow.cgi". You may want to read the man page in the doc/
+directory so that you can understand how to configure a "view" to your liking.
+
+To install mon.cgi, follow the instructions found in doc/README.mon.cgi.

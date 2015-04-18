@@ -1,0 +1,148 @@
+#!/usr/bin/perl
+#
+
+# aim.alert - AIM alert for mon
+#
+# The first line from STDIN is summary information
+#
+# Don Harper, duck@duckland.org
+#
+# $Id: aim.alert,v 1.1.1.1 2005/02/18 17:52:13 trockij Exp $
+#
+#    Copyright (C) 2002, Don Harper
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+
+use AOL::TOC;
+use Getopt::Std;
+use Text::Wrap;
+
+$screen_name = "A SCREEN NAME HERE";
+$password = "$screen_name's PASSWORD HERE";
+$master = "WHO TO ALERT?";
+$toc_server = "toc.oscar.aol.com";
+$login_server = "login.oscar.aol.com";
+$port = "9993";
+
+getopts ("S:s:g:h:t:l:u");
+$summary=<STDIN>;
+chomp $summary;
+
+$summary = $opt_S if (defined $opt_S);
+$mailaddrs = join (',', @ARGV);
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+
+# Create the TOC object
+$toc = AOL::TOC::new($toc_server, $login_server, $port, 
+                     $screen_name, $password);
+# register callbacks
+$toc->register_callback("SIGN_ON", \&client_signon);
+$toc->register_callback("ERROR", \&client_error);
+
+# Informs our master we are operational
+sub client_signon
+{
+    $toc->add_buddy($screen_name);
+    print "We are online and ready!\n";
+    sleep 1;
+    $toc->send_im($master, " Warning: $screen_name now operation!");
+}
+
+# connect to aim server
+if (! ( $toc->connect() ) )
+{
+     abort();
+}
+
+$toc->dispatch();
+sleep 1;
+$str  = "Subject: $ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)\n";
+$str .= wrap ("", "", "Summary output        : $summary"), "\n";
+$str .= "\nGroup                 : $opt_g\n";
+$str .= "Service               : $opt_s\n";
+$str .= "Time noticed          : $t\n";
+$str .= "Secs until next alert : $opt_l\n";
+$str .= wrap ("", "", "Members               : $opt_h"), "\n";
+$str .= "\nDetailed text (if any) follows:\n";
+$str .= "-------------------------------\n";
+while (<STDIN>) { $str .= $_; }
+
+print "sending: $str to $master\n";
+$toc->send_im($master,$str);
+sleep 1;
+exit;
+
+sub client_error
+{
+    my ($self, $code) = @_;
+    
+    print "ERROR: " . aim_errstr($code, $previous_target) . "\n";
+}
+
+sub aim_errstr() {
+    my ($code, $target, %_error_name);
+
+    ($code, $target) = @_;
+
+    %_error_name = (
+                    # AIM Errors
+                    901   => "$target not currently available",
+                    902   => "Warning of $target not currently available",
+                    903   => 'A message has been dropped, you are exceeding the server speed limit',
+                    #   * Chat Errors  *',
+                    950   => 'Chat in $target is unavailable.',
+
+                    #   * IM & Info Errors *',
+                    960   => 'You are sending message too fast to $target',
+                    961   => 'You missed an im from $target because it was too big.',
+                    962   => 'You missed an im from $target because it was sent too fast.',
+
+                    #   * Dir Errors *',
+                    970   => 'Failure',
+                    971   => 'Too many matches',
+                    972   => 'Need more qualifiers',
+                    973   => 'Dir service temporarily unavailable',
+                    974   => 'Email lookup restricted',
+                    975   => 'Keyword Ignored',
+                    976   => 'No Keywords',
+                    977   => 'Language not supported',
+                    978   => 'Country not supported',
+                    979   => 'Failure unknown $target',
+
+                    #  * Auth errors *',
+                    980   => 'Incorrect nickname or password.',
+                    981   => 'The service is temporarily unavailable.',
+                    982   => 'Your warning level is currently too high to sign on.',
+                    983   => 'You have been connecting and disconnecting too fre quently.  Wait 10 minutes and try again.  If you continue to try, you will need to wait even longer.',
+                    989   => 'An unknown signon error has occurred $target'
+                    );
+
+    # fatal signon errors, we should abort!
+    if ($code eq '980' ||
+        $code eq '981' ||
+        $code eq '982' ||
+        $code eq '983' ||
+        $code eq '989')
+        {
+             print "Aborting...\n$_error_name{$code}\n";
+             abort();
+        }
+    return $_error_name{$code};
+}

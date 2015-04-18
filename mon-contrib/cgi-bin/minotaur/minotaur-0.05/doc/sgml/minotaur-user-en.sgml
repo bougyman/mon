@@ -1,0 +1,281 @@
+<!doctype linuxdoc system>
+
+<!-- Welcome in the SGML world -->
+
+ <article>
+  
+   <title>The Minotaur user manual
+   <author><url 
+      name="Gilles Lamiral" 
+      url="mailto:lamiral@mail.dotcom.fr">
+   <date>v0.4, 17 Mars 2000
+    
+   <abstract>
+    This document describes the Minotaur user interface.
+   </abstract>
+   
+  <toc>
+  
+  <sect>Links
+   <p>
+    
+    <bf>Minotaur</bf> Home Page and online demonstration available at
+    <url url="http://www.linux-france.org/prj/minotaure/">
+
+    A local instance may be <url url="../../cgi-bin/minotaur.cgi"
+    name="minotaur.cgi">.
+
+    Any question can be requested on the mon mailing-list. Simply mail
+    your question or suggestion to: <url
+    url="mailto:mon@linux.kernel.org">
+
+
+    <bf>MON</bf> homepage is <url
+    url="http://www.kernel.org/software/mon">
+    
+     
+    <sect>Principles
+    <p>
+    
+    
+    Minotaur is a web client for MON, a monitoring tool written by Jim
+    Trocki.
+
+    The MON software is a general scheduler executing periodic tests on
+    a set of services and triggers alarms when a problem occurs.
+
+    The scheduler can be consulted upon a simple textual protocol on a
+    predefined port.
+
+    The web interface is based on this protocol. The CGI script (Common
+    Gateway Interface) consults the scheduler and presents the results
+    on a HTML way. By concern for efficiency, simplicity, compatibility
+    and stability, the java, javascript, frame and other web avatars are
+    not used.
+
+    To understand the web interface, you need to think about the
+    following hierarchy:
+    
+    <itemize>
+     <item>The scheduler supervises  groups. 
+      
+      <item>Groups are made up with items. Generally, those items are
+      just internet or intranet hosts.
+      
+      <item>Those items can be hosts presented by their name or
+      their IP address, or everything else, directories for example.
+      
+      <item>Upon each group of items, the scheduler supervises one or
+      more services. Each service is tested with a software called a
+      monitor.
+
+      <item>For each service, the scheduler can trigger one or more
+      alarms when something goes wrong.
+
+    </itemize>
+    
+   <sect>General presentation
+    <p>
+    Everything is on the same page. There are five tables called
+    <bf>Infos</bf>, <bf>Status</bf>, <bf>CrossView</bf>,
+    <bf>Historic</bf> and <bf>Preferences</bf>.
+
+    The page title displays the Mon server contacted, followed by the
+    port, the date and time on this server.
+
+    The top of the page shows the Mon server contacted, the date and
+    time on this server.
+
+    A <bf>link bar</bf> upon each table allows you to surf from one
+    table to another or read this documentation.
+
+    The <bf>infos</bf> table is just a place where the minotaur
+    administrator may add useful information for you (links to other
+    pages etc.).
+    
+
+    The <bf>status</bf> table presents the different states of
+      services.
+
+    The <bf>cross view</bf> table is used to present the status
+      table in a very different way. The Minotaur administrator may have
+      change this name to ``Aliases'' or ``Clients'' or anything else.
+      
+    The <bf>historic</bf> table is the historic of alerts.
+
+    The <bf>preference</bf> table is always present at the bottom of the
+    page. This table is used to set your preferences and login
+    information.
+       
+    
+  <sect>The preference table
+   <p>
+    <figure>
+     <eps file="../images/Preferences-en.eps">
+     <img src="../images/Preferences-en.png">
+     <newline>
+     <caption><newline>
+      <bf><em>The preferences table</em></bf>
+     </caption>
+    </figure>
+    
+
+    With the <bf>refresh</bf> pop-up you select the time refresh time
+    of the whole page.
+
+    With the <bf>language</bf> pop-up you select the user interface
+    language.
+
+    With the check-boxes named <bf>Infos</bf>, <bf>Status</bf>,
+    <bf>Historic</bf>, <bf>Cross View</bf>, you select the tables you
+    want to see.
+
+    You can login with the <bf>User</bf> and <bf>Password</bf>
+    text-fields. It may allow you to perform special action like enabling
+    and disabling host or services. 
+   
+  <sect>The status table
+   <p>
+    
+    <figure>
+     <eps file="../images/StatusTable-en.eps">
+     <img src="../images/StatusTable-en.png">
+     <newline>
+     <caption><em>The status table</em></caption>
+    </figure>
+    
+    <descrip>
+      
+     <tag/The host column./ This column contains the list of all
+     hosts. The disabled hosts are selected. You can select or
+     deselect some hosts.
+     
+     <tag/The ``group'' column./ The group column just names the group.
+
+     <tag/The ``Members'' column./ The members column contains the
+     group host lists, one in each cell, one for each ``group'' column
+     cell.
+     
+     <tag/The ``Service'' column./ The service column just names the
+     services. There can be several services for each group. The
+     checkbox button allow you to change the state of the service. If
+     the service is enabled then it will be disabled, if the service is
+     disabled il will be enabled.
+     
+     <tag/The ``Last at'' and ``Next in'' column./ The ``Last at''
+     column tells you when the last test was done. The ``Next in''
+     column tells you the waiting time untill the next test. The
+     chackbox button allow you to perform a test right now. You will not
+     see the result immediatly because the test can take some time to
+     end. Reloading the page a few seconds later is often enough.
+
+     <tag/The ``Status'' column./ The status column gives the service
+     status, one cell for each service. If the tests were good then
+     you see the string "succeeded" alone. Else, you see the string
+     "failed" followed by an summary information, typically the host
+     that failed the tests.
+      
+     <tag/Behevior./ When a service is red or blue, the group is upped
+     at the top of the table. The sort order is red, then blue. With
+     this feature, you just have to look at the top part of the
+     table. If you select an automatic refresh and the url <url
+     url="../../cgi-bin/minotaur.cgi#status" name="minotaur.cgi#status">
+     then the view is always pertinent. You can put this url on a big
+     screen and get worried only if red color happens.
+
+     <tag/Color legend./
+      <itemize>
+
+       <item>When everything is good the services are not colored.
+	
+	<item>When a service is ``down'' the service and its group
+	are red.  The up-brother services (in the same group) are
+	green.
+     
+	<item>When a service is not yet tested, at the Mon reset or
+	starting, it is yellow.
+     
+	<item>When a service is disabled (none alarm is triggered),
+	it is blue.
+     
+	<item>The sorting rule to present the groups is : red,
+	blue, yellow, alphanumeric.
+
+       <item>The sorting rule to present services in a group is :
+	red, blue, yellow, alphanumeric.
+       
+      </itemize>
+    </descrip>
+
+
+  <sect> The Cross View table
+   <p>
+    
+    
+    <figure>
+     <eps file="../images/CrossViewEmpty-en.eps">
+     <img src="../images/CrossViewEmpty-en.png">
+     <newline>
+     <caption><em>The aliases table, without selection</em></caption>
+    </figure>
+    
+    By default, the cross view table lists the aliases in the first
+    column but does not detail each alias.
+
+    <figure>
+     <eps file="../images/CrossViewDetail-en.eps">
+     <img src="../images/CrossViewDetail-en.png">
+     <newline>
+     <caption><em>The aliases table, with one selection</em></caption>
+    </figure>
+    
+    To see the alias details, just select it in the <bf>List</bf>
+    column and click on a <bf>submit</bf> button. You can do a multiple
+    selection.
+
+
+    <figure>
+     <eps file="../images/CrossViewFull-en.eps">
+     <img src="../images/CrossViewFull-en.png">
+     <newline>
+     <caption><em>The full aliases table</em></caption>
+    </figure>
+
+    To see all the aliases, just select the <bf>all</bf> radio button
+    and click on  a <bf>submit</bf> button.
+    
+
+  <sect> The historic table
+   <p>
+    
+    <figure>
+     <eps file="../images/Historic-en.eps">
+     <img src="../images/Historic-en.png">
+     <newline>
+     <caption><em>The historic table</em></caption>
+    </figure>
+
+    In red, the alerts. In green, the up-alerts and the start-alerts.
+
+    You choose the number of line you want to see with the <bf>No</bf>
+    column text-field. You filter the last happened events with the
+    <bf>Filter</bf> pop-up. The last alerts within the interval are
+    displayed with a broken blank background. You can filter with the
+    date. You can filter which services or groups you wan to see. All
+    those criteria are used with a ``logical and''.
+
+
+  <sect>License
+   <p>
+    I put this documentation under the <url
+    url="http://www.opencontent.org/opl.shtml"> license. This means this
+    document is given without any warranty. You can use it, redistribute
+    it, modify it, by respecting the following conditions: You have to
+    clearly specify the nature and the content of the modifications,
+    their date and keep the opencontent license in case of
+    redistribution. If you sell it, you sell the medium, not the
+    content. This is a summary, read the license to get more details.
+
+
+</article>
+

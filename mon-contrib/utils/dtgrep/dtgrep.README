@@ -1,0 +1,108 @@
+# NAME
+#  dtgrep
+#
+#
+# SYNOPSIS
+#  dtgrep [-v] [-b time] [-e time] [file]
+#
+#
+# DESCRIPTION
+#  This script greps entries out of a Mon downtime log, according to
+#  criteria that you specify. It is meant as an aid for pruning and
+#  rotating downtime logs, although it might also have other uses,
+#  e.g., querying a downtime log for failures over a certain period.
+#  The returned results are sent to STDOUT.
+#
+#  The format of a downtime log is a header consisting of comment lines,
+#  which serves to tell the format of the dtlog as well as when the dtlog
+#  was (re)started. The most recent comment string is preserved along with
+#  all of the log entries from that time. If no matching log entries are
+#  found, nothing is printed.
+#
+#  If no input file is specified, dtgrep reads from STDIN.
+#
+#
+# OPTIONS
+#  -v  Writes information about what dtgrep is doing to STDERR.
+#
+#
+#  -b  Time, counting back from the present, to BEGIN retrieving
+#      downtime log entries.
+#
+#      Time must be specified as {number}[dhms], e.g. "3m" (3 minutes),
+#      "2.5h" (2.5 hours), or "5d" (5 days) are all valid formats.
+#      If no -b option is specified, the default time to go back in
+#      the log is "30d" (30 days).
+#
+#
+#  -e  Time, counting back from the present, to END retrieving
+#      downtime log entries.
+#
+#      Time must be specified as {number}[dhms], e.g. "3m" (3 minutes),
+#      "2.5h" (2.5 hours), or "5d" (5 days) are all valid formats.
+#      If no -e option is specified, the default time to stop going
+#      back in the log is "0s" (0 seconds, i.e. "the time at which
+#      the script is run").
+#
+#
+# EXIT STATUS
+#  0   The command completed successfully.
+#
+#  1   The specified input file could not be opened for reading.
+#
+#
+# SEE ALSO
+#  Mon, by Jim Trocki <trockij@transmeta.com>.
+#   http://www.kernel.org/software/mon/
+#
+#
+# EXAMPLES
+#  The following 2 commands are identical ways of bringing back the
+#  last 2 days' downtime log from a file called "dt.log":
+#   dtgrep -b 2d -e0s dt.log
+#   dtgrep -b 2d  dt.log
+#
+#  Grab the downtime log for the time period beginning 30 days ago
+#  and ending 48 hours ago, and print some more verbose information
+#  about what is being returned:
+#   dtgrep -b 30d -e48h dt.log
+#
+#  Here is an example of "rotating" a dtlog file, by invoking dtgrep
+#  twice, once to grab all downtimes between some arbitrarily large amount
+#  of time (1000 days in this case) and the last 60 days ; and another
+#  dtgrep job to put the last 60 days in another file. Finally we move
+#  the "last 60 days" log file to dt.log so it becomes the new default dtlog.
+#   dtgrep -b1000d -e60d dt.log > dt.allbutlast60d
+#   dtgrep -b60d dt.log > dt.last60d
+#   mv dt.last60d dt.log
+#
+#
+# NOTES
+#
+#
+#
+# AUTHORS
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  $Id: dtgrep.README,v 1.1.1.1 2005/02/18 17:52:20 trockij Exp $
+#
+#
+# BUGS
+#  Report bugs to the author.
+#
+#
+# COPYRIGHT
+#    Copyright (C) 2000 Andrew Ryan
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA

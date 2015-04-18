@@ -1,0 +1,66 @@
+ ######### multilingual configuration file example ###########
+ 
+ 
+ # Lines begining with a sharp "#" are ignored.
+ # Blank lines are ignored.
+ 
+ # Section languages
+ #
+ # "@Languages" is the language identifier keyword
+ # item are alphanumerics : [a-zA-Z0-9_]+ 
+ # that means choose from 
+ # "a" to "z", "A" to "Z", "0" to "9" plus "_", in any order.
+ #
+ # keyword : "default" : default language
+ # keyword "default" is facultative.
+ # 
+ # The section languages is also facultative.
+ # This section ends with the beginning of a "@Message" section
+ 
+ @Languages
+ Francais        
+ English         default
+ Deutsch         
+ 
+ # Section messages
+ # 
+ # A message is a line beginning just after the colon.
+ # It can be composed of any caracter exept "\n", the newline
+ # caracter.
+ # The language of the message is the word before the colon.
+ # It is a word : \w+ in perl regular expression.
+ # Messages than can be translated in one another form a "block".
+ # "@Message" is a keyword noticing the end  of the precedent 
+ # block message and the begining of "linked" messages
+ # 
+ 
+ # Everything that is after the colon takes part in the message,
+ # even blank caracters, until the end of line caracter which is
+ # not included.
+ 
+ # language order is not important, it can vary.
+ 
+ # It is not necessary to translate each message in every
+ # language.
+ #
+ # If the translation does not exist the default language 
+ # message is used.
+ 
+ # If the default language does not exist the original 
+ # message is used.
+ 
+ @Message
+ Francais :Aucun processus actif
+ English  :No process running
+ Deutsch  :Nicht hinauslehnen
+ Espagnol :Oy tu, el processor matador disastrosita
+ Italiano :Li proicessechi improbabile, ecco ...
+ 
+ @Message
+ English  :This warning is normal too
+ Espagnol :No lo se
+ Francais :Ce warning est normal aussi
+ Deutsch  :Kartofen
+ japan    :????????
+ 
+ ######### End of example ###########

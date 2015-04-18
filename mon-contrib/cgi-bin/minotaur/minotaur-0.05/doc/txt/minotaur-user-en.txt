@@ -1,0 +1,209 @@
+
+                           The Minotaur user manual
+                                       
+Gilles Lamiral
+
+   v0.4, 17 Mars 2000
+     _________________________________________________________________
+   
+   This document describes the Minotaur user interface. 
+     _________________________________________________________________
+   
+1. Links
+
+   Minotaur Home Page and online demonstration available at
+   http://www.linux-france.org/prj/minotaure/
+   
+   A local instance may be minotaur.cgi.
+   
+   Any question can be requested on the mon mailing-list. Simply mail
+   your question or suggestion to: mailto:mon@linux.kernel.org
+   
+   MON homepage is http://www.kernel.org/software/mon
+   
+2. Principles
+
+   Minotaur is a web client for MON, a monitoring tool written by Jim
+   Trocki.
+   
+   The MON software is a general scheduler executing periodic tests on a
+   set of services and triggers alarms when a problem occurs.
+   
+   The scheduler can be consulted upon a simple textual protocol on a
+   predefined port.
+   
+   The web interface is based on this protocol. The CGI script (Common
+   Gateway Interface) consults the scheduler and presents the results on
+   a HTML way. By concern for efficiency, simplicity, compatibility and
+   stability, the java, javascript, frame and other web avatars are not
+   used.
+   
+   To understand the web interface, you need to think about the following
+   hierarchy:
+   
+     * The scheduler supervises groups.
+     * Groups are made up with items. Generally, those items are just
+       internet or intranet hosts.
+     * Those items can be hosts presented by their name or their IP
+       address, or everything else, directories for example.
+     * Upon each group of items, the scheduler supervises one or more
+       services. Each service is tested with a software called a monitor.
+     * For each service, the scheduler can trigger one or more alarms
+       when something goes wrong.
+       
+3. General presentation
+
+   Everything is on the same page. There are five tables called Infos,
+   Status, CrossView, Historic and Preferences.
+   
+   The page title displays the Mon server contacted, followed by the
+   port, the date and time on this server.
+   
+   The top of the page shows the Mon server contacted, the date and time
+   on this server.
+   
+   A link bar upon each table allows you to surf from one table to
+   another or read this documentation.
+   
+   The infos table is just a place where the minotaur administrator may
+   add useful information for you (links to other pages etc.).
+   
+   The status table presents the different states of services.
+   
+   The cross view table is used to present the status table in a very
+   different way. The Minotaur administrator may have change this name to
+   ``Aliases'' or ``Clients'' or anything else.
+   
+   The historic table is the historic of alerts.
+   
+   The preference table is always present at the bottom of the page. This
+   table is used to set your preferences and login information.
+   
+4. The preference table
+
+   [INLINE]
+   
+   CAPTION:
+   The preferences table
+   
+   With the refresh pop-up you select the time refresh time of the whole
+   page.
+   
+   With the language pop-up you select the user interface language.
+   
+   With the check-boxes named Infos, Status, Historic, Cross View, you
+   select the tables you want to see.
+   
+   You can login with the User and Password text-fields. It may allow you
+   to perform special action like enabling and disabling host or
+   services.
+   
+5. The status table
+
+   [INLINE]
+   
+   CAPTION: The status table
+   
+   The host column.
+          This column contains the list of all hosts. The disabled hosts
+          are selected. You can select or deselect some hosts.
+          
+   The ``group'' column.
+          The group column just names the group.
+          
+   The ``Members'' column.
+          The members column contains the group host lists, one in each
+          cell, one for each ``group'' column cell.
+          
+   The ``Service'' column.
+          The service column just names the services. There can be
+          several services for each group. The checkbox button allow you
+          to change the state of the service. If the service is enabled
+          then it will be disabled, if the service is disabled il will be
+          enabled.
+          
+   The ``Last at'' and ``Next in'' column.
+          The ``Last at'' column tells you when the last test was done.
+          The ``Next in'' column tells you the waiting time untill the
+          next test. The chackbox button allow you to perform a test
+          right now. You will not see the result immediatly because the
+          test can take some time to end. Reloading the page a few
+          seconds later is often enough.
+          
+   The ``Status'' column.
+          The status column gives the service status, one cell for each
+          service. If the tests were good then you see the string
+          "succeeded" alone. Else, you see the string "failed" followed
+          by an summary information, typically the host that failed the
+          tests.
+          
+   Behevior.
+          When a service is red or blue, the group is upped at the top of
+          the table. The sort order is red, then blue. With this feature,
+          you just have to look at the top part of the table. If you
+          select an automatic refresh and the url minotaur.cgi#status
+          then the view is always pertinent. You can put this url on a
+          big screen and get worried only if red color happens.
+          
+   Color legend.
+          
+          + When everything is good the services are not colored.
+          + When a service is ``down'' the service and its group are red.
+            The up-brother services (in the same group) are green.
+          + When a service is not yet tested, at the Mon reset or
+            starting, it is yellow.
+          + When a service is disabled (none alarm is triggered), it is
+            blue.
+          + The sorting rule to present the groups is : red, blue,
+            yellow, alphanumeric.
+          + The sorting rule to present services in a group is : red,
+            blue, yellow, alphanumeric.
+            
+6. The Cross View table
+
+   [INLINE]
+   
+   CAPTION: The aliases table, without selection
+   
+   By default, the cross view table lists the aliases in the first column
+   but does not detail each alias.
+   
+   [INLINE]
+   
+   CAPTION: The aliases table, with one selection
+   
+   To see the alias details, just select it in the List column and click
+   on a submit button. You can do a multiple selection.
+   
+   [INLINE]
+   
+   CAPTION: The full aliases table
+   
+   To see all the aliases, just select the all radio button and click on
+   a submit button.
+   
+7. The historic table
+
+   [INLINE]
+   
+   CAPTION: The historic table
+   
+   In red, the alerts. In green, the up-alerts and the start-alerts.
+   
+   You choose the number of line you want to see with the No column
+   text-field. You filter the last happened events with the Filter
+   pop-up. The last alerts within the interval are displayed with a
+   broken blank background. You can filter with the date. You can filter
+   which services or groups you wan to see. All those criteria are used
+   with a ``logical and''.
+   
+8. License
+
+   I put this documentation under the
+   http://www.opencontent.org/opl.shtml license. This means this document
+   is given without any warranty. You can use it, redistribute it, modify
+   it, by respecting the following conditions: You have to clearly
+   specify the nature and the content of the modifications, their date
+   and keep the opencontent license in case of redistribution. If you
+   sell it, you sell the medium, not the content. This is a summary, read
+   the license to get more details.

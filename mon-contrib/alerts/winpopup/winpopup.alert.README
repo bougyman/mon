@@ -1,0 +1,10 @@
+From: Matthew Rechs <MRechs@contentproject.com>
+To: "'mon@linux.kernel.org'" <mon@linux.kernel.org>
+Subject: Release Early, Often: Mon Popup Alert Module
+Date: Tue, 3 Jul 2001 11:50:32 -0700 
+
+
+Thanks for everyone's input on popup/audible alerts.  
+
+I've pasted in my first crack at an SMB popup alert module.  It works here, more or less.  Certain of my desktops intermittently refuse to accept SMB messages from the client, generating a "session request failed" error from smbclient.  I'm going to take these problems to the samba mailing list at some point, let me know if you have any info on this.
+

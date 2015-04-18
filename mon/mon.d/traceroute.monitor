@@ -1,0 +1,516 @@
+#!/usr/bin/perl
+#
+# mon monitor to watch for route changes
+#
+
+# There is currently a hardcoded path to the traceroute binary, see $TRACEROUTE
+# but it can be overriden in the config file.
+
+#
+# Jon Meek - 31-May-1999 (original code)
+#
+
+#
+# Jon Meek
+# Lawrenceville, NJ
+# meekj@ieee.org
+#
+# $Id: traceroute.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $
+#
+#    Copyright (C) 2001, Jon Meek
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+=head1 NAME
+
+B<traceroute.monitor> - Route monitor for mon.
+
+=head1 DESCRIPTION
+
+Monitor routes from monitor machine to a remote system using traceroute. Alarm and log
+when changes are detected.
+
+=head1 SYNOPSIS
+
+B<traceroute.monitor -d -t 20 -c /path/to/traceroute.cf -l /usr/local/mon/logs/routes_YYYYMM.log>
+
+The logfile template is usually specified in the configuration file.
+
+=head1 OPTIONS
+
+=over 5
+
+=item B<-d> Debug/Test
+
+=item B<-c config.cfg> Configuration file for this monitor, see example below
+
+=item B<-t timeout> Timeout for traceroute to run in seconds default is 20s
+
+=item B<-l log_file_template> /path/to/logs/internet_web_YYYYMM.log
+Current year & month are substituted for YYYYMM, that is the only
+possible template at this time.
+
+=back
+
+=head1 MON CONFIGURATION EXAMPLE
+
+ hostgroup route1 rt-tb-paris-26 rt-tb-london-18 rt-tta-pr01r00-4
+                  rt-cam-cer001-5 rt-tta-pn01r00-4
+
+ watch route1
+	service traceroute
+	interval 15m
+        monitor traceroute.monitor -c /usr/local/mon/traceroute.cf
+        period wd {Sun-Sat}
+            alert mail.alert meekj
+            alertevery 1h summary
+
+=head1 CONFIGURATION FILE EXAMPLE
+
+ # tracreoute.monitor Config File
+ RouteLogFile /usr/local/mon/logs/routes_YYYYMM.log
+ RouterList /usr/local/mon/rt.list
+ Traceroute /usr/sbin/traceroute
+ TracerouteOptions -I
+ StateDir /usr/local/mon/state.d
+ EquivIP 10.22.4.254 10.22.5.254 10.22.6.254
+ EquivIP 10.28.4.254 10.28.5.254 10.28.6.254
+ StopAt 172.30.124.17 A firewall
+ StopAt 172.31.124.17 Another firewall
+
+Lines with '#' in the first column are ignored.
+
+RouteLogFile - A new log file will be created each month in the above
+example the files will be of the form routes_199810.log The YYYYMM
+format is the only date string possible in the current version The logs contain
+time stamped route changes.
+
+RouterList - Optional IP address to router name translation in
+/etc/hosts format (IP_address router_bame). Supplying this list will
+provide considerably more meaningful alarm messages, especially if the
+router names contain geographical information. Without this list the
+extended alarm is just a list of interface IP addresses.
+
+Traceroute - Overrides the default of /usr/sbin/traceroute
+
+TracerouteOptions - Supply additional options to traceroute. -I tells
+traceroute to use ICMP rather than UDP on some systems. Note that -n
+is always supplied so that no DNS lookups are performed.
+
+StateDir - Overrides the default path of the mon environment variable
+MON_STATEDIR.  Files named F<lastroute.router_name> contain the last
+observed route.
+
+EquivIP - A space separated list of IP addresses that should be
+considered equivalent for the purposes of determining route
+changes. Likely used where there are secondary addresses on router or
+switch interfaces.
+
+StopAt - A single IP address followed by an optional comment. The
+traceroute will be terminated when this address is seen. This allows a
+route check to a system on another network, such as the Internet,
+without tracking the route on a network that you do not control. A
+common use would be to put your firewall address in a StopAt
+directive. There can be multiple StopAt lines.
+
+=head1 BUGS
+
+There probably are some.
+
+=head1 AUTHOR
+
+Jon Meek, meekj@ieee.org
+
+=head1 SEE ALSO
+
+F<traceroute.anal> - A CGI script to display route change information.
+
+=cut
+
+use Getopt::Std;
+use POSIX qw(:signal_h WNOHANG);
+use POSIX qw(strftime);
+
+getopts ("vdt:l:c:");
+
+# -l file  Log file name with optional YYYYMM part that will be transformed to current month
+
+$TimeOut = $opt_t || 20;     # Set default timeout in seconds
+
+# Usual Linux config
+$TRACEROUTE = '/usr/sbin/traceroute';
+#$STATE_DIR = '/usr/local/mon/state.d';
+
+if (defined $ENV{MON_STATEDIR}) { # Are we running under mon?
+  $STATE_DIR = $ENV{MON_STATEDIR};
+  $RunningUnderMon = 1;
+} else {
+  $RunningUnderMon = 0;
+}
+
+if ($opt_c) { # Read configuration file
+
+  $ConfigFile = $opt_c;
+
+  if (open(C, $ConfigFile)) {
+    while ($in = <C>) {
+      last if ($in =~ /^Exit/i);
+      next if ($in =~ /^\#/); 	 # Comments
+      chomp $in;
+
+      if ($in =~ /^RouteLogFile\s+/i) {
+	($tag, $LogFile) = split(' ', $in, 2);
+	next;
+      }
+
+      if ($in =~ /^Traceroute\s+/i) { # Need whitespace to distinguish this option
+	($tag, $TRACEROUTE) = split(' ', $in, 2);
+	next;
+      }
+
+      if ($in =~ /^TracerouteOptions\s+/i) {
+	($tag, $TracerouteOptions) = split(' ', $in, 2);
+	next;
+      }
+
+      if ($in =~ /^RouterList\s+/i) {
+	($tag, $RouterListFile) = split(' ', $in, 2);
+	next;
+      }
+
+      if ($in =~ /^StateDir\s+/i) { # If the mon environment variable needs to be overriden
+	($tag, $STATE_DIR) = split(' ', $in, 2);
+	next;
+      }
+
+      if ($in =~ /^EquivIP\s+/i) {
+	($tag, $ips) = split(' ', $in, 2);
+	(@ip_list) = split(' ', $ips);
+#	$ip_string = " $ips "; # Each IP is surrounded by whitespace
+	foreach $ip (@ip_list) {
+	  $EquivIP{$ip} = [ @ip_list ];
+	}
+	next;
+      }
+
+      if ($in =~ /^StopAt\s+/i) {
+	($tag, $stop_addr, $stop_comment) = split(' ', $in, 3);
+	$StopAddress{$stop_addr}++;
+	$StopComment{$stop_addr} = $stop_comment;
+	next;
+      }
+
+    }
+  } else {
+    print "traceroute.monitor: Couldn't open $ConfigFile configuration file\n";
+    exit 1;
+
+  }
+}
+
+if ($opt_l) { # Command line overrides config file
+  $LogFile = $opt_l;
+}
+
+if ((defined $RouterListFile) && $opt_v) { # Read the router names now
+  open(F, $RouterListFile);
+  while ($in = <F>) {
+    chomp $in;
+    ($ip, $name) = split(' ', $in, 2);
+    $RouterByIP{$ip} = $name;
+  }
+  close F;
+}
+
+@Failures = ();
+@Hosts = @ARGV; # Host names are left on the command line after Getopt
+
+
+if ($TestOnly) {
+  foreach $h (@Hosts) {
+    print "Host: $h\n";
+
+    if (defined $EquivIP{$h}) {
+      print "  Has equivalent IP\n";
+    }
+  }
+
+  $ip1 = $Hosts[0];
+  $ip2 = $Hosts[1];
+
+  $equiv_check = grep /^$ip2$/, @{ $EquivIP{$ip1} };
+  print "$ip1  $ip2  $equiv_check\n";
+
+  @equiv_arr = grep /^$ip2$/, @{ $EquivIP{$ip1} };
+  print "$ip1  $ip2  @equiv_arr\n";
+  foreach $ip (@equiv_arr) {
+    print "  $ip\n";
+  }
+
+  exit;
+}
+
+#
+# Reap children to avoid defunct processes / zombies
+# See "Network Programming with Perl" by Lincoln Stein
+#
+sub Reaper {
+  while ((my $child_pid = waitpid(-1, WNOHANG)) > 0) {
+    print "Reaped child: $child_pid\n" if $opt_d;
+  }
+}
+
+sub OtherSIGs {
+  print "traceroute.monitor Exiting on Signal\n";
+  exit 1;
+}
+
+$SIG{CHLD} = \&Reaper;
+
+$SIG{HUP} = $SIG{INT} = $SIG{QUIT} = $SIG{TERM} = \&OtherSIGs;
+
+#
+# Run traceroute for each destination, collect route
+#
+foreach $TargetHost (@Hosts) {
+
+  $TimeOfDay = time;
+  $FmtTimeOfDay = strftime("%A %d-%b-%Y  %H:%M:%S %Z", localtime($TimeOfDay));
+
+  @HopList = (); # Initialize hop list for this traceroute to $TargetHost
+
+  $cmd = qq{$TRACEROUTE -n $TracerouteOptions $TargetHost 2>/dev/null |};
+  print "Options: ->$TracerouteOptions<-\nCommand: $cmd\n" if $opt_d;
+
+  eval {
+    $SIG{ALRM} = sub {die "timeout" };
+    print "Setting timeout to $TimeOut s\n" if $opt_d;
+    alarm($TimeOut);
+
+    eval {
+
+      # discard STDERR data from traceroute
+      $pid = open(TR, $cmd) || die "Couldn't run traceroute\n";
+      print "$FmtTimeOfDay Traceroute to $TargetHost  pid: $pid\n" if $opt_d;
+      while ($in = <TR>) {
+	print $in if $opt_d;
+	if ($in =~ /\*\s+\*\s+\*/) { # Get * * * then give up
+	  push(@HopList, '*');       # Indicate that the traceroute did not complete
+	  kill 13, $pid;             # 13 = PIPE, prevents Broken Pipe Error, at least on Solaris
+	  last;
+	}
+
+	# We will only pick up the first IP address listed on a line for now
+	# Get IP address into $1
+	$in =~ /\s+(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})\s+/;
+	$ThisHopIP = $1;
+	push(@HopList, $ThisHopIP); # Build route hop list
+
+	if ($opt_v) {
+	  chomp $in;
+	  print "$in $RouterByIP{$ThisHopIP}\n";
+	}
+
+	if (exists $StopAddress{$ThisHopIP}) {
+	  print "Stopping at $ThisHopIP  $StopComment{$ThisHopIP}\n\n" if $opt_v;
+	  kill 'TERM', $pid; # Terminate the traceroute
+	  alarm(0);
+	  return; # May be correct way to leave eval, instead of last
+	}
+      }
+      alarm(0);
+    };
+    alarm(0);
+  };
+
+  if ($@) {                     # Check for SIG
+    if ($@ =~ /timeout/) {      # It was a traceroute timeout
+      print "Traceroute timeout\n" if $opt_d;
+      push(@HopList, '*');      # Indicate that the traceroute did not complete
+      kill 13, $pid;		# 13 = PIPE, prevents Broken Pipe Error, at least on Solaris
+    } else {
+      print "Exiting due to some other alarm\n" if $opt_d;
+      die;			# Some other problem
+    }
+  }
+
+  close TR;
+  $route =~ s/\-$//;		# Remove trailing '-' from route string
+
+  $previous_hop = '';
+  $route = '';
+  foreach $h (@HopList) {
+    $route .= "$h-" unless ($h eq $previous_hop);
+    $previous_hop = $h;
+  }
+  $route =~ s/\-$//;		# Remove trailing '-' from route string
+
+
+  $ResultString{$TargetHost} = "$TimeOfDay $TargetHost $route";
+
+  if ($opt_d) {
+    print "$TargetHost: $ResultString{$TargetHost}\n";
+    print " $route\n";
+  }
+}
+
+$FmtTimeOfDay = strftime("%A %d-%b-%Y  %H:%M:%S %Z", localtime(time));
+print "$FmtTimeOfDay finish $TargetHost  pid: $pid\n\n" if $opt_d;
+
+#
+# Compare just measured routes with previous route stored in state file
+#  or just make the state file if this is the first time for a destination
+#
+
+# TODO: if new destination (no state file), then log route to log file
+#       add IP to name translation for mail messages
+
+foreach $k (sort keys %ResultString) {
+  print "$ResultString{$k}\n" if $opt_d;
+  $state_file = "$STATE_DIR/lastroute.$k";
+
+  if (-e $state_file) { # We have checked this route before, compare current
+    ($t2, $host2, $current_route) = split(' ', $ResultString{$k});
+    open(S, $state_file) || warn "Can't open $state_file for reading\n";
+    $in = <S>;
+    chomp $in;
+    ($t1, $host1, $prev_route) = split(' ', $in);
+    close S;
+
+    if ($opt_d) {
+      print "Previous route for $host1 -$prev_route-\n";
+      print "Current  route for $host2 -$current_route-\n";
+    }
+
+    if (&RouteChanged($current_route, $prev_route)) { # Route changed, alarm and record
+      if ($RunningUnderMon) { # Write results
+	open(S, ">$state_file") || warn "Can't open $state_file for writing\n";
+	print S "$ResultString{$k}\n";
+	close S;
+      }
+      push (@Failures, $k);
+      print "  Alarm\n" if $opt_d;
+    }
+
+  } else { # The state file does not yet exist, so make it
+
+    if ($RunningUnderMon) { # Write results
+      open(S, ">$state_file") || warn "Can't open $state_file for writing\n";
+      print S "$ResultString{$k}\n";
+      close S;
+    }
+    push (@Failures, $k); # Call it a failure so it will be logged and notification will be sent
+    print "  New route added to check: $k\n" if $opt_d;
+  }
+
+}
+
+# Write results to logfile, if -l
+
+#if ($RunningUnderMon && $LogFile) {
+if ($LogFile) {
+
+  ($sec,$min,$hour,$mday,$Month,$Year,$wday,$yday,$isdst) =
+    localtime($TimeOfDay);
+  $Month++; $Year += 1900;
+  $YYYYMM = sprintf('%04d%02d', $Year, $Month);
+  $LogFile =~ s/YYYYMM/$YYYYMM/; # Fill in current year and month
+
+  if (-e $LogFile) { # Check for existing log file
+    $NewLogFile = 0;
+  } else {
+    $NewLogFile = 1;
+  }
+
+  if ($NewLogFile || (@Failures > 0)) { # Only log if new log file, or if route changes
+    open(LOG, ">>$LogFile") || warn "$0 Can't open logfile: $LogFile\n";
+
+    if ($NewLogFile) { # New log file, record all routes being tested
+      foreach $host (sort keys %ResultString) {
+	print LOG "$ResultString{$host}\n";
+      }
+    }
+
+    if (($NewLogFile == 0) && (@Failures > 0)) { # Just record changes
+      foreach $host (sort @Failures) {
+	print LOG "$ResultString{$host}\n";
+      }
+    }
+
+    close LOG;
+  }
+}
+
+if (@Failures == 0) { # Exit if there were no failures
+    exit 0;
+}
+
+
+if (defined $RouterListFile) { # Read the router names if we have a failure
+  open(F, $RouterListFile);
+  while ($in = <F>) {
+    chomp $in;
+    ($ip, $name) = split(' ', $in, 2);
+    $RouterByIP{$ip} = $name;
+  }
+  close F;
+}
+
+@SortedFailures = sort @Failures; # To make summary mode in mon happy
+
+print "@SortedFailures\n";
+
+foreach $host (@SortedFailures) {
+  print "$host:\n";
+  ($t, $target, $rest) = split(' ', $ResultString{$host});
+  (@hop_ips) = split(/\-/, $rest);
+  foreach $hop_ip (@hop_ips) {
+    printf " %-15s %s\n", $hop_ip, $RouterByIP{$hop_ip};
+  }
+  print "\n";
+}
+
+exit 1;
+
+
+sub RouteChanged {
+  my ($current_route, $prev_route) = @_;
+  my(@current_ips, @prev_ips);
+
+  if ($current_route eq $prev_route) { # Simple case, same string, no change
+    return 0;
+  }
+
+  (@current_ips) = split(/\-/, $current_route);
+  (@prev_ips) = split(/\-/, $prev_route);
+
+  if ($#current_ips != $#prev_ips) { # Another simple case, different number of hops
+    return 1; # Fail
+  }
+
+  for ($i = 0; $i <= $#current_ips; $i++) {
+    $ip1 = $current_ips[$i];
+    $ip2 = $prev_ips[$i];
+    next if ($ip1 eq $ip2);
+    $equiv_check = grep /^$ip2$/, @{ $EquivIP{$ip1} };
+    if ($equiv_check == 0) { # Not same, or equivalent, route different, fail
+      return 1;
+    }
+    print "$i $ip1  $ip2  $equiv_check\n" if $opt_d;
+  }
+  return 0; # Good, no route change
+}
+

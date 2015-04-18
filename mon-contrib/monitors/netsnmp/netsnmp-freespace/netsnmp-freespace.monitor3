@@ -1,0 +1,228 @@
+#!/usr/bin/perl
+#
+# Monitor diskspace via SNMP
+# (based on process.monitor by Brian Moore)
+#
+# Modified Oct 2001 by Dan Urist <durist@world.std.com>
+# Changes: added usage, SNMP v.3 support, -T threshold option and
+# unique-ified errors
+#
+# Modified Feb 2002 by Dan Urist <durist@world.std.com>
+# Changes: added -C config file option; cleaned up code
+#
+# This script will exit with value 1 if host:community has dskErrorFlag
+# set.  The summary output line will be the host names that failed
+# and the disk information.  The detail lines are what UCD snmp returns
+# for an dskErrMessage. ('/filesystem: less than WATERMARK free (= CURRENT)').
+# If there is an SNMP error (either a problem with the SNMP libraries,
+# or a problem communicating via SNMP with the destination host),
+# this script will exit with a warning value of 2.
+#
+# If the -T threshold option is used, the script will exit with the
+# highest disk percentage found that is over the threshold. The intent
+# is to allow use with mon's "alert exit=value" parameter to allow for
+# finer-grained alerts based on disk usage. If no disks are over the
+# threshold, the script will exit with value 0; if an SNMP error
+# occurs (and there are no other errors), the script will exit with
+# value 2.
+#
+#    Copyright (C) 2001 SATOH Fumiyasu <fumiya@samba.gr.jp>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use SNMP; 
+use Getopt::Std;
+
+$ENV{'MIBS'} = "UCD-SNMP-MIB";
+
+getopts("hT:" . &SNMPconfig("getopts"));
+
+my $VERSION = "0.3";
+if( $opt_h || (scalar @ARGV == 0) ){
+  print join("\n",
+	     "$0 Version $VERSION; original version by SATOH Fumiyasu <fumiya\@samba.gr.jp>",
+	     "SNMP v.3 support by Daniel J. Urist <durist\@world.std.com>.",
+	     "\n",
+	     );
+  print "Usage: $0 OPTIONS host [host ...]\n";
+  print "Options:\n";
+
+  print join("\n\t",
+	     "\t-h                    # Usage",
+	     "[-T threshold]        # Exit value is highest disk % over threshold",
+	     &SNMPconfig("usage"), "\n");
+  exit 2;
+}
+
+# Get SNMP options
+my %SNMPARGS = &SNMPconfig;
+
+my $Threshold = $opt_T if defined($opt_T);
+
+my $RETVAL = 0;
+my %Failures;
+my %Longerr;
+my $Session;
+
+foreach $host (@ARGV) {
+  $Session = new SNMP::Session(
+			       DestHost => $host,
+			       %SNMPARGS,
+			      );
+  unless( defined($Session) ) {
+    $RETVAL = 2 if $RETVAL == 0; # Other errors take precedence over SNMP error
+    push @{$Failures{$host}}, "session error";
+    $Longerr{"$host could not get SNMP session"} = "";
+    next;
+  }
+
+  my $v = new SNMP::Varbind (["dskIndex"]);
+  $Session->getnext ($v);
+
+  while (!$Session->{"ErrorStr"} && $v->tag eq "dskIndex") {
+    my @q = $Session->get ([
+			    ["dskPath", $v->iid],	# 0
+			    ["dskDevice", $v->iid],	# 1
+			    ["dskMinimum", $v->iid],	# 2
+			    ["dskMinPercent", $v->iid],	# 3
+			    ["dskTotal", $v->iid],	# 4
+			    ["dskAvail", $v->iid],	# 5
+			    ["dskUsed", $v->iid],	# 6
+			    ["dskPercent", $v->iid],	# 7
+			    ["dskPercentNode", $v->iid],# 8
+			    ["dskErrorFlag", $v->iid],	# 9
+			    ["dskErrorMsg", $v->iid],	# 10
+			   ]);
+    last if ($Session->{"ErrorStr"});
+
+    if( defined $Threshold ){
+      if($q[7] > $Threshold){
+	$RETVAL = $q[7] if $q[7] > $RETVAL;
+	my ($t, $u, $a) = map { int($_/1024) } @q[4, 6, 5];
+	push @{$Failures{$host}}, $q[0] . " ($q[7]%)";
+	$Longerr{"$host:$q[0]($q[1]) total=$t used=$u($q[7]%) free=$a threshold=$Threshold%"} = "";
+      }
+    }
+    elsif ($q[9] > 0) {
+      $RETVAL = 1;	    
+      my ($t, $u, $a) = map { int($_/1024) } @q[4, 6, 5];
+      push @{$Failures{$host}}, $q[0] . " ($q[7]%)";
+      $Longerr{"$host:$q[0]($q[1]) total=$t used=$u($q[7]%) free=$a err=$q[10]"} = "";
+    }
+
+    $Session->getnext ($v);
+  }
+
+  if ($Session->{"ErrorStr"}) {
+    $RETVAL = 2 if $RETVAL == 0; # Other errors take precedence over SNMP error
+    push(@{$Failures{$host}}, "SNMP error");
+    $Longerr{"$host returned an SNMP error: " . $Session->{"ErrorStr"}} = "";
+  }
+}
+
+if (scalar keys %Failures) {
+  my $h;
+  my @errs;
+  foreach $h ( sort keys %Failures ){
+    push( @errs, $h . ':' . join(',', @{$Failures{$h}}) );
+  }
+  print join(";", @errs), "\n\n";
+
+  print join ("\n", sort keys %Longerr), "\n";
+}
+
+exit $RETVAL;
+
+#
+# Manage the standard SNMP options
+# Arguments are same as netsnmp utils
+#
+# If called with "getopts", returns a string for "getopts"
+# If called with "usage", returns an array of usage information
+# Otherwise, returns a hash of SNMP config vars
+#
+# Overloading this sub like this is kinda hoakey,
+# but keeps everything in one place
+sub SNMPconfig {
+  my($action) = @_;
+
+  if($action eq "getopts"){
+    return "C:t:r:p:v:u:l:A:e:E:n:a:x:X:";
+  }
+  elsif($action eq "usage"){
+    return(
+	   "[-C configfile]       # SNMP vars config file",
+	   "[-t Timeout]          # Timeout in ms (default: 1000000)",
+	   "[-r Retries]          # Retries before failure (default: 5)",
+	   "[-p RemotePort]       # Remote UDP port (default 161)",
+	   "[-v Version]          # 1,2,2c or 3 (default: 1)",
+	   "[-c Community]        # v.1,2,2c Community Name (default: public)",
+	   "[-u SecName]          # v.3 Security Name (default: initial)",
+	   "[-l SecLevel]         # v.3 Security Level (default: noAuthNoPriv)",
+	   "[-A AuthPass]         # v.3 Authentication Passphrase (default: none)",
+	   "[-e SecEngineId]      # v.3 security engineID (default: none)",
+	   "[-E ContextEngineId]  # v.3 context engineID (default: none)",
+	   "[-n Context]          # v.3 context name (default: none)",
+	   "[-a AuthProto]        # authentication protocol (MD5|SHA; default MD5)",
+	   "[-x PrivProto]        # privacy protocol (DES)",
+	   "[-X PrivPass]         # privacy passphrase (default: none)",
+	  );
+  }
+
+  # Read config file
+  my %Conf;
+  if($opt_C){
+    unless( open(CONF, $opt_C) ){
+      print "$0: Could not open config file $opt_C\n";
+      exit 2;
+    }
+    my $line;
+    my @fields;
+    foreach $line (<CONF>){
+      chomp $line;
+      @fields = split(/=/, $line);
+      $Conf{ lc $fields[0] } = $fields[1];
+    }
+    close CONF;
+  }
+
+  my %SNMPARGS;
+
+  # Common options
+  $SNMPARGS{Timeout} = $opt_t || $Conf{timeout} || 1000000;
+  $SNMPARGS{Retries} = $opt_r || $Conf{retries} || 5;
+  $SNMPARGS{RemotePort} = $opt_p || $Conf{remoteport} || 161;
+  $SNMPARGS{Version} = $opt_v || $Conf{version} || 1;
+
+  # v. 3 options
+  if ($SNMPARGS{Version} eq "3"){
+    $SNMPARGS{SecName} = $opt_u || $Conf{secname} || 'initial';
+    $SNMPARGS{SecLevel} = $opt_l || $Conf{seclevel} || 'noAuthNoPriv';
+    $SNMPARGS{AuthPass} = $opt_A || $Conf{authpass} || '';
+    $SNMPARGS{SecEngineId} = $opt_e || $Conf{secengineid} || '';
+    $SNMPARGS{ContextEngineId} = $opt_E || $Conf{contextengineid} || '';
+    $SNMPARGS{Context} = $opt_n || $Conf{context} || '';
+    $SNMPARGS{AuthProto} = $opt_a || $Conf{authproto} || '';
+    $SNMPARGS{PrivProto} = $opt_x || $Conf{privproto} || '';
+    $SNMPARGS{PrivPass} = $opt_X || $Conf{privpass} || '';
+  }
+  # v. 1,2 options
+  else{
+    $SNMPARGS{Community} = $opt_c || $Conf{community} || 'public';
+  }
+
+  return %SNMPARGS;
+}

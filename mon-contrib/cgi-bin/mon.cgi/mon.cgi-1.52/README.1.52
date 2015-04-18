@@ -1,0 +1,44 @@
+-----------------------------------------------------------------
+mon.cgi v.1.52
+21-May-2001
+by Andrew Ryan <andrewr@nam-shub.com>
+
+This interface, along with mon itself, is available from
+ftp://ftp.kernel.org/pub/software/admin/mon/
+
+Development versions of mon.cgi can be found at
+http://www.nam-shub.com/files/
+-----------------------------------------------------------------
+This is the latest stable version of mon.cgi, meant to be used only
+with mon 0.38-21 and above, and a version of Mon::Client that is
+0.11 or higher. The chief reason that you will need the new
+version is for the "test config" functionality.
+
+This release has 4 new features of note:
+1) Access control. Using the 'watch' keyword in the config file, you
+   can restrict access to a particular configuration on a
+   per-hostgroup basis. 'watch' keywords can be regular
+   expressions. Original idea and keyword name stolen from monshow :)
+
+2) 'watch' keywords can either be implemented "softly" -- by default
+   only certain hostgroups are shown, but all can be accessed --
+   or "strictly" -- only the hostgroups explicitly allowed by 'watch'
+   keywords can be accessed in any way. Using strict access control,
+   an organization using mon to watch systems belonging to multiple
+   customers to be able to segregate those different customers' 
+   monitoring completely.
+
+3) There's now a login button. The people have spoken!
+
+4) mon.cgi now checks for the proper version of Mon::Client before
+   it starts. This was a major support problem.
+
+Plus many other bug fixes and small improvements, as usual.
+
+
+This release should be considered stable until proven otherwise :)
+
+Please see the CHANGES file for more information about this release.
+
+Thanks to all who report bugs, submit patches, and give feedback. 
+Andrew Ryan <andrewr@nam-shub.com>

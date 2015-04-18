@@ -1,0 +1,122 @@
+#
+# snmpvar.cf
+#
+# this is a sample configuration file for snmpvar.monitor. you
+# must configure this to meet your own needs.
+#
+# list of variables and ranges to be monitored by snmpvar.monitor
+# refers to variables defined in snmpvar.def
+#
+
+# a Dell server, RAID instrumentation only:
+Host nov-1
+  MEGARAID0_LOGICAL_STATUS     Min 2  Max 2  Index 0
+  MEGARAID0_PHYS_STATUS        Min 3  Max 3  Index 0 1 2 3 4 5
+
+# a Compaq server:
+Host nov-2
+  # has 1 RAID volume, 6 physical disks
+  CPQARRAY_LOG_STATUS	Index 1
+  CPQARRAY_PHYS_STATUS	Index 0 1 2 3 4 5
+    
+  PROLIANT_TEMP_STATUS
+  PROLIANT_PSU_STATUS
+  PROLIANT_FAN_STATUS	Index 2 4 5
+
+
+# a Dell server running NT 4 with perfmib
+Host ntserv1
+  WINNT_MEM_COMMITTED		Max 700
+
+  WINNT_LOGICAL_C_FREE		Min 50
+  WINNT_LOGICAL_D_FREE		Min 50
+
+  MEGARAID_C0_LOGICAL_STATUS	Index 0
+  MEGARAID_C0_CH0_PHYS_STATUS   Index 0 1 2 3 4
+
+  PE4300_TEMP_CPU
+  PE4300_TEMP
+  PE4300_5V_CURRENT
+  PE4300_12V_CURRENT
+  PE4300_3V_CURRENT
+  PE4300_FAN_CPU_RPM
+  PE4300_FAN_DISK_RPM
+  PE4X00_PSU_STATUS
+
+
+# an APC UPS (with SNMP adapter or through controlling server running PowerNet)
+Host srvups1
+  APCUPS_OUTPUT_STAT
+  APCUPS_LINEVOLT_MAX
+  APCUPS_LINEVOLT_MIN
+
+  # here, we override the default maximum specified in snmpvar.def:
+  APCUPS_LOAD                 Max 75
+  APCUPS_BATT_TEMP
+
+  # these are the MeasureUPS parameters (external sensor)
+  APCUPS_EXT_TEMP             Max 32
+  APCUPS_EXT_HUMID            Min 10   Max 90
+
+  APCUPS_EXT_SWITCH_STAT	Min 2    Max 2	Index 1
+      FriendlyName	1	Diesel Generator Status
+
+
+# an HP ProCurve 4000 switch
+Host hp4000-servers
+  HP_ICF_FAN_STATE
+  # has redundant PSU
+  HP_ICF_PSU_STATE		Index 2 3
+
+  IF_OPERSTAT			Index 1 3  17  25  65  73
+    FriendlyName	1	 A1: Server LAUREL
+    FriendlyName	3	 A3: Server HARDY
+    FriendlyName	17	 C1: Server TITAN (1000SX)
+    FriendlyName	25	 D1: Server MERCURY (1000SX)
+    FriendlyName	65	 I1: Switch D1017:G1 (1000TX)
+    FriendlyName	73	 J1: Switch SERVERS1:H1 (1000SX)
+
+
+# an IBM8272 Token Ring switch
+Host trsw1
+  IBM8272_LINK_STATE		Min 1  Max 1  Index 1 2 3 4 5 6 7  9  11 12 13 14 15 16  17 18  21 22 23 24
+    FriendlyName	1	 1: Floor 10 Ring
+    FriendlyName	2	 2: Floor 12 Ring
+    FriendlyName	3	 3: Floor 13 Ring
+    FriendlyName	9	 9: Server NOV-1
+    FriendlyName	13	13: Server ntserv1
+    FriendlyName	18	18: Switch 2 Interlink Fibre
+  IBM8272_TEMP_SYS		Min 1  Max 1
+
+
+# a cisco router
+Host cisco1
+  IF_OPERSTAT			Index 1 2 3 4
+    FriendlyName	1	 1: Internal Ethernet
+    FriendlyName	2	 2: Internal TokenRing
+    FriendlyName	3	 3: Firewall
+  BGP_PEERSTATE			Index  10.1.1.1   10.2.1.1
+    FriendlyName    10.1.1.1   iBGP Session: myotherrouter
+    FriendlyName    10.2.1.1   eBGP Session: Provider X
+  CISCO_TEMP_STATE
+
+
+
+
+# a Nokia IP series firewall appliance
+Host firewall
+  IF_OPERSTAT		Index 1 2 3
+    FriendlyName	1	 1: Leased Line
+    FriendlyName	2	 2: DMZ
+    FriendlyName	3	 3: Internal Router
+  NOKIA_IP_CHASSIS_TEMP
+  NOKIA_IP_FAN_STAT
+  NOKIA_IP_PSU_STAT
+  NOKIA_IP_PSU_TEMP
+
+
+# a Linux server with some private SNMP extensions
+Host mailserver
+  LINUX_MAILQUEUE		Max 80
+
+                

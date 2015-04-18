@@ -1,0 +1,7 @@
+dtquery TODO
+------------
+* Performance tuning of code.
+
+* Accomodate a database format for dtlog, with DBI
+
+* Allow queries by day of week.

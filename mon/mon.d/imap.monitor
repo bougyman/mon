@@ -1,0 +1,189 @@
+#!/usr/bin/perl
+#
+# Use try to connect to an IMAP server, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "http.monitor" by
+# Jim Trocki, trockij@transmeta.com
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: imap.monitor,v 1.3 2005/08/20 15:27:56 vitroth Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+getopts ("m:p:t:");
+$PORT = $opt_p || 143;
+$TIMEOUT = $opt_t || 30;
+$MAILBOX=$opt_m || undef;
+
+@failures = ();
+
+foreach $host (@ARGV) {
+
+    if (! &imapGET($host, $PORT)) {
+	push (@failures, $host);
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print join (" ", sort @failures), "\n\n", join ("\n", @longerr), "\n";
+
+exit 1;
+
+
+sub imapGET {
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port) = @_;
+    my($ServerOK, $TheContent, $cmd);
+
+    $ServerOK = 0;
+
+    $TheContent = '';
+
+    $Path = '/';
+
+###############################################################
+    eval {
+
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+	$result = &OpenSocket($Server, $Port); # Open a connection to the server
+	if ($result == 0) { # Failure to open the socket
+	    push @longerr, "$Server: Unable to connect";
+	    return '';
+	}
+
+	$in = <S>;
+	if ($in !~ /^\* (OK|PREAUTH|BYE)/) {
+	    alarm 0;
+	    push @longerr, "$Server: No IMAP banner received";
+	    return 0;
+	}
+
+        $cmd="login";
+	print S "A1 LOGIN ANONYMOUS ANONYMOUS\r\n";
+
+	while (defined($in=<S>)) {
+	    if ($in =~ /^A1 (\w+) (.*)/) {
+                if ($1 eq "OK") {
+	            $ServerOK = 1;
+                } else {
+                    $errmsg="$1 $2";
+                }
+		last;
+	    }
+	}
+	
+        if ($ServerOK && $MAILBOX) {
+           $cmd="examine";
+           $ServerOK=0;
+	   print S "A2 EXAMINE $MAILBOX\r\n";
+
+	   while (defined($in=<S>)) {
+	       if ($in =~ /^A2 (\w+) (.*)/) {
+                   if ($1 eq "OK") {
+	               $ServerOK = 1;
+                   } else {
+                       $errmsg="$1 $2";
+                   }
+		   last;
+	       }
+	   }
+	}
+
+        if ($ServerOK) {
+           $cmd="logout";
+           $ServerOK=0;
+	   print S "A3 LOGOUT\r\n";
+
+	   while (defined($in=<S>)) {
+	       if ($in =~ /^A3 (\w+) (.*)/) {
+                   if ($1 eq "OK") {
+	               $ServerOK = 1;
+                   } else {
+                       $errmsg="$1 $2";
+                   }
+		   last;
+	       }
+	   }
+	}
+	if (!$ServerOK) {
+          if ($errmsg) {
+	     push @longerr, "$Server: bad response to $cmd: $errmsg";
+          } else {
+	     push @longerr, "$Server: No response to $cmd";
+          }
+	}
+
+
+	close(S);
+	alarm 0; # Cancel the alarm
+
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+	push @longerr, "$Server: **** Time Out\n";
+	return 0;
+    } elsif ($EVAL_ERROR) {
+        push @longerr, "$Server: $EVAL_ERROR";
+        return 0;
+    }
+    return $ServerOK;
+
+}
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    local($OtherHostname, $Port) = @_;
+    local($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+	  $ThisAddr, $that);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    my $that = sockaddr_in ($Port, $OtherHostAddr);
+
+    $result = socket(S, &PF_INET, &SOCK_STREAM, $proto) || return undef;
+
+    $result = connect(S, $that) || return undef;
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+    return 1;                               # success
+}

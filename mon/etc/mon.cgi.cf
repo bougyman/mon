@@ -1,0 +1,114 @@
+#
+# The mon.cgi config file.
+# Format:
+#	 key = value
+#
+# Blank lines and lines that begin with '#' are ignored.
+#
+# Both key names and values are case sensitive.
+#
+# This file comes with the mon.cgi distribution and contains all of the 
+# valid key/value pairs that mon.cgi will accept.
+#
+# The latest version of mon.cgi is always available at:
+#     http://www.nam-shub.com/files/
+#
+# If there are errors in your config file, mon.cgi will stop parsing it,
+# and will print messages to STDERR, which should end up in your web
+# server's error log.
+#
+# $Id: mon.cgi.cf,v 1.2 2004/11/15 14:45:18 vitroth Exp $
+#
+
+# Your organization (what you want printed on the top of each page)
+organization = Network Operations
+
+# Contact email for mon administrator at your site
+monadmin = bofh@your.domain
+
+#Company or mon logo (URL path)
+logo = /URL-path/to/your.gif
+
+# URL to go to when you click on the logo image
+logo_link = http://www.kernel.org/pub/software/admin/mon/html/
+
+# Seconds between page reload
+reload_time = 180
+
+# Where to run mon (host,port)
+monhost = localhost
+monport = 2583
+
+# Set this to anything other than 'Y' or 'yes' to turn off authentication
+# (HINT: authentication is a *good* thing)
+must_login = yes
+
+# Application secret. Set this to something long and unguessable.
+app_secret = LKAHETOI#KJHJKSHDOWOIUW^*((985i2hkljlkjfdhglkdhfgdlkfjghldksfjhg98 34tklh  qrthq3 i3lu4 KLHKLJHKLJH ncxmvn owow y YnneO87210502673kn6l3
+
+# Default username and password (only used if must_login is set)
+default_username = readonly
+default_password = public
+
+# Idle time, in seconds, until login cookie is invalidated. Note that if
+# ( login_expire_time < reload_time ) you will not be able to "idle".
+login_expire_time = 900
+
+# Whether or not to untaint HTML in ack msgs using HTML::Entities (recommended)
+untaint_ack_msgs = yes
+
+# The name of the cookie set by mon.cgi and its path
+cookie_name = mon-cookie
+cookie_path = /
+
+# Default alternate fonts to use (assumes default font is a serif font)
+fixed_font_face = courier
+sans_serif_font_face = Helvetica, Arial
+
+# Default color scheme for page
+BGCOLOR = black
+TEXTCOLOR = white
+LINKCOLOR = yellow
+VLINKCOLOR = #00FFFF
+
+# Default colors for failed services
+greenlight_color = #009900
+redlight_color = red
+unchecked_color = #000033
+yellowlight_color = #FF9933
+
+#
+# A white-background look for mon.cgi, from Thomas Bates <cbates@tva.gov>
+#
+#BGCOLOR = #FFFFFF
+#TEXTCOLOR = #000000
+#LINKCOLOR = 0000FF
+#VLINKCOLOR = #551a8b
+#
+#greenlight_color=#a0d0a0
+#redlight_color=ff6060
+#unchecked_color=f0f0f0
+#disabled_color=#e0e0e0
+#yellowlight_color = #FFAF4F
+
+# Maximum number of downtime events to show, per page
+dtlog_max_failures_per_page = 100
+
+# Watch keywords will show only the specified hostgroups by default.
+# Matching is by regexp.
+# e.g., show the watch whose name is www
+#watch = www
+# e.g., show any watches whose names start with gw-
+#watch = gw-.*
+
+# Set show_watch_strict to 'yes' if you want to be sure that users only
+# information about the hostgroups that they are authorized to
+# view. If show_watch_strict is set to 1, as far as your GUI users
+# will know, there is nothing else running on the mon instance
+# except for their hostgroups, *even if those users know the names
+# of other hostgroups on your mon server*.
+#
+# Set to show_watch_strict to 'no' to show only the defined watch 
+# groups by default, but allow users to see information about 
+# others as well.
+show_watch_strict = no

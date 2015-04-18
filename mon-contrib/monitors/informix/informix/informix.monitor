@@ -1,0 +1,46 @@
+#!/usr/local/bin/perl
+#
+# Monitor online status of INFORMIX IDS
+#
+# Arguements are "database@server"
+#
+# $Id: informix.monitor,v 1.2 2011/07/03 19:08:32 midget Exp $
+#
+#Copyright (C) 1999, SKECHERS USA, Inc.
+#
+#This program is free software; you can redistribute it and/or modify
+#it under the terms of the GNU General Public License as published by
+#the Free Software Foundation; either version 2 of the License, or
+#(at your option) any later version.
+#
+#This program is distributed in the hope that it will be useful,
+#but WITHOUT ANY WARRANTY; without even the implied warranty of
+#MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
+#GNU General Public License for more details.
+#
+#You should have received a copy of the GNU General Public License
+#along with this program; if not, write to the Free Software
+#Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA02111-1307 USA
+#
+
+use DBI;
+
+chomp( $parm = $ARGV[0] );
+( $database, $server ) = split /\@/, $parm;
+
+# Set environment variables
+$ENV{LD_LIBRARY_PATH} = "/usr/informix/prod/lib:/usr/informix/prod/lib/esql";
+$ENV{INFORMIXDIR}     = "/usr/informix/prod";
+$ENV{INFORMIXSERVER}  = "$server";
+
+# Attempt to connect to the database and get the database name
+$dbh = DBI->connect( $database, $username, $password, 'Informix' );
+
+if ( defined $dbh->{Name} ) {
+	$dbh->disconnect;
+	exit 0;
+}
+else {
+	print "$parm is down\n";
+	exit 1;
+}

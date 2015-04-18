@@ -1,0 +1,68 @@
+$Id: README,v 1.2 2005/04/17 07:42:26 trockij Exp $
+
+This is a "moncmd" interface to a SkyTel 2-way pager. It utilizes
+procmail filters and password authentication to do its trick.
+I would not call this a "secure" authentication mechanism, but in
+Marcus Ranum-speak it is "really nice". Use at your own risk.
+
+It would be even more "really nice" if this did SecureID or S/Key.
+
+Also keep in mind that all queries and all results pass through the
+Great Wide Internet to get back to your pager.
+
+
+INSTALLATION
+
+1.
+
+Do this from the /usr/doc/mon/examples directory:
+
+mkdir ~/.skytel
+chmod 0700 ~/.skytel
+cp skymon.allow ~/.skytel/allow
+
+
+2.
+
+Create an encrypted password using the following Perl snippet,
+substituting "password" with the password that you want, and "salt" with
+a *2-letter* salt.
+
+perl -e 'print crypt("password", "salt"), "\n"' > ~/.skytel/password
+chmod 0600 password
+
+
+3.
+
+Add the contents of the "skymon.procmail" file to your .procmailrc.
+
+
+OPERATION
+
+Commands are sent via email with the following format:
+
+/password:command
+
+Commands are the following, and can only be used if they exist in the
+"allow" file:
+
+
+eh			enable host
+es			enable service
+ew			enable watch
+
+dh host reason		disable host
+ds watch service reason	disable service
+dw watch reason		disable watch
+
+lf			list failures
+ld			list disabled
+
+
+The idea behind the brevity is that it's a pain to compose messages
+on that silly little keypad.
+
+
+---------------------
+Jim Trocki
+trockij@arctic.org

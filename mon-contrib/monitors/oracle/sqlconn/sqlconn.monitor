@@ -1,0 +1,105 @@
+From duncanl@demon.net Mon Aug 23 06:51:17 1999
+Date: Fri, 06 Aug 1999 15:59:30 +0100
+From: Duncan Lawie <duncanl@demon.net>
+To: mon@linux.kernel.org
+Subject: sqlconn.monitor
+
+Hi,
+
+herewith a monitor which checks on sqlnet connections.  It uses DBI but,
+as it stands, is coded in an Oracle-specific way.  The matching mon.cf
+lines would look something like this
+
+hostgroup first_db second_db 
+
+watch ora_dbs
+    service sqlconnect
+        interval 15m
+        monitor sqlconn.monitor
+        period wd {Mon-Fri} hr {9am-5pm}
+            alert mail.alert duncanl@demon.net
+            alertevery 1h
+        period wd {Sat-Sun}
+            alert mail.alert duncanl@demon.net
+
+There is an element of hack in that the hostgroup is actually a list of
+database names, not unix hosts.
+
+I am a little uncomfortable (as yet) with GPL, but as I understand it I
+can sidestep the issue by making this open source under the terms of
+perl.  I also understand that if it were intergrated into mon it would
+them be distributed under the GPL along with mon.  Can anyone offer me
+enlightenment on this issue?
+
+Duncan.
+
+
+#!/usr/local/bin/perl -w
+#
+# Monitor sqlnet connection
+#
+# Arguments are: names of databases (as understood by listener)
+#
+# Available under the same terms as perl itself if distributed alone.
+#
+#
+use Local::Env; # local environment variable setting
+use DBI;
+
+$dbuser = $ENV{ORACLE_USERID}; # from Local::Env or set it explicitly
+
+foreach $dbname (@ARGV) {
+
+unless (
+    eval {
+        $dbh = DBI->connect("dbi:Oracle:$dbname", $dbuser, '',
+                                { RaiseError => 1, AutoCommit => 1 })
+    }
+
+)
+    {
+        push @failures, "$dbname connect";
+        push @longerr, "$dbname: $DBI::errstr";
+        $retval++;
+        next
+    } 
+
+unless ( $sth = $dbh->prepare("select sysdate from sys.dual") )
+    {
+        push @failures, "$dbname prepare";
+        push @longerr, "$dbname: $dbh->errstr";
+        $retval++;
+        next
+    } 
+unless ( $sth->execute()                                      )
+    {
+        push @failures, "$dbname execute";
+        push @longerr, "$dbname: $dbh->errstr";
+        $retval++;
+        next
+    } 
+unless ( $sth->finish()                                       )
+    {
+        push @failures, "$dbname finish";
+        push @longerr, "$dbname: $dbh->errstr";
+        $retval++;
+        next
+    } 
+
+unless ( $dbh->disconnect                                     )
+    {
+        push @failures, "$dbname disconnect";
+        push @longerr, "$dbname: $dbh->errstr";
+        $retval++;
+        next
+    } 
+}
+
+
+if (@failures) {
+    print join (", ", @failures), "\n";
+    print join ("\n", @longerr), "\n";
+}
+
+exit $retval;
+

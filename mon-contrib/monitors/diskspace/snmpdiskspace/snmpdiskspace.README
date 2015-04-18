@@ -1,0 +1,32 @@
+# NAME
+#  snmpdiskspace.monitor
+#
+#
+# SYNOPSIS
+#  snmpdiskspace.monitor [--list] [--timeout seconds] [--config filename]
+#                        [--community string] [--free minfree]
+#                        [--retries retries] host...
+#
+#
+# DESCRIPTION
+#  This script uses the Host Resources MIB (RFC1514), and optionally
+#  the MS Windows NT Performance MIB, or UCD-SNMP extensions
+#  (enterprises.ucdavis.dskTable.dskEntry) to monitor diskspace on hosts
+#  via SNMP.
+#
+#  snmpdiskspace.monitor uses a config file to allow the specification of
+#  minimum free space on a per-host and per-partition basis. The config
+#  file allows the use of regular expressions, so it is quite flexible in
+#  what it can allow. See the sample config file for more details and
+#  syntax.
+#
+#  The script only checks disks marked as "FixedDisks" by the Host MIB,
+#  which should help cut down on the number of CD-ROM drives
+#  erroneously reported as being full! Since the drive classification
+#  portion of the UCD Host MIB isn't too great on many OS'es, though,
+#  this won't buy you a lot. Empire's SNMP agent gets this right on
+#  all the hosts that I checked, though. Not sure about the MS MIB.
+#  UCD-SNMP only checks specific partition types (md, hd, sd, ida)
+#
+#  snmpdiskspace.monitor is intended for use as a monitor for the mon
+#  network monitoring package.

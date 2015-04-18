@@ -1,0 +1,105 @@
+#!/usr/bin/perl
+#
+# $Id: msql-mysql.monitor,v 1.1.1.1 2004/06/09 05:18:04 trockij Exp $
+#
+# arguments:
+#
+# [--mode [msql|mysql]] --username=username --password=password
+# 	--database=database --port=#
+#	hostname
+#
+# a monitor to determine if a mSQL or MySQL database server is operational
+#
+# Rather than use tcp.monitor to ensure that your SQL server is responding
+# on the proper port, this attempts to connect to and list the databases
+# on a given database server.
+#
+# The single argument, --mode [msql|mysql] is inferred from the script name
+# if it is named mysql.monitor or msql.monitor.  Thus, the following two are
+# equivalent:
+#
+# ln msql-mysql.monitor msql.monitor
+# ln msql-mysql.monitor mysql.monitor
+# msql.monitor hostname
+# mysql.monitor hostname
+#
+# and
+#
+# msql-mysql.monitor --mode msql hostname
+# msql-mysql.monitor --mode mysql hostname
+#
+# use the syntax that you feel more comfortable with.
+#
+# This monitor requires the perl5 DBI, DBD::mSQL and DBD::mysql modules,
+# available from CPAN (http://www.cpan.org)
+#
+#    Copyright (C) 1998, ACC TelEnterprises
+#    Written by James FitzGibbon <james@ican.net>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use DBI;
+use Getopt::Long;
+
+my @details=();
+my @failures=();
+
+GetOptions( \%options, "mode=s", "port=i", "username=s", "password=s", "database=s" );
+
+# uncomment these two lines and provide suitable information if you don't
+# want to pass sensitive information on the command line
+#$options{username} ||= "username";
+#$options{password} ||= "password";
+
+if( $0 =~ m/\/msql\.monitor$/ || $options{mode} =~ m/msql/i ) { 
+	$mode = "mSQL";
+	$options{port} = 1114 if ! $options{port};
+} elsif( $0 =~ m/\/mysql\.monitor/ || $options{mode} =~ m/mysql/i) {
+	$mode = "mysql";
+	$options{port} = 3306 if ! $options{port};
+} else {
+	print "invalid mode $mode!\n";
+	exit 1;
+}
+
+for $host( @ARGV ) {
+	my( $dbh ) = DBI->connect( "DBI:$mode:$options{database}:$host:$options{port}", $options{username}, $options{password}, { PrintError => 0 } );
+	if( ! $dbh ) {
+		push( @failures, $host);
+	    	push( @details, "$host: Could not connect to $mode server on $options{port}: " . $DBI::errstr . "\n");
+		next;
+	}
+	@tables = $dbh->tables();
+	if( $#tables < 0 ) {
+		push( @failures, $host);
+		push( @details, "$host: No tables found for database $options{database}\n");
+	}
+	$dbh->disconnect();
+}
+
+if (@failures)
+{
+    print join (" ", sort @failures), "\n";
+    print sort @details if (scalar @details > 0);
+
+    exit 1;
+
+}
+
+else
+{
+    exit 0;
+}

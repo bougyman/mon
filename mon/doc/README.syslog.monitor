@@ -1,0 +1,79 @@
+Readme file for syslog.monitor
+$Id: README.syslog.monitor,v 1.2 2004/11/15 14:45:18 vitroth Exp $
+
+(Note: This Readme file is an insult to the reader. Better documentation
+ will come as soon as I find more time and fix some more bugs)
+
+INTRODUCTION
+
+This is a syslog for mon (http://www.kernel.org/software/mon/) by Jim
+Trocki.
+
+It is different from the other monitors, because it is constantly running
+and communicates with the mon server via Mon::Client over the network,
+instead of running under mon's supervision.
+
+It listens for syslog packets comeing in from the network, parse them,
+checks them against a rule set and reports to the mon server if necessary.
+
+REQUIREMENTS
+
+You need to have the following non-std Perl modules installed:
+
+     Time::HiRes
+	 Mon::Client
+
+DETAILS
+
+syslog.monitor accepts a single command line parameter, the name of the
+configuration file. All options are explained inside the configuration file,
+see syslog.conf as an example.
+
+At startup, the daemon retrieves a list of all watches from the mon server
+for which a service "syslog" is defined. We also read the hostgroup
+definition for this watch from the mon server. (The hostnames are resolved
+and the result is used to check if the incoming syslog packet is accepted
+and which host it came from, so you should make sure your hostnames resolve
+to all IPs from which your systems might send a syslog packet - on a Cisco,
+you might want to consider "logging source-interface")
+
+This basically amounts to:
+
+  For every hostgroup you want syslog.monitor to accept and monitor syslog
+  packets, define a syslog service.
+
+This watch/service is where we later send our traps.
+
+For those hosts, add a line like
+
+*.*         @syslog.monitor.host.name
+
+to /etc/syslog.conf.
+
+Configure syslog.monitor by editing syslog.conf and following the comments
+therein.
+
+Start syslog.monitor.
+
+Restart mon.
+
+killall -HUP syslogd on the hosts you want to monitor.
+
+Read the logfiles and fix the problems. ;-)
+
+
+AUTHOR
+
+Please don't bother Jim with questions relating to this.
+
+If this should lead to global warming, code freeze or Elvis's revival, I
+accept absolutely no responsibility. However, I will gladly receive and
+incoporate bugfixes and sensible bug reports.
+
+Lars Marowsky-Brée <lars@marowsky-bree.de>
+
+URL
+
+It appears we have made our way to
+ftp://ftp.kernel.org/pub/software/mon/contrib/ - please use a mirror, as
+described on http://www.kernel.org/.

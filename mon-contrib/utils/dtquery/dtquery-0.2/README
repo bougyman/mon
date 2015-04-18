@@ -1,0 +1,216 @@
+Introduction
+------------------------------------------------------------
+dtquery is a CGI-based tool to query your mon downtime logs for
+specific downtime events, on specific hosts/groups/services, during
+specified date ranges, and to supply you with graphs summarizing the
+results. 
+
+Downtime can also be queried on a per-host basis, even though mon
+doesn't support the feature officially. When most services fail, the
+monitor which detected the failure writes the names of the failed
+hosts into the summary line, and the summary field is recorded as part
+of the downtime log. When we are searching for "hosts", what we are
+actually doing is searching for "text in the summary field", but in
+most configurations, these are identical.
+
+dtquery was developed so that we could analyze our downtime records more
+effectively, and more easily answer questions like:
+   1) When are certain types of failures typically occurring? Are
+   there time of day/week/month patterns?
+   2) Are certain hosts within hostgroups more vulnerable to failures
+   than others?
+   3) Are certain services within hostgroups more vulnerable to
+   failures than others?
+   4) When failures happen, how long do they last and what does the
+   distribution of failure times look like?
+   5) Why should we use mon and not replace it with another
+   open-source or commercial monitoring package that has more
+   graphing/reporting features?
+
+dtquery was developed and tested on Solaris 7 (sparc). It should work
+on any UNIX that supports the underlying software (mon, perl, gd,
+gnuplot), basically, any system that can run mon and mon.cgi should
+also be capable of running dtquery.
+
+
+Installation Instructions
+------------------------------------------------------------
+1. You must have a working mon installation that is generating
+   downtime logs. See the mon documentation on how to specify this if
+   you haven't already (you must specify 'dtlogging = yes' and
+   'dtlogfile = /path/to/dtlogfile' in your mon.cf file). You will
+   also need a reasonable amount of downtime data in your logs in
+   order for this tool to generate significant value and produce
+   meaningful graphs. Download mon at:
+      ftp://ftp.kernel.org/pub/software/admin/mon/
+
+2. Although it's not strictly required, you should also install a new
+   version of mon.cgi, which is integrated into dtquery. mon.cgi is
+   available from the same location where you got mon, and includes
+   installation instructions:
+      http://www.nam-shub.com/files/
+
+3. Install zlib and libpng on your system, if they are not already
+   available. You may need to specify building shared libraries for some
+   architectures, we needed to specify building shared libraries for
+   libpng. Both png and zlib are available at:
+      ftp://ftp.uu.net/graphics/png
+
+4. Install a png-capable version of gd on your system. This includes
+   all recent versions of gd, we used v1.8.3 and that is what we
+   recommend. The gd graphics library is available from:
+	      http://www.boutell.com/gd/
+
+5. Make sure the requisite perl modules are installed. These modules
+   are all available from CPAN (http://www.cpan.org). You will need:
+      Mon::Client
+      Statistics::Descriptive
+      GD::Graph (requires GD, we used v1.4)
+   The remaining required modules (CGI, Time::Local, Carp) all come
+   with a standard perl5 build, but will also be available on CPAN.
+
+6. Make sure gnuplot is installed. gnuplot is available from
+   http://www.gnuplot.org/. We used v3.7.1, the latest version
+   available at the time of release. Make sure you build gnuplot with
+   png support (use the "--with-png" option during configure).
+
+7. Test gnuplot to verify that it is properly installed and can
+   output png files properly.
+# gnuplot
+gnuplot> set output '/tmp/test.png'
+gnuplot> set term png
+Terminal type set to 'png'
+Options are 'small monochrome'
+gnuplot> plot sin(x)
+gnuplot> exit
+   Now view the resulting image in a web browser or image-viewing program
+   to verify that the image is generated and that it looks like a sine
+   wave.
+
+8. Copy the dtquery.cgi script into your webserver's cgi-bin
+   directory. If you are running Apache, DO NOT RUN THIS SCRIPT UNDER
+   mod_perl, or else YOU WILL SUFFER SEVERE PERFORMANCE PENALTIES!
+   This is because dtquery.cgi forks off external gnuplot processes,
+   which under mod_perl, means that you are actually forking off an
+   entire httpd process to accomplish each fork.  Please see the
+   following URL for more information about why mod_perl is a bad idea
+   for dtquery.cgi:
+   http://perl.apache.org/guide/performance.html#Forking_and_Executing_Subprocess
+
+
+9. Edit the header portion of dtquery.cgi to reflect your mon
+   configuration and your organization's defaults. If you're
+   impatient, you can probably leave most of the settings alone, as
+   they are set to reasonable defaults. Note that by default, dtquery
+   is set up to query a live mon server for downtime log data (with
+   $main::dtlog_source == "mon") . You may very well wish to separate
+   the downtime log information onto a different machine, in this case
+   the "files" option would be used for $main::dtlog_source.
+
+
+
+Usage Instructions
+------------------------------------------------------------
+1. You will need a browser that supports Javascript. Netscape 4 and
+   IE5 were both tested and will work.
+
+2. Open up the dtquery web page in your browser. The page may take a
+   few moments to load, since it actually makes a query to the mon
+   server that you specified and retrieves all current groups,
+   services, and hosts. Select your query criteria and go! From there,
+   hopefully everything should be obvious. If it's not, then we did
+   something wrong. Let us know how we can improve!
+
+
+
+What You Can Learn About Your Downtime From The Graphs
+------------------------------------------------------------
+You can learn a lot about your downtime from the graphs generated. You
+can also learn nothing, there's no guarantees that trends will be
+apparent or that they will be apparent (or actual trends, and not just
+coincidences). Asking the right questions of your data is not always
+an easy task, and sometimes, there's just no clear answers. Trends
+will not always pop out at you. To help you get more out of the
+graphs, here's some hints.
+
+* Downtime by Hour of Day - Also known as "The Bar Code Graph", this
+  graph shows a binary representation of the state of the service. Red
+  means failure, white means OK. Unless your timeframe is very small
+  (1-2 days), or you have very few failures, it may be hard to get
+  much out of this graph. But it is very good at showing you date
+  ranges to dig deeper within.
+* Cumulative Downtime by Time of Day - This graph answers the question
+  "what time of day is this host/group/service spending the most
+  time in the failure state?"
+* Cumulative Downtime by Day of Week - This graph answers the question
+  "what day of the week is this host/group/service spending the most
+  time in the failure state?"
+* Failure Time Distribution - This graph shows you the exact
+  distribution of your failure times, in minutes, on a logarithmic
+  scale. It answers the questions "Are most of my failures short?
+  Long? Is there a discernible pattern?"
+* Cumulative Downtime by Service - This graph answers the question
+  "For a given group or groups, how is my downtime distributed among
+  various services?" For example, how much time has your HTTP service
+  failed relative to the ping service?
+* Cumulative Downtime by Group - This graph answers the question
+  "For a given service or services, how is my downtime distributed among
+  different hostgroups?" For example, which are the groups with the
+  most minutes spent in the failure state?
+
+
+
+Performance
+------------------------------------------------------------
+dtquery was not designed as a super high-performance application. It
+reads in downtime logs, which are flat text files. We have tested the
+application in development with large datasets (13000+ event downtime
+log) and it performs acceptably on a 333MHz Sparc Ultra-5 for most
+queries. The main factor in the running time is the number of results
+returned. Searching a 13000-event logfile, getting 600 matches, and
+operating on those is not a big deal (2-3 seconds), but returning
+13000 events will force dtquery to work hard for a good 30-40
+seconds. Probably most of this time is in the sorting.
+
+We haven't done any performance tuning or profiling of the code, so
+there are probably significant opportunities for performance
+improvements. We felt that for data sets significantly larger than
+what we are dealing with now, a database would definitely be the way
+to go. 
+
+
+
+Ongoing Maintenance
+------------------------------------------------------------
+One feature of the initial version of dtquery is that it does not
+clean up the graphs that it creates . This is so you can make graphs
+and then send the display URL to a colleague or post it on a web
+page. The current way things are, the URL that would be necessary to
+generate a graph would be really long and might not fit in a GET
+request, and would certainly be really ugly.
+
+The current way to deal with this is to implement a cron job that
+periodically cleans up the graph directory. For example:
+  # remove all files in the dtquery graph directory that have not been
+  # accessed for 14 days or more.
+  0 2 * * * /bin/find /tmp/dtquery-cache -atime +14 -exec /bin/rm {} \;
+
+In the future, we might:
+    1) Implement a cleanup job as part of dtquery itself. A small
+    overhead in processing for each request, but the cache is kept
+    relatively clean.
+    2) Stick with implementing cleanup as a cron job.
+    3) Shorten the query parameters, and allow the whole query to be
+    embedded in the URL in a reasonable way. The tradeoff is disk
+    storage vs. CPU utilization to generate the graphs.
+
+
+Credits
+------------------------------------------------------------
+The initial version of dtquery, including all Javascript and HTML
+coding, the query engine, and the presentation logic, were done by
+a colleague who wishes to remain anonymous, without her efforts, dtquery
+would not exist in any form. Graphing capabilities were added by
+Andrew Ryan (andrewr@mycfo.com). "Code Reuse" was done from Cricket
+(png spraying routines), Chart::Graph (gnuplot running routines), mon,
+mon.cgi, and our own internal trouble ticketing system.

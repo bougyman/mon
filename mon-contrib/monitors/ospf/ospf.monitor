@@ -1,0 +1,279 @@
+#!/usr/bin/perl
+#
+# Router ospf (Open Shortest Path First) monitor
+# Look at each router and get the status of all OSPF neighbors.
+# Look at each router and get the status of all OSPF interfaces.
+# Issue alarm if any interfaces configured for neighbors do not
+#   have a full adjacencies (but fails for point-to-point state)
+# Try to match OSPF neighbors to their interfaces
+# Issue alarm for any interface that does not have at least one neighbor
+#  (i.e. kludge to catch point-to-point state problem)
+# Detail log shows status of all enabled OSPF interfaces.
+
+# Usage:
+#     ospf.monitor [--exclude pattern] [--community str] router1 [...]
+#
+# --exclude - don't alarm for IP addresses that match <pattern>.  Periods
+# in the IP address will be escaped so that they only match periods.  Use
+# [0-9] or the like if you need character class matching.  Use 'ip|ip|ip'
+# to exclude multiple peers.
+#
+# --community - SNMPv1 community name to use.  But it's more secure
+# to pass the community in via the environment variable COMMUNITY.
+
+
+#
+# Edit history below
+# Version 0.1
+# 
+# By Ed Ravin <eravin@panix.com>  This code is made available courtesy of
+# PANIX http://www.panix.com.
+# Copyright 2005, by Ed Ravin
+#
+# License: GNU GPL v2, see http://www.gnu.org/copyleft/gpl.html
+#
+# Loosely based on bgp.monitor which is:
+###   Copyright 2002, by Marc Hauswirth, Safe Host SA <marc@safehostnet.com>
+###
+### Some inspiration is taked from others mon monitors and from
+### routerinfo.pl by Ben Buxton (bb@zipworld.net), also under GPL, see http://www.zipworld.com.au/~bb/linux/
+### and from routerint.monitor by P. Strauss (philou@philou.ch) and me self (marc@safehostnet.com).
+###
+
+# This script need the SNMP Session module from Simon Leinen <simon@switch.ch>
+#   Which you could found under http://www.switch.ch/misc/leinen/snmp/perl/
+#   It is also part of MRTG (http://people.ee.ethz.ch/~oetiker/webtools/mrtg/)
+
+use SNMP;
+use SNMP_Session;
+use Getopt::Long;
+use strict;
+
+my %opt;
+
+$opt{'community'}= undef;
+$opt{'exclude'}= "";
+$opt{'debug'}= undef;
+my $usage="Usage: [COMMUNITY=str] ospf.monitor [--exclude regexp] [--community str] [--timeout usecs] [--version N] [--retries nn] [--neighbormin N] router [...]\n";
+GetOptions(\%opt, "exclude=s", "community=s", "timeout=i", "version=i", "retries=i", "debug", "neighbormin=i") or die $usage;
+
+# It's highly unlikely someone wants dots in an IP address to be treated
+# as a regexp pattern, so we'll escape them to make behavior more predictable.
+# If you really want to use pattern matching, use a character class like
+# [0-9] instead.
+$opt{exclude} =~ s/\./\\./g;
+$opt{exclude}= '^(' . $opt{exclude} . ')';
+$opt{exclude}= "NOT_USED" if $opt{exclude} eq "^()";
+
+
+## --
+my $community = $opt{'community'} || $ENV{'COMMUNITY'} || "public";
+my $timeout= $opt{'timeout'} || 5000000;
+my $retries= $opt{'retries'} || 3;
+my $version= $opt{'version'} || 1;
+my $neighbormin= $opt{'neighbormin'} || 0;
+
+## --
+
+my @failures;
+my @details;
+
+$ENV{'MIBS'}= ""; # all OIDs needed are specified in script
+
+# OID's to the SNMP elements that I want to show...
+# From Cisco's MIB and RFC's
+# http://sunsite.cnlab-switch.ch/ftp/doc/standard/rfc/16xx/1657
+# http://www.telecomm.uh.edu/stats/rfc/BGP4-MIB.html
+
+my %oids = ( 
+	"SysUptime"			=>	"1.3.6.1.2.1.1.3.0",
+	"ifDescr"			=>	"1.3.6.1.2.1.2.2.1.2",
+	"ipAdEntNetMask"	=>  "1.3.6.1.2.1.4.20.1.3" ,
+	"ospfRouterId"			=>	"1.3.6.1.2.1.14.1.1" ,
+	"ospfIfIpAddress"		=>	"1.3.6.1.2.1.14.7.1.1" ,
+	"ospfAddressLessIf"		=>	"1.3.6.1.2.1.14.7.1.2" ,
+	"ospfIfAdminStat"		=>	"1.3.6.1.2.1.14.7.1.5" ,
+	"ospfIfState"			=>	"1.3.6.1.2.1.14.7.1.12" ,
+	"ospfNbrState"			=>  "1.3.6.1.2.1.14.10.1.6" ,
+	);
+
+
+my %ospfIfStates = (
+	1 => "down",
+	2 => "loopback",
+	3 => "waiting",
+	4 => "pointToPoint",
+	5 => "designatedRouter",
+	6 => "backupDesignatedRouter",
+	7 => "otherDesignatedRouter",
+	);
+
+my %ospfNbrStates = (
+	1 => "down",
+	2 => "attempt",
+	3 => "init",
+	4 => "twoWay",
+	5 => "exchangeStart",
+	6 => "exchange",
+	7 => "loading",
+	8 => "full",
+	);
+
+
+my %ospfAdminStatus = (
+	1 => "enabled",
+	2 => "disabled",
+	);
+
+
+use vars qw($router);
+
+sub snmpget1 # session, oid-hashstr, instance
+{
+	my $session= shift;
+	my $oidstr= shift;
+	my $instance = shift;
+	my $result= $session->get(".$oids{$oidstr}.$instance");
+
+	if ($session->{ErrorNum})
+	{
+		push @failures, $router;
+		push @details, "$router: error on SNMP get of $oidstr/$oids{$oidstr}.$instance: $session->{ErrorStr}";
+		return 0;
+	}
+	return $result;
+}
+
+sub ip2val  # octet string
+{
+		my @octets= split('\.', $_[0]);
+		pop @octets if @octets == 5;  # dump the .0, if it exists
+		die "$0: ip2val: bad input, expected 4 octets got " . scalar @octets unless @octets == 4;
+		my $maskval= 0;
+		map {$maskval= ($maskval << 8) | $_} @octets;
+		return $maskval;
+}
+
+sub i2ip # drop instance number from IP value
+{
+	return substr($_[0], 0, -2);
+}
+
+
+# MAIN
+
+foreach $router (@ARGV) {
+	# Get some infos about this router
+	my $vars;
+	my $sess = new SNMP::Session (
+		DestHost => $router,
+		Community => $community,
+		Version=> $version,
+		Timeout=> $timeout,
+		Retries=> $retries,
+	);
+	if (!defined($sess))
+	{
+		push @failures, $router;
+		next;
+	}
+	
+	my $ospfRouterID = snmpget1($sess, "ospfRouterId", "0") || next;
+	
+	push @details, "$router (Router-ID $ospfRouterID)";
+
+	my %ospfNeighbors;
+
+	# Discover all active OSPF neighbors, and their states
+	$vars  = new SNMP::VarList([$oids{ospfNbrState}]);
+	for (my @vals= $sess->getnext($vars);
+			$vars->[0]->tag =~ /1\.3\.6\.1\.2\.1\.14\.10\.1\.6/       # still in table (Did you have a cleaner solutions ?)
+			and 
+			not $sess->{ErrorStr};          # and not end of mib or other error
+			@vals = $sess->getnext($vars))
+		{
+			# trim down OID to keep just the interface part
+			my $neighbor= $vars->[0]->tag;
+			$neighbor =~ s/^\.$oids{ospfNbrState}\.//;
+			$ospfNeighbors{$neighbor}= $ospfNbrStates{$vals[0]};
+		}
+
+	# Find the indexes of the interfaces with OSPF enabled
+	my @ospfinterfaces;
+
+	$vars  = new SNMP::VarList([$oids{ospfIfAdminStat}]);
+	for (my @vals = $sess->getnext($vars);
+			$vars->[0]->tag =~ /1\.3\.6\.1\.2\.1\.14\.7\.1\.5/       # still in table (Did you have a cleaner solutions ?)
+			and 
+			not $sess->{ErrorStr};          # and not end of mib or other error
+			@vals = $sess->getnext($vars))
+		{
+			
+			my $textIfAdminStatus = $ospfAdminStatus{$vals[0]};
+			push  @ospfinterfaces, $vars->[0]->tag
+				if $textIfAdminStatus eq "enabled";
+		}
+	# trim down OID to keep just the interface part, which we will use
+	# shortly as an instance ID
+	map {s/^\.$oids{ospfIfAdminStat}\.//} @ospfinterfaces;
+
+	foreach my $int (@ospfinterfaces)
+	{
+		my $ifstate = snmpget1($sess, "ospfIfState", "$int");
+		my $ifinfo= $int; 
+
+		if ($int =~ /0\.0\.0\.0\.(\d+)$/) {
+			my $ifindex= $1;
+			$ifinfo= snmpget1($sess, "ifDescr", $ifindex) . " (.$ifindex)";
+		}
+		push @details, sprintf("$router:  Interface %-15s %-15s", i2ip($ifinfo), $ospfIfStates{$ifstate});
+
+		# if ospfIfState not in [4..7] (OSPF full adjacency states)
+		if ($ifstate < 4 or $ifstate > 7) {
+			push @failures, $router unless $int =~ /$opt{exclude}\b/ or grep(/^$router$/, @failures);
+			$details[$#details] .= "  [NO ADJACENCY]";
+		} else {
+		# try to find the active neighbors for this interface by
+		# using the interface's netmask.
+			my $ifip= $ifinfo;
+			$ifip =~ s/\.0$//;  # drop that annoying .0
+			my $ipmask= ip2val(snmpget1($sess, "ipAdEntNetMask", $ifip));
+			my $neighborcount= 0;
+			foreach my $nabe (keys %ospfNeighbors) {
+				if ( (ip2val($nabe) & $ipmask) == (ip2val($ifip) & $ipmask) )
+				{
+					push @details, sprintf("$router:  Interface %-15s neighbor %-15s state %s", i2ip($ifinfo), i2ip($nabe), $ospfNeighbors{$nabe});
+					$neighborcount++;
+				}
+			}
+			if ($neighborcount == 0) {
+				# no neighbor found for this interface, issue a warning
+				push @failures, $router unless $int =~ /$opt{exclude}\b/ or grep(/^$router$/, @failures);
+				push @details, sprintf("$router: Interface %-15s [NO NEIGHBOR]", i2ip($ifinfo));
+			}
+		}
+	}
+	my $totalneighbors= scalar(keys %ospfNeighbors);
+	if ($totalneighbors < $neighbormin) {
+		push @failures, $router;
+		push @details, "$router: ALARM: Less than $neighbormin neighbors: only $totalneighbors found";
+	}
+}
+
+
+if (@failures) {
+	print join(' ', @failures), "\n";
+};
+if (@details) {
+	print "\n";
+	print join("\n", @details), "\n";
+}
+
+if (@failures) {
+	# Error state exit
+	exit 1;
+} else {
+	# Correct exit
+	exit 0;
+};
+

@@ -1,0 +1,157 @@
+#!/usr/bin/perl
+#
+# This script will search an LDAP server for objects that match the -filter
+# option, starting at the DN given by the -basedn option. Each DN found must
+# contain the attribute given by the -attribute option and the attribute's
+# value must match the value given by the -value option.  Servers are given on
+# the command line. At least one server must be specified.
+
+# This script use the Net::LDAP, which uses some LDAP libraries like those
+# from UMich, Netscape, or ISODE.
+#
+# Porting to LDAP (from LDAPapi) by Thomas Quinot <thomas@cuivre.fr.eu.org>,
+# 1999-09-20.
+
+# Copyright (C) 1998, David Eckelkamp <davide@tradewave.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+# $Id: ldap.monitor,v 1.1.1.1 2004/06/09 05:18:04 trockij Exp $
+#
+
+use Net::LDAP;
+use Getopt::Long;
+
+# Here are the default values for the things you can specify via options
+$LDAPPort = 389;
+$BaseDN   = "o=Your Org, c=US";
+$Filter   = "cn=Directory Admin";
+$Attribute = "objectClass";
+$Value    = "YourValue";
+$verbose = 0;
+
+@errs = ();
+
+%OptVars = ("port"   => \$LDAPPort,
+	    "basedn" => \$BaseDN,
+	    "filter" => \$Filter,
+	    "attribute" => \$Attribute,
+	    "value"  => \$Value,
+	    "verbose" => \$verbose);
+
+if (!GetOptions(\%OptVars,
+		"port=i", "basedn=s", "filter=s",
+		"attribute=s", "value=s", "verbose")) {
+    print "Problems with Options, sorry.\n";
+    exit 1;
+}
+
+# There has to be at least one argument left, the ldap server to query.
+if ($#ARGV < 0) {
+    print "$0: Insufficient arguments. There must be at least 1 server to query\n";
+    exit 1;
+}
+
+# Loop through all the server given on the command line.
+$ErrCnt = 0;
+foreach $LDAPHost (@ARGV) {
+
+    # Open the connection to the server and do a simple, anonymous bind
+    unless ($ldap = Net::LDAP->new($LDAPHost, port => $LDAPPort)) {
+	push(@FailedHosts, "$LDAPHost:$LDAPPort");
+	push(@errs, "ldap_init Failed: host=$LDAPHost:$LDAPPort: $!");
+	$ErrCnt++;
+	next;
+    }
+
+    unless ($ldap->bind) {
+	$ErrCnt++;
+	push(@FailedHosts, "$LDAPHost:$LDAPPort");
+	#ldap_perror($ldap, "ldap bind failed: host=$LDAPHost:$LDAPPort\n");
+	push(@errs, "ldap bind failed: host=$LDAPHost:$LDAPPort");
+	next;
+    }
+
+    unless ($mesg = $ldap->search(base => $BaseDN, filter => $Filter)) {
+	my($errnd, $extramsg, $err);
+	push(@errs, "$LDAPHost " . $mesg->error);
+	$ldap->unbind;
+	push(@FailedHosts, "$LDAPHost:$LDAPPort");
+	$ErrCnt++;
+	next;
+    }
+
+    $nentries = 0;
+    foreach $entry ($mesg->entries) {
+        my $dn = $entry->dn;
+	$nentries++;
+        foreach $attr ($entry->attributes) {
+            $record{$dn}->{$attr} = [$entry->get ($attr)];
+        }
+    }
+
+    $ldap->unbind;
+
+    if ($nentries == 0) {
+	push(@errs, "$LDAPHost returned no entries");
+	push(@FailedHosts, "$LDAPHost:$LDAPPort");
+	$ErrCnt++;
+	next;
+    }
+
+    # Analyze results.
+
+    # Step 1 is to loop through all DNs returned from the search.
+    print "Looking for $Attribute=$Value\n" if $verbose;
+    foreach $dn (sort keys %record) {
+	print "checking object $dn\n" if $verbose;
+	# Loop through the attributes for this DN
+	$attrFound = 0;
+	$goodVal = 0;
+	foreach $attr (keys %{$record{$dn}}) {
+	    print "  checking attr=$attr\n" if $verbose;
+	    next unless ($attr eq $Attribute);
+	    $attrFound++;
+	    print "  found correct attribute\n" if $verbose;
+	    # Each value could be/is an array so search the array
+	    foreach $val (@{$record{$dn}{$attr}}) {
+		print "    checking val = $val\n" if $verbose;
+		next unless ($val eq $Value);
+		$goodVal++;
+		print "    found correct value\n" if $verbose;
+		last;
+	    }
+	    last if ($goodVal);
+	}
+	if (!$attrFound || !$goodVal) {
+	    print "For object $dn:\n";
+	}
+	if (!$attrFound) {
+	    $ErrCnt++;
+	    push(@errs,"Could not find Attribute \"$Attribute\" for DN=$dn");
+	    push(@FailedHosts, "$LDAPHost:$LDAPPort");
+	} elsif (!$goodVal) {
+	    $ErrCnt++;
+	    push(@errs, "Value \"$Value\" not found for Attribute \"$Attribute\"");
+	    push(@FailedHosts, "$LDAPHost:$LDAPPort");
+	}
+    }
+}
+if ($ErrCnt > 0) {
+    print join (" ", sort @FailedHosts), "\n";
+    print join("\n", @errs), "\n";
+}
+exit $ErrCnt;

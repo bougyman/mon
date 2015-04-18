@@ -1,0 +1,9 @@
+#
+# $Name:  $
+#
+
+KNOWN PROBLEMS in $Name:  $
+------------------------------
+
+clients/skymon has not yet been updated to work with the new Mon::Client
+API.

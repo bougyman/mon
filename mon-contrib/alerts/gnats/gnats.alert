@@ -1,0 +1,136 @@
+#!/usr/bin/perl
+#
+# gnats.alert - gnats alert for mon to open tickets in gnats
+#
+# version 0.1
+#
+# todo:
+#    how to close tickets with an up.alert?
+#
+# Ted Serreyn, ted@serreyn.com
+#
+#    Copyright (C) 2002, Ted Serreyn
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#  gnats.alert -S summary -c category gnatsmailaddress
+# 
+# we duplicate what send-pr does, filling in appropriate fields
+#
+# need submitter id (from your gnats config) and category (send-pr -L to see list)
+#
+#
+# CHANGE THESE for your site
+#
+# see manpage for send-pr for what these values are for
+# default submitter id
+$SubmitterId = "mysubmitterid";
+# originator
+$Originator = "Mon Network Monitor";
+$Organization = "My Organization";
+$Class = "support";
+# email from backslash escape @ symbol
+$FromAddress = "mon\@mydomain.com";
+
+use Getopt::Std;
+use Text::Wrap;
+
+getopts ("S:s:c:p:g:h:t:l:u");
+
+$summary=<STDIN>;
+chomp $summary;
+
+$summary = $opt_S if (defined $opt_S);
+if (defined $opt_c) {
+  $category = $opt_c;
+} else {
+  # use this as default category
+  $category = "test";
+}
+
+if (defined $opt_p) {
+  $priority = $opt_p;
+} else {
+  # use this as default priority low,medium,high are options
+  $priority = "low";
+}
+
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+$ToAddress = join (',', @ARGV);
+
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+open (MAIL, "| /usr/lib/sendmail -oi -t") ||
+    die "could not open pipe to mail: $!\n";
+print MAIL <<EOF;
+To: $ToAddress
+Subject: $ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)
+From: $FromAddress
+Reply-To:
+Cc:
+X-Mailer: $0
+X-GNATS-Notify:
+
+EOF
+
+print MAIL wrap ("", "", "Summary output        : $summary"), "\n";
+
+print MAIL <<EOF;
+
+>Submitter-Id: $SubmitterId
+>Originator: $Originator
+>Organization: $Organization
+>Confidential: no
+>Synopsis: $summary
+>Severity: serious
+>Priority: $priority
+>Category: $category
+>Class: support
+>Release:	unknown-1.0
+>System:
+>Architechture:
+>Description:
+
+Group                 : $opt_g
+Service               : $opt_s
+Time noticed          : $t
+Secs until next alert : $opt_l
+EOF
+
+print MAIL wrap ("", "\t\t\t", "Members               : $opt_h"), "\n";
+
+print MAIL <<EOF;
+
+Detailed text (if any) follows:
+-------------------------------
+EOF
+
+#
+# The remaining lines normally contain more detailed information,
+# but this is monitor-dependent.
+#
+while (<STDIN>) {
+    print MAIL;
+}
+
+print MAIL <<EOF;
+>How-To-Repeat:
+
+>Fix:
+EOF
+
+close (MAIL);

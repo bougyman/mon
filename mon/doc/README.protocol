@@ -1,0 +1,177 @@
+$Id: README.protocol,v 1.2 2005/07/31 17:02:38 vitroth Exp $
+
+MON PROTOCOL
+------------
+
+The client/server protocol for mon works like this:
+
+The server listens on TCP port 2583, which has been assigned by IANA.
+
+In the following, a "line" is a sequence of ASCII text, terminated with
+a newline (0A in hexadecimal).
+
+A request submitted by the client is a single line.  Only one request
+per line is permitted. Any number of requests per session is permitted.
+The client indicates the end of requests by sending a "quit" request.
+
+The reply to a request is zero or more lines lines.  The end of the
+reply is terminated with a positive or negative acknowledgement line.
+The positive acks match this regular expression:
+
+^2[0-9][0-9] .*$
+
+Negative acks match this expression:
+
+^5[0-9][0-9] .*$
+
+Characters trailing the leading integer are a comment which summarizes
+the success or failure.
+
+The actual value of the leading integer is not meaningful except to
+indicate success (200-299) or failure (500-599).
+
+An example session follows:
+
+(client connects to port 2583)
+Client: list state
+Server: scheduler running
+Server: 220 list state completed
+Client: list xyzzy
+Server: 520 unknown list command
+Client: list watch
+Server: group1 service1
+Server: group1 service2
+Server: group2 service1
+Server: 220 list watch completed
+Client: quit
+Server: 220 quitting
+(server and client terminate tcp session)
+
+If no requests are received from the client in a given amount of time
+(configurable on the server), then the server will timeout the connection
+and hang up on it.
+
+The following are the valid requests and replies implemented in
+mon-0.99.2, as defined in the "client_command" routine. A command is
+indicated by the word itself, required arguments are surrounded by {},
+and optional arguments are surrounded by []. Case is not significant
+for the commands themselves, but may be significant for their arguments.
+
+quit
+    Terminate connection with server. The server sends a "220" response then
+    terminates the TCP session.
+
+protid {version}
+    Report whether or not the protocol version matches the server's protocol
+    version. Returns 520 nack on failure, or 220 ack on success. As far as I
+    know, nothing uses this command.
+
+login {user} {pass}
+    Attempts to log in the "user" with password "pass".  This is required if
+    user authentication is specified in the server's auth.cf file.
+
+reset [stopped] [keepstate]
+    Aborts all currently running monitors, re-reads the server's configuration
+    file, and reinitializes the state of all monitoring.  If "stopped" is
+    specified, stops the scheduler before the reload. If "keepstate" is
+    specified, then the state of the disabled list is reinstated after the
+    reset.
+
+reload auth
+    Reloads the auth.cf file.
+
+clear timers {group} {service}
+    Resets all timers associated with a service. This includes the interval
+    counter, traptimeout, trapduration, last alert, consecutive failures, and
+    alertafterival.
+
+test monitor {group} {service}
+
+test alert {group} {service} {retval} {period}
+
+test startupalert {group} {service} {retval} {period}
+
+test upalert {group} {service} {retval} {period}
+
+test config
+
+version
+
+loadstate disabled
+
+savestate disabled
+
+savestate opstatus
+
+term
+
+stop
+
+start
+
+set maxkeep {num}
+
+set {group} {service} {variable} {value}
+
+setview {view}
+
+getview
+
+get maxkeep
+
+get {group} {service} {variable}
+
+list descriptions
+
+list group {group}
+
+list opstatus
+
+list opstatus {group,service} [group,service ...]
+
+list disabled
+
+list alerthist
+
+list failures
+
+list failurehist
+
+list successes
+
+list warnings
+
+list pids
+
+list watch
+
+list state
+
+list aliases
+
+list aliasgroups
+
+list deps
+
+list dtlog
+
+list views
+
+ack {group} {service} {comment}
+
+disable watch {group}
+
+disable service {group} {service}
+
+disable host {host [host ...]}
+
+enable watch {group}
+
+enable service {group} {service}
+
+enable host {host [host ...]}
+
+servertime
+
+checkauth {cmd}
+

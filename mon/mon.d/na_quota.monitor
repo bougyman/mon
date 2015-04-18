@@ -1,0 +1,433 @@
+#!/usr/bin/perl -w
+#
+# "mon" monitor to detect quotas near their limits on Network Appliance
+# filers using SNMP
+# 
+# Originally by Jim Trocki
+# Updated by Theo Van Dinter (tvd@colltech.com, felicity@kluge.net) (c) 2001
+# $Id: na_quota.monitor,v 1.1.1.1 2004/06/09 05:18:04 trockij Exp $
+# 
+# Invoke from mon via:
+# monitor na_quota.monitor [-c snmp community] [-f configuration file] ;;
+# 
+# This script uses a configuration file to determine the alert points and
+# which filers to probe.  The configuration file format is as follows:
+# 		filer_name type volume name size_diff files_diff
+# 
+# filer_name	= hostname of a filer (ie: toaster)
+# type		= quota type, either tree or user
+# volume	= the volume to check, can be "*" to set the default
+# name		= the name of the qtree, can be "*" to set the default
+# size_diff	= the amount of free space available to cause an alert.
+# 		  "# [kmgt]b", "#.# [kmgt]b", "#" (assumes KB), or "#%"
+# files_diff	= the number of files available to cause an alert.
+# 		  "#" or "#%"
+# 
+# For values with whitespace, enclose in quotes.  (ie: "30 KB")
+# Use "-" for no alert, files_diff can be left off if unused.
+# Either size_diff or files_diff must be defined ("-" for both isn't allowed).
+# Volume and Name can be "*" for "all".  It will be overridden as appropriate:
+# i.e.:	toaster tree vol0 *   20%	# default all trees in vol0 to 20%
+# 	toaster tree vol0 foo 10%	# vol0 tree foo will use 10% instead
+# 	toaster tree vol0 bar 1GB	# vol0 tree bar will use 1GB instead
+# 	toaster tree vol0 baz 0		# vol0 tree baz will only alert when
+# 					# size used == size limit
+# 
+# Alerts occur when the used space/files is within "size_diff" or
+# "files_diff" from the limit.  So if a size limit is at 100KB and used
+# is 80KB, the free space is 20KB or 20%.  An alert will occur if the
+# size_diff is >= 20KB or >=20%.  Note: The percentage is a rounded
+# integer, so 10% actually means 9.5 - 10.4% or below 10.4%...
+# 
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+use SNMP;
+use strict;
+use Getopt::Std;
+use Text::ParseWords;
+use vars qw/ $opt_f $opt_c $host %failures /;
+
+$|++;
+$ENV{"MIBS"} = "NETWORK-APPLIANCE-MIB";	# We need the NetApp MIB loaded ...
+
+getopts ('c:f:');
+$opt_f ||= "/usr/lib/mon/na_quota.cf"; 	# Configuration File
+$opt_c ||= "public";			# Community
+
+my $CONF = read_cf($opt_f);
+die "error reading config file $opt_f: $CONF\n" unless ( ref $CONF );
+
+# Go through each specified host
+foreach $host (@ARGV) {
+	if (!defined $CONF->{$host}) {
+	    $failures{$host} = "$host specified on the command line but not defined in $opt_f";
+	    next;
+	}
+
+	my $q = retrieve_quotas ($host, $opt_c); # Grab the quotas from $host
+
+	# If $q isn't a reference, it's an error string.
+	unless (ref $q) {
+		$failures{$host} = "could not retrieve quotas from $host: $q";
+		next;
+	}
+
+	# Check for user quotas, then tree quotas.
+	foreach ( "user", "tree" ) {
+		my $fails = quota_check($host,$_,$CONF,$q);
+		@failures{keys %{$fails}} = values %{$fails} if ( defined $fails );
+	}
+}
+
+# Display failures if there were any, then exit with 0 or 1 appropriately.
+my $retval = 0;
+if (defined %failures) {
+	print join("\n",join(" ",sort keys %failures),"",values %failures,"");
+	$retval = 1;
+}
+
+exit $retval;
+
+
+# Read in the configuration file
+#
+# Input : Path to the configuration file
+# Output: Hash reference of the configuration
+#  $ref->{filer_name}->{quota_type}->{volume}->{quota_name}->{"files" or "size"} = diff
+#
+sub read_cf {
+	my $cf = shift;
+	my $error = undef;
+	my($filer,$type,$user,$path);
+	my $CONF = undef;
+
+	# Open the configuration file or return the error string
+	open(CF, "<$cf") || return $!;
+
+	while (defined($_=<CF>)) {
+		chomp;
+		s/\s*#.*$//;		# kill comments
+		s/^\s*//; s/\s*$//;	# get rid of pre-suff whitespace
+		next unless /\S/;	# skip blank lines
+
+		# Use quotewords to allow for quotas with spaces, etc.
+		my($filer,$type,$volume,$name,$size,$files) = &quotewords('\s+',0,$_);
+
+		# Allow "-" to mean undefined.
+		$size = undef if ( defined $size and $size eq "-" );
+		$files = undef if ( defined $files and $files eq "-" );
+
+		unless ( defined $filer && $filer =~ /^[a-z0-9_.-]+$/i ) {
+			$error = "invalid filer name specified, $filer, line $.";
+			last;
+		}
+		unless ( defined $type && $type =~ /^(tree|user)$/i ) {
+			$error = "invalid quota type specified, $type, line $.";
+			last;
+		}
+		unless ( defined $volume && ( $volume eq "*" ||
+				$volume =~ /^[_a-z][_a-z0-9]*$/i ) ) {
+			$error = "invalid volume specified, $volume, line $.";
+			last;
+		}
+		unless ( defined $name ) {
+			$error = "invalid name specified, $name, line $.";
+			last;
+		}
+		unless ( defined $size || defined $files ) {
+			$error = "invalid line, no size_quota or file_quota, line $.";
+			last;
+		}
+
+		# Convert the filer and type to lowercase, the rest are case-sensitive
+		$filer = lc $filer;
+		$type = lc $type;
+
+		# If we have a KB limit and it's a valid limit ...
+		if ( defined $size && defined($size = to_kb($size)) ) {
+			$CONF->{$filer}->{$type}->{$volume}->{$name}->{"size"} = $size;
+		}
+		elsif ( defined $size ) {
+			$error = "invalid size specification, $size, line $.";
+			last;
+		}
+
+		# If we have a file limit and it's a valid limit ...
+		if ( defined $files && $files =~ /^\d+\s*\%?$/ ) {
+			$CONF->{$filer}->{$type}->{$volume}->{$name}->{"files"} = $files;
+		}
+		elsif ( defined $files ) {
+			$error = "invalid files specification, $files, line $.";
+			last;
+		}
+	}
+
+	close (CF);
+
+	# Return either the configuration HASH or the error string.
+	return ( defined $error ) ? $error : $CONF;
+}
+
+# Convert given units to KB
+# 
+# Input : Scalar value that is one of the following:
+# 	"# xB" (x=[kmgt]), "#" (assume KB), or "#%"
+# Output: integer "#" in KB or "#%" (passthru)
+#
+sub to_kb {
+	my $value = shift;
+	my ($num, $unit);
+
+	if ($value =~ /^(\d+(?:\.\d+)?)\s*([kmgt])b$/i) {	# "# xB"
+		($num, $unit) = ($1, lc $2);
+	} elsif ( $value =~ /^\d+\s*\%?$/ ) {			# "#%" or "#" (assume KB)
+		return $value;
+	} else {						# who knows?  error out.
+		return undef;
+	}
+
+	# Figure out the prefix xB -> KB conversion ratio.  Leave as KB by default.
+	my $mval = ($unit eq "m") ? 1024 : ($unit eq "g") ? 1048576 : 
+			($unit eq "t") ? 1073741824 : 1;
+	return (int ($num*$mval));
+}
+
+# Convert given # of KB into a more displayable string (MB, GB, etc.)
+# 
+# Input : Scalar value of KB.  Any non-numeric chars are stripped out.
+# Output: String in the format "#.##xB" where x is [KMGT].  ie: 10 becomes "10KB".
+# 
+sub from_kb {
+	my $value = shift;
+	my @prefix = qw/ T G M K /;
+	my $index = $#prefix;
+
+	return undef unless defined $value;
+
+	$value =~ tr/0-9//cd; # we only handle numbers (KB)
+	while ( $value > 1024 && $index >= 0 ) { # Run until we can't go any further!
+		$index--;
+		$value /= 1024;
+	}
+	return sprintf "%.2f%sB", $value, $prefix[$index]; # Return the formatted string
+}
+
+# Retrieve the quota information from the NetApp via SNMP.
+#
+# Input : Hostname and SNMP Community (defaults to public)
+# Output: Hash reference of the quota information
+#  $ref->{"user"}->{volume}->{username or uid}->{info} = value
+#  $ref->{"tree"}->{volume}->{tree_name}->{info} = value
+#  where info is: "qrVKBytesUsed", "qrVKBytesLimit", "qrVFilesUsed", "qrVFileLimit"
+#
+sub retrieve_quotas {
+	my $host = shift;			# Hostname
+	my $community = shift || "public";	# SNMP Community, "public" by default
+	my $quotas = undef;			# Hash of quota information
+	my %volnames = ();			# Hash of volume names for reference
+
+	# Establish the SNMP session if possible.
+	my $s = new SNMP::Session (
+		DestHost => $host,
+		Community => $community || "public",
+		"Version" => 2,
+		UseEnums => 1,
+	);
+	if (!defined $s) { return "could not create SNMP session" }
+
+	# Map volume numbers to names for use later on
+	my $v = new SNMP::Varbind (["qvStateVolume"]);
+	$s->getnext ($v);
+	while (!$s->{"ErrorStr"} && $v->tag eq "qvStateVolume") {
+		my @q = $s->get ([
+			["qvStateVolume", $v->iid],
+			["qvStateName", $v->iid],
+		]);
+		last if ($s->{"ErrorStr"});
+		$volnames{$q[0]} = $q[1];
+		$s->getnext ($v);
+	}
+	if ($s->{"ErrorStr"}) {
+		return $s->{"ErrorStr"};
+	}
+
+	# Get the quota information
+	$v = new SNMP::Varbind (["qrVIndex"]);
+	$s->getnext ($v);
+	while (!$s->{"ErrorStr"} && $v->tag eq "qrVIndex") { # go through each qrVIndex
+		my @q = $s->get ([
+			["qrVType", $v->iid],
+			["qrVId", $v->iid],
+			["qrVKBytesUsed", $v->iid],
+			["qrVKBytesLimit", $v->iid],
+			["qrVFilesUsed", $v->iid],
+			["qrVFileLimit", $v->iid],
+			["qrVPathName", $v->iid],
+			["qrVVolume", $v->iid],
+			["qrVTree", $v->iid],
+		]);
+
+		last if ($s->{"ErrorStr"}); # exit if there's a problem
+
+		# Skip the crap quotas...
+		if ( $q[0] ne "qrVTypeUnknown" && $q[0] ne "qrVTypeUserDefault" ) {
+			# Turn qrVTypeUser and qrVTypeTree into "user" and "tree"
+			if ( $q[0] =~ /^qrVType(User|Tree)$/ ) {
+				$q[0] =~ s/^.+(User|Tree)$/\L$1/;
+			}
+			else {
+				return "Unknown quota type ($q[0]) returned from filer!";
+			}
+
+			# Map volume number to volume name
+			$q[7] = $volnames{$q[7]};
+
+			# Map UID to Username if possible, use the system ...
+			if ($q[0] eq "user"){
+				my($user) = (getpwuid($q[1]))[0];
+				$q[1] = $user if defined $user;
+			}
+
+			# Setup hash of quotas.  type -> vol -> name -> key = value
+			my $id = ( $q[0] eq "user" ) ? $q[1] : $q[8];
+			$quotas->{$q[0]}->{$q[7]}->{$id}->{"qrVKBytesUsed"} = $q[2];
+			$quotas->{$q[0]}->{$q[7]}->{$id}->{"qrVKBytesLimit"} = $q[3];
+			$quotas->{$q[0]}->{$q[7]}->{$id}->{"qrVFilesUsed"} = $q[4];
+			$quotas->{$q[0]}->{$q[7]}->{$id}->{"qrVFilesLimit"} = $q[5];
+		}
+
+		$s->getnext ($v); # go on to the next one
+	}
+
+	# If we errored out, return the error.  Otherwise return the hash reference.
+	return ( $s->{"ErrorStr"} ) ? $s->{"ErrorStr"} : $quotas;
+}
+
+# This subroutine will check both tree and user quotas.  Note: It's fairly nasty. <grrr>
+# It was much much worse at one point, but it's a bit cleaner now.  There's one routine
+# to handle both the tree and user quotas now instead of one for each type (size/files).
+#
+# Input : hostname, type (user|files), configuration hash ref, quota information hash ref
+# Output: hash reference of failures, or undef if there are no failures.
+#
+sub quota_check {
+	my($host,$type,$CONF,$q) = @_;
+	my $failures = undef;
+	my $actvolume;
+
+	# sort by volume name (unnecessary, but (*) needs to be last...)
+	foreach $actvolume ( sort {
+			 ($a eq "*")?1:($b eq "*")?-1:$a cmp $b;
+			} keys %{$CONF->{$host}->{$type}} ) {
+		my $names = $CONF->{$host}->{$type}->{$actvolume};
+		my @volumes = ();
+		my $done = ();
+
+		# Generate the appropriate volume list
+		if ( $actvolume eq "*" ) {
+			@volumes = grep(!exists $done->{$host}->{$type}->{$_},
+				keys %{$q->{$type}});
+		}
+		else {
+			@volumes = ( $actvolume );
+		}
+
+		my $volume;
+		foreach $volume ( @volumes ) {
+			my $actname;
+
+			# sort by name (unnecessary, but (*) needs to be last...)
+			foreach $actname ( sort {
+				 	($a eq "*")?1:($b eq "*")?-1:$a cmp $b;
+					} keys %{$names} ) {
+				my $qtype = $names->{$actname}; # quota information
+				my @names = ();
+
+				# Generate the appropriate quota name list
+				if ( $actname eq "*" ) {
+					@names = grep(!exists $done->{$host}->{$type}->{$volume}->{$_},
+						keys %{$q->{$type}->{$volume}});
+				}
+				else {
+					@names = ( $actname );
+				}
+
+				my $name;
+				foreach $name ( @names ) {
+					# Keep track of which stuff we've checked
+					$done->{$host}->{$type}->{$volume}->{$name}++;
+
+					# If a configured check isn't quota-ed, report it as error.
+					if ( exists $q->{$type}->{$volume}->{$name} ) {
+						my %info = %{$q->{$type}->{$volume}->{$name}};
+						my $sorf;
+
+						foreach $sorf ( "size", "files" ) {
+							my $kbofi = ($sorf eq "size")?"KBytes":"Files";
+							my $limit = $info{"qrV${kbofi}Limit"};
+							my $used = $info{"qrV${kbofi}Used"};
+
+							if ( exists $qtype->{$sorf} ) {
+								# Verify that the usage is being limited
+								if ( $limit < 0 ) {
+									$failures->{"$host:$volume:$name"}="requested quota ('$host $type $volume $name $sorf') isn't limited on the filer" unless ( $actname eq "*" );
+									next;
+								}
+								elsif ( $limit == 0 ) {
+									$failures->{"$host:$volume:$name"}="requested quota ('$host $type $volume $name $sorf') has a limit of 0 $sorf on the filer";
+									next;
+								}
+
+								# Percentage and # free/left
+								# Make sure to round fpct ... ;)
+								my $fkb = $limit-$used;
+								my $fpct = int($fkb/$limit*100+0.5);
+								if ( $qtype->{$sorf} =~ /^(\d+)\s*\%$/ ) {
+									my $pct = $1;
+									if ( $fpct <= $pct ) {
+										my $msg = "$type $sorf quota $host:$volume:$name has $fpct% ";
+										$msg.=($sorf eq "files")?"files left":
+											"(".from_kb($fkb).") free";
+										$msg.=" <= $pct% ($actvolume:$actname)";
+										$failures->{"$host:$volume:$name"}=$msg;
+									}
+								}
+								else { # non-percent
+									if ( $fkb <= $qtype->{$sorf} ) {
+										my $msg = "$type $sorf quota $host:$volume:$name has ";
+										$msg.=($sorf eq "files")?"$fkb files left":
+											from_kb($fkb)." free";
+										$msg.=" <= ";
+										$msg.=($sorf eq "files")?$qtype->{$sorf}:
+											from_kb($qtype->{$sorf});
+										$msg.=" ($actvolume:$actname)";
+										$failures->{"$host:$volume:$name"}=$msg;
+									}
+								}
+							}
+						}
+					}
+					else {
+						$failures->{"$host:$volume:$name"}="requested quota ('$host $type $volume $name') doesn't exist on filer" unless ( $actname eq "*" );
+						next;
+					}
+				}
+			}
+		}
+	}
+
+	return $failures;
+}

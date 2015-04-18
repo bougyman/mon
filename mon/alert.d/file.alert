@@ -1,0 +1,71 @@
+#!/usr/bin/perl
+#
+# file.alert - log alert to a file
+#
+# The first line from STDIN is summary information, adequate to send
+# to a pager or email subject line.
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: file.alert,v 1.2 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+$RCSID='$Id: file.alert,v 1.2 2005/04/17 07:42:26 trockij Exp $';
+use Getopt::Std;
+
+getopts ("d:S:s:g:h:t:l:uOT");
+
+$summary=<STDIN>;
+chomp $summary;
+
+$summary = $opt_S if (defined $opt_S);
+
+$file = shift;
+$file = "file" if (!defined $file);
+
+$file = "$opt_d/$file" if ($opt_d);
+
+$ALERT = $ENV{"MON_ALERTTYPE"} || "UNKNOWN ALERT";
+if (defined $ENV{"MON_OPSTATUS"}) {
+    $OPSTATUS = $ENV{"MON_OPSTATUS"};
+} else {
+    $OPSTATUS = "UNKNOWN OPSTATUS";
+}
+
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+open (F, ">>$file") || die "could not append to $file: $!\n";
+
+print F <<EOF;
+$ALERT $opt_g $opt_s $opt_t ($wday $mon $day $tm) $summary
+DESCR=$ENV{"MON_DESCRIPTION"}
+OPSTATUS=$OPSTATUS
+EOF
+
+#
+# The remaining lines normally contain more detailed information,
+# but this is monitor-dependent.
+#
+while (<STDIN>) {
+    print F;
+}
+
+print F ".\n";
+
+close (F);

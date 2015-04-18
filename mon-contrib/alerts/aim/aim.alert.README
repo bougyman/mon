@@ -1,0 +1,32 @@
+Subject: a new alert: aim.alert
+From: "Don 'Duck' Harper" <duck@duckland.org>
+To: mon@linux.kernel.org
+Date: 02 Nov 2002 11:28:14 -0600
+
+Jim,
+  Thanks for working on mon....it has saved my butt a few times, and
+keeps me looking good at the office. :)
+
+  Anyway, here is a new alert for the contrib bin: aim.alert
+
+Based off mail.alert, this alert will send the same information to an
+AIM user who is logged in.  To use, simple place in your alert.d dir,
+making sure it is executable by your mon user.  Make user you have the
+perl modules AOL::TOC installed (perl -MCPAN -e "install AOL::TOC"),
+then just use like this in your monrc file:
+
+watch servers-prod-solaris
+    service ping
+    description ping servers in ADC.
+    interval 1m
+    monitor fping.monitor
+    # Generic Alert Block
+    period p1: wd {Sun-Sat}
+        alert mail.alert hostmaster@mydom.com
+        alert aim.alert
+        upalert aim.alert
+        upalert mail.alert hostmaster@mydom.com
+        alert netpage.alert page@mydom.com
+        upalert netpage.alert page@mydom.com
+        alertevery 60m
+        alertafter 2 30m 

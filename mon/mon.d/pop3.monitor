@@ -1,0 +1,148 @@
+#!/usr/bin/perl
+#
+# Use try to connect to a POP-3 server, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "http.monitor" by
+# Jim Trocki, trockij@arctic.org
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: pop3.monitor,v 1.2 2005/04/17 07:42:27 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+getopts ("p:t:");
+$PORT = $opt_p || 110;
+$TIMEOUT = $opt_t || 30;
+
+@failures = ();
+@details = ();
+
+foreach $host (@ARGV) {
+
+    if (! &pop3GET($host, $PORT)) {
+	push (@failures, $host);
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print join (" ", sort @failures), "\n";
+print @details if (scalar @details > 0);
+
+exit 1;
+
+
+sub pop3GET {
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port) = @_;
+    my($ServerOK, $TheContent);
+
+    $ServerOK = 0;
+
+    $TheContent = '';
+
+    $Path = '/';
+
+###############################################################
+    eval {
+
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+	$result = &OpenSocket($Server, $Port); # Open a connection to the server
+	if ($result == 0) { # Failure to open the socket
+	    return '';
+	}
+
+	$in = <S>;
+	if ($in !~ /^\+OK/) {
+	    alarm 0;
+	    return 0;
+	}
+
+	print S "quit\r\n";
+
+	$in = <S>;
+	if ($in !~ /^\+OK/) {
+	    alarm 0;
+	    return 0;
+	}
+
+	$ServerOK = 1;
+
+	close(S);
+	alarm 0; # Cancel the alarm
+
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+	push(@details, "$host: timeout($TIMEOUT)\n");
+	return 0;
+    }
+    return $ServerOK;
+
+}
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    local($OtherHostname, $Port) = @_;
+    local($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+	  $ThisAddr, $that);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    if (!defined $OtherHostAddr)
+    {
+    	push (@details, "$host: cannot resolve hostname\n");
+	return undef;
+    }
+
+    my $that = sockaddr_in ($Port, $OtherHostAddr);
+
+    if (! ($result = socket(S, &PF_INET, &SOCK_STREAM, $proto)) ||
+    	(! ($result = connect(S, $that))) )
+    {
+	push (@details, "$host: $!\n");  return undef;
+    }
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+
+    return 1;                               # success
+}

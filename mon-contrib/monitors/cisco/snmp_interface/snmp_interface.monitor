@@ -1,0 +1,150 @@
+#!/usr/bin/perl
+#
+# Monitor snmp processes
+#
+# Arguments are:
+#
+# [options] --host hostname interface [interface ...]
+#
+# This script will exit with value 1 if the named interface ('Serial0'
+# or 'Serial1.2' or whatever on a Cisco) on the specified host is down.
+# The summary output line will be the host names that failed
+# and the name of the port.
+#
+# Since interface names are looked up by their Cisco interface name,
+# you don't need to worry about SNMP indices getting renumbered when
+# interfaces are added or deleted.  A local cache of the interface
+# names is maintained in the mon state directory.
+#
+#    Copyright (C) 1998, Brian Moore <bem@cmc.net>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+
+# modified July 2000 by Ed Ravin <eravin@panix.com>
+# * added cache for ifDescr names so we don't need to dump the router's
+# table every time (very slow for routers with lots of interfaces)
+# * switched to long-name options
+# * added timeout option
+# * created --host option for host so hostname can go at end
+
+# sample entry in mon.cf:
+#
+# watch main-router.yourcompany.com
+#    service interfaces
+#    description SNMP status of router
+#    interval 5m
+#    monitor snmp_interface.mon Serial0/1 Serial0/3 --host
+
+
+# bugs: unlike most mon scripts, this one only accepts one hostname,
+# and there's no easy way for the script to detect that you're calling
+# it improperly.  Caveat emptor.
+
+use strict;
+
+use SNMP;
+use DB_File;
+use Getopt::Long;
+
+# let's not load the whole mib....
+$ENV{'MIBS'} = '';
+# just fake what we want
+my $ifDescr          = '.1.3.6.1.2.1.2.2.1.2';
+my $ifOperStatus     = '.1.3.6.1.2.1.2.2.1.8';
+my $ifAdminStatus    = '.1.3.6.1.2.1.2.2.1.7';
+my $ifXEntry         = '.1.3.6.1.2.1.31.1.1.1.18';
+
+my %opt;
+my @failures= ();
+my %ifindices;
+my ($community, $timeout, $dir, $file, $statefile, $maxindex, $debug, $host);
+
+my $myname="snmp_interface.mon";
+my $usage="usage: $myname [--community=xxx] [--timeout=sec] [--dir=statefile-dir] [--statefile=statefile-basename] [--maxindex=nn] --host <hostname> ifname ...\n";
+GetOptions(\%opt, "community=s", "timeout=i", "dir=s", "statefile=s", "maxindex=i", "host=s", "debug");
+$host = $opt{'host'} || die $usage;
+
+$community = $opt{'community'} || 'public';
+$timeout= ($opt{'timeout'} || 5) * 1000 * 1000;
+$dir= $ENV{"MON_STATEDIR"} || $opt{'dir'} || "/usr/lib/mon/state.d";
+$file= $opt{'statefile'} || "$host.interfaces.state";
+$maxindex= $opt{'maxindex'} || 0;
+$debug= $opt{'debug'} || 0;
+
+$statefile= $dir . "/" . $file;
+tie %ifindices, "DB_File", $statefile, O_RDWR|O_CREAT, 0644, $DB_HASH
+	or die "$myname: cannot tie to $statefile: $!\n";
+
+
+$SNMP::use_long_names = 1;
+
+
+my $session = new SNMP::Session(DestHost => $host,
+                             Community => $community,
+							 Timeout => $timeout) ||
+	die "$host (cannot initialize SNMP session)\n";
+
+foreach my $interface (@ARGV) {
+
+	if (defined($ifindices{$interface}))  # already in cache?
+	{ # yes, see if the index still matches
+		my $var = new SNMP::Varbind([$ifDescr, $ifindices{$interface}]);
+		my $desc= $session->get($var);
+        if ( ($session->{ErrorNum}) || ($interface !~ /^$desc/i) ) {
+			print "removing stale entry: $interface\n" if $debug;
+			delete $ifindices{$interface}; # cache no good, try again.
+        }
+	}
+
+	# if the interface name is not already cached, rebuild the cache
+	if (!defined($ifindices{$interface})) {
+		my $var = new SNMP::Varbind([$ifDescr, 0]);
+		print "name $interface not in cache, rebuilding..." if $debug;
+		%ifindices= {};
+
+		while (1) { # search for the interface name, caching along the way
+			my $desc = $session->getnext($var);
+			last if ( $var->[$SNMP::Varbind::tag_f] !~ /^$ifDescr/ );
+			# no response is bad community or dead daemon or other failure...
+			if ( $session->{ErrorNum} ) {
+				push @failures, "$host $session->{ErrorStr}";
+				last;
+			}
+			my ($part_number) = ($var->[$SNMP::Varbind::tag_f] =~ /\.(\d+)$/);
+			print "adding $desc to cache as index $part_number\n" if $debug;
+			$ifindices{$desc}= $part_number;  # cache this entry
+			last if $maxindex and $part_number >= $maxindex;
+		}
+	}
+
+    if (defined($ifindices{$interface})) {
+		my $state= $session->get([$ifOperStatus, $ifindices{$interface}]);
+		my $admin= $session->get([$ifAdminStatus, $ifindices{$interface}]);
+	    if ( $state ne 1 and $admin eq 1) {
+		my $description = $session->get([$ifXEntry, $ifindices{$interface}]);
+    	        push (@failures, "$host $interface $description");
+	    }
+	} else {
+		push (@failures, "$host $interface cannot find matching ifDescr");
+	}
+}
+
+if (@failures) {
+    print join (", ", @failures), "\n";
+    exit 1;
+}
+
+exit 0;
+

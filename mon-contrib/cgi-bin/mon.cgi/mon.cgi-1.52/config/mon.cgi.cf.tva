@@ -1,0 +1,13 @@
+#
+# A white-background look for mon.cgi, from Thomas Bates <cbates@tva.gov>
+#
+BGCOLOR = #FFFFFF
+TEXTCOLOR = #000000
+LINKCOLOR = 0000FF
+VLINKCOLOR = #551a8b
+
+greenlight_color=#a0d0a0
+redlight_color=ff6060
+unchecked_color=f0f0f0
+disabled_color=#e0e0e0
+yellowlight_color = #FFAF4F

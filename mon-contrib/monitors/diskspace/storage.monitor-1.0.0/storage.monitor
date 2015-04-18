@@ -1,0 +1,187 @@
+#!/usr/bin/perl
+#
+# storage.monitor
+#
+# Use SNMP to get free disk space from a machine that implements HOSTMIB.
+#
+#   Exits with value of 1 if free space on any host drops below
+#   the configured value, or exits with the value of 2 if
+#   there is a "soft" error (SNMP library error, or could not get a
+#   response from the server).
+#
+# Requirements:
+#
+#   Requires the UCD SNMP library and G.S. Marzot's Perl SNMP module.
+#   (Avoid UCSD SNMP 3.6.1, it will cause segfaults.  Use 3.6.2+)
+#
+# Written by Peter Holzleitner
+# based heavily on netappfree.monitor by Jim Trocki
+#
+#    Copyright (C) 2000, Peter Holzleitner
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#    Version 1.0.0
+#
+#
+use SNMP;
+use Getopt::Long;
+
+sub readcf;
+sub toKB;
+
+# load only the necessary MIBs:
+$ENV{"MIBS"} = 'RFC1213-MIB:HOST-RESOURCES-MIB';
+
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i", "config=s", "list");
+
+die "no host arguments\n" if (@ARGV == 0);
+
+$RET = 0;
+@ERRS = ();
+@HOSTS = ();
+
+$COMM    = $opt{"community"} || "public";
+$TIMEOUT = $opt{"timeout"} * 1000 * 1000 || 5000000;
+$RETRIES = $opt{"retries"} || 8;
+$CONFIG  = $opt{"config"} || (-d "/etc/mon" ? "/etc/mon" : "/usr/lib/mon/etc")
+	   . "/storage.cf";
+
+$list = $opt{"list"};
+
+($stDescr, $stUnit, $stSize, $stUsed) = (0..3);
+$host = '';
+$fsname = '';
+$sizeK = 0;
+$freeK = 0;
+$OK = 0;
+
+readcf ($CONFIG) || die "could not read config: $!\n";
+
+foreach $host (@ARGV) {
+    next if (!defined $FREE{$host});
+
+    if (!defined($s = new SNMP::Session (DestHost => $host,
+    		Timeout => $TIMEOUT, Community => $COMM,
+		Retries => $RETRIES))) {
+	$RET = ($RET == 1) ? 1 : 2;
+	push (@HOSTS, $host);
+	push (@ERRS, "could not create session to $host: " . $SNMP::Session::ErrorStr);
+	next;
+    }
+
+    $v = new SNMP::VarList (
+    	    ['hrStorageDescr'],  # 
+    	    ['hrStorageAllocationUnits'],  # 
+    	    ['hrStorageSize'],  #
+    	    ['hrStorageUsed'],
+    );
+
+    while (defined $s->getnext($v)) {
+
+	last if ($v->[$stDescr]->tag !~ /hrStorageDescr/);
+
+#($stDescr, $stUnit, $stSize, $stUsed) = (0..3);
+
+	$fsname =  $v->[$stDescr]->val;
+	$unit   =  $v->[$stUnit]->val;
+        $size   =  $v->[$stSize]->val;
+	$used   =  $v->[$stUsed]->val;
+        $freeK  = ($size - $used) * $unit / 1024;
+
+	$OK = "(n/conf)";
+	$needfreeK = $FREE{$host}{$fsname};
+        if ( $needfreeK ) {
+	    $OK = "OK";
+	    if ( $freeK < $needfreeK ) {
+		push (@HOSTS, $host);
+		push (@ERRS, sprintf ("%s:%s: %1.1fMB free", $host, $fsname, $freeK));
+		$OK = "LOW";
+		$RET = 1;
+	        }
+	    }
+        if($list)  {
+            $sizeK  = $size * $unit / 1024;
+	    write;
+	    }
+	} # while(getnext())
+
+    if ($s->{ErrorNum}) {
+	push (@HOSTS, $host);
+	push (@ERRS, "could not get hrStorageDescr for $host: " . $s->{ErrorStr});
+	$RET = ($RET == 1) ? 1 : 2;
+	}
+    }
+
+if(!$list) {
+    if ($RET) {
+        print "@HOSTS\n";
+	print "\n";
+        print join("\n", @ERRS), "\n";
+	}
+    } # foreach(host)
+
+exit $RET;
+
+
+#
+# read configuration file
+#
+sub readcf {
+    my ($f) = @_;
+    my ($l, $host, $filesys, $free);
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+	($host, $filesys, $free) = split;
+	$filesys =~ tr/+/ /;    # + replaces space in config files
+	if (!defined ($FREE{$host}{$filesys} = toKB ($free))) {
+	    die "error free specification, config $f, line $.\n";
+	}
+    }
+    close (CF);
+}
+
+
+sub toKB {
+    my ($free) = @_;
+    my ($n, $u);
+
+    if ($free =~ /^(\d+\.\d+)(kb|mb|gb)$/i) {
+        ($n, $u) = ($1, "\L$2");
+    } elsif ($free =~ /^(\d+)(kb|mb|gb)$/i) {
+        ($n, $u) = ($1, "\L$2");
+    } else {
+    	return undef;
+    }
+
+    return (int ($n * 1024))        if ($u eq "mb");
+    return (int ($n * 1024 * 1024)) if ($u eq "gb");
+    int ($n);
+}
+
+
+format STDOUT_TOP =
+Host             File System                KB total     KB free   OK
+----------------------------------------------------------------------------
+.
+
+format STDOUT =
+@<<<<<<<<<<<<<<  @<<<<<<<<<<<<<<<<<<<<   @>>>>>>>>>>  @>>>>>>>>>>  @<<<<<<<
+$host, $fsname, $sizeK, $freeK, $OK
+.

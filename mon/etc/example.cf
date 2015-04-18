@@ -1,0 +1,294 @@
+#
+# Example "mon.cf" configuration for "mon".
+#
+# $Id: example.cf,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+#
+
+#
+# This works with 0.38pre8
+#
+
+#
+# global options
+#
+cfbasedir   = /usr/lib/mon/etc
+alertdir    = /usr/lib/mon/alert.d
+mondir      = /usr/lib/mon/mon.d
+maxprocs    = 20
+histlength = 100
+randstart = 60s
+
+#
+# authentication types:
+#   getpwnam      standard Unix passwd, NOT for shadow passwords
+#   shadow        Unix shadow passwords (not implemented)
+#   userfile      "mon" user file
+#
+authtype = getpwnam
+
+#
+# NB:  hostgroup and watch entries are terminated with a blank line (or
+# end of file).  Don't forget the blank lines between them or you lose.
+#
+
+#
+# group definitions (hostnames or IP addresses)
+#
+hostgroup serversbd1 dns-yp1 foo1 bar1
+
+hostgroup serversbd2 dns-yp2 foo2 bar2 ola3
+
+hostgroup routers cisco7000 linuxrouter agsplus
+
+hostgroup hubs cisco316t hp800t ssii10
+
+hostgroup workstations blue yellow red green cornflower violet
+
+hostgroup netapps f330 f540
+
+hostgroup wwwservers www
+
+hostgroup printers hp5si hp5c hp750c
+
+hostgroup new nntp
+
+hostgroup ftp ftp
+
+#
+# For the servers in building 1, monitor ping and telnet
+# BOFH is on weekend call :)
+#
+watch serversbd1
+    service ping
+	description ping servers in bd1
+	interval 5m
+	monitor fping.monitor
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+	    alertevery 1h
+	period NOALERTEVERY: wd {Mon-Fri} hr {7am-10pm}
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+	period wd {Sat-Sun}
+	    alert mail.alert bofh@domain.com
+	    alert page.alert bofh@domain.com
+    service telnet
+	description telnet to servers in bd1
+	interval 10m
+	monitor telnet.monitor
+	depend serversbd1:ping
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+
+watch serversbd2
+    service ping
+	description ping servers in bd2
+	interval 5m
+	monitor fping.monitor
+	depend routers:ping
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+	    alertevery 1h
+	period wd {Sat-Sun}
+	    alert mail.alert bofh@domain.com
+	    alert page.alert bofh@domain.com
+    service telnet
+	description telnet to servers in bd2
+	interval 10m
+	monitor telnet.monitor
+	depend routers:ping serversbd2:ping
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+
+watch mailhost
+    service fping
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+	    alertevery 1h
+    service telnet
+	interval 10m
+	monitor telnet.monitor
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+    service smtp
+	interval 10m
+	monitor smtp.monitor
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert page.alert mis-pagers@domain.com
+    service imap
+	interval 10m
+	monitor imap.monitor
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert page.alert mis-pagers@domain.com
+    service pop
+	interval 10m
+	monitor pop3.monitor
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert page.alert mis-pagers@domain.com
+
+watch wwwservers
+    service ping
+	interval 2m
+	monitor fping.monitor
+	allow_empty_group
+	period wd {Sun-Sat}
+	    alert qpage.alert mis-pagers
+	    alertevery 45m
+    service http
+	interval 4m
+	monitor http.monitor
+	allow_empty_group
+	period wd {Sun-Sat}
+	    alert qpage.alert mis-pagers
+	    upalert mail.alert -S "web server is back up" mis
+	    alertevery 45m
+    service telnet
+	monitor telnet.monitor
+	allow_empty_group
+	period wd {Mon-Fri} hr {7am-10pm}
+	    alertevery 1h
+	    alertafter 2 30m
+	    alert mail.alert mis@domain.com
+	    alert page.alert mis-pagers@domain.com
+
+#
+# If the routers aren't pingable, send a page using
+# a phone line and the IXO protocol, which doesn't
+# rely on the network. Failure of a router is pretty serious,
+# so check every two minutes.
+#
+# Send out one page every 45 minutes, but log the failure
+# to a file every time.
+#
+watch routers
+    service ping
+	description routers which connect bd1 and bd2
+	interval 1m
+	monitor fping.monitor
+	period wd {Sun-Sat}
+	    alert qpage.alert mis-pagers
+	    alertevery 45m
+	period LOGFILE: wd {Sun-Sat}
+	    alert file.alert -d /usr/lib/mon/log.d routers.log
+
+#
+# If mon cannot ping one of the hubs, users will be calling soon
+#
+watch hubs
+    service ping
+	interval 1m
+	monitor fping.monitor
+	period wd {Sun-Sat}
+	    alert qpage.alert mis-pagers
+	    alertevery 45m
+
+#
+# Monitor free disk space on the NFS servers
+#
+# When space gets below 5 megs, send mail, and delete
+# the oldest nightly snapshots.
+#
+# monitors that terminate with ";;" are not executed with the
+# host group appended to the command line
+#
+watch netapps
+    service freespace
+    	interval 15m
+	monitor freespace.monitor /f330:5000 /f540:5000 ;;
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+#	    alert delete.snapshot
+	    alertevery 1h
+
+#
+# workstations
+#
+watch workstations
+    service ping
+	interval 5m
+	monitor fping.monitor
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+	    alertevery 1h
+
+#
+# news server
+#
+watch news
+    service ping
+	interval 5m
+	monitor fping.monitor
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+	    alertevery 1h
+    service nntp
+	interval 5m
+	monitor nntp.monitor
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+	    alertevery 1h
+
+#
+# HP printers
+#
+watch printers
+    service ping
+	interval 5m
+	monitor fping.monitor
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+	    alertevery 1h
+    service hpnp
+	interval 5m
+	monitor hpnp.monitor
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+	    alertevery 1h
+
+#
+# FTP server
+#
+watch ftp
+    service ftp
+	interval 5m
+	monitor ftp.monitor
+	period wd {Sun-Sat}
+	    alert mail.alert mis@domain.com
+	    alertevery 1h
+
+#
+# dial-in terminal server
+#
+watch dialin
+    service 555-1212
+        interval 60m
+        monitor dialin.monitor.wrap -n 555-1212 -t 80 ;;
+        period wd {Sun-Sat}
+            alert mail.alert mis@domain.com
+            upalert mail.alert mis@domain.com
+            alertevery 8h
+    service 555-1213
+        interval 33m
+        monitor dialin.monitor.wrap -n 555-1213 -t 80 ;;
+        period wd {Sun-Sat}
+            alert mail.alert mis@domain.com
+            upalert mail.alert mis@domain.com
+            alertevery 8h

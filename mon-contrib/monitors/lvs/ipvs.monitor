@@ -1,0 +1,83 @@
+#!/usr/bin/perl
+
+
+# ipvs.monitor - Linux Virtual Server monitor for mon
+#   Check  whether  the  specified virtual  service   is defined, and,
+#   optionally, whether it has any realservers defined.
+#
+# Invocation:
+#   ipvs.monitor [options] -V <virtual_server:port> -P <protocol>
+#
+# Options:
+#   -V virtual server
+#   -P protocol (tcp|udp)
+#   -z allows a virtual service to have zero realservers defined
+#
+# Notes:
+#   - Since  it uses  ipvsadm, this  script  (and therefore  mon) must
+#   unfortunately run as root :(
+#   - ipvs.monitor returns 0 on success and 1 on failure
+
+
+use Getopt::Std;
+
+getopts ("zV:P:");
+
+%proto = (
+	"tcp" => "-t",
+	"udp" => "-u",
+);
+
+$virtual_service = "$opt_V";
+
+@ipvs = `/sbin/ipvsadm -l $proto{$opt_P} $virtual_service 2>&1`;
+
+# allow a service with no realservers?
+defined $opt_z ?
+	($n = 2)
+	:
+	($n = 3);
+
+# Check the output:
+# ...two lines of headers
+# ...one line of virtual service
+# ...one line for each realserver
+$#ipvs < $n ?
+	exit 1
+	:
+	exit 0;
+
+
+# # ## ### ##### ######## ############# #####################
+# CHANGELOG
+# Tue Jul 27 11:17:39 MYT 2004
+#   Initial version
+#   Christopher DeMarco <cdemarco@md.com.my>
+# Tue Jul 27 14:14:08 MYT 2004
+#   added -z switch
+#   Christopher DeMarco <cdemarco@md.com.my>
+# Wed Oct  1 18:34:27 CEST 2008
+#   fixed inline documentation
+#   fixed whitespace/tab
+#   Richard Hartmann <richih@net.in.tun.de>
+
+
+# # ## ### ##### ######## ############# #####################
+#   Copyright (C) 2004, Christopher DeMarco
+#   Copyright (C) 2008, Richard Hartmann
+#
+#   This program is  free  software; you  can  redistribute it  and/or
+#   modify it  under the terms  of the GNU  General  Public License as
+#   published by the Free Software Foundation; either version 2 of the
+#   License, or (at your option) any later version.
+#
+#   This program is  distributed in the hope  that it will  be useful,
+#   but WITHOUT  ANY WARRANTY; without  even  the implied warranty  of
+#   MERCHANTABILITY or FITNESS FOR A  PARTICULAR PURPOSE.  See the GNU
+#   General Public License for more details.
+#
+#   You should have received a copy of  the GNU General Public License
+#   along  with this program;  if   not, write  to the Free   Software
+#   Foundation,  Inc.,  59  Temple   Place,   Suite 330,  Boston,   MA
+#   02111-1307 USA
+

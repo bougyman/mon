@@ -1,0 +1,446 @@
+#!/usr/bin/perl -w
+
+# send pages to people via paging company Web interfaces
+# fall back to qpage if necessary
+# assumes that the service= names in qpage.cf correspond to company= here.
+# assumes that the pagerid= data in qpage.cf corresponds to pin= here.
+
+# To use fallback, page them with "pageomat --destination=alias"
+# where "alias" is a user entry in qpage.cf
+
+# To use direct paging, specify "company=" and "pin=".
+
+# Contributed by Ed Ravin <eravin@panix.com>
+# Code made available courtesy of PANIX Public Access Networks
+# http://www.panix.com
+
+# to do - use qpage syntax throughout
+
+# $Header: /cvsroot-fuse/mon/mon-contrib/alerts/pager/pageomat,v 1.2 2005/04/05 21:47:08 eravin Exp $
+
+use strict;
+
+use Getopt::Long;
+use Socket;
+use Net::SNPP;
+use Sys::Syslog qw(:DEFAULT setlogsock);
+
+######### CONFIGURABLE STUFF
+#
+# my $default_from= "nobody@example.com";
+my $default_from="root";
+#
+#########
+
+
+
+sub syslog_die;
+sub syslog_warn;
+
+my %opt;
+my $myname="pageomat";
+my $debug= $opt{'debug'} || undef;
+
+setlogsock('unix')
+	if grep /^ $^O $/xo, ("linux", "openbsd", "freebsd", "netbsd");
+openlog ("$myname", "cons,pid", "daemon") unless $debug;
+
+GetOptions (\%opt, "debug", "destination=s", "pin=s", "company=s", "timeout=i", "message=s", "nofallback", "fallbackmode=s", "directory=s", "from=s");
+
+my $from= $opt{'from'} || $default_from;
+
+my %pageinfo= (
+	'skytel'=>
+	{ 'url' => 'snpp://snpp.skytel.com:444' }, 
+
+	'qpage'=>  # the local (qpage?) server
+	{ 'url' => 'snpp://localhost:444' }, 
+
+	'qpage-direct'=>
+	{ 'url' => 'special'},
+
+	'skytel-http' =>
+	{ 'url' => 'http://www.skytel.com/servlet/SendMessage',
+	  'format' => 'clienttimezone=&cmd=post&customMcrs=&recipients=%s&response=' . $from . '&message=%s&countresult=&',
+	  'match' => '(Your Message Status Number is: \d+)|(Skytel Messaging Center Has Received Your Message)' } ,
+
+	'cingular' =>
+	{ 'url' => 'http://www.imcingular.com/processsendmail.asp',
+	  'format' => 'pin=%s&data=%s&media=E-mail&retaddr=' . $from,
+	   'match' => 'Your message has been sent to destination address',
+	},
+
+	'tmobile'=>
+	{ 'url' => 'http://www.t-mobile.com/messaging/default.asp',
+	  'format' => 'txtNum=%s&txtFrom=' . $from . '&txtMessage=%s&hdnpublic=1&msgTermsUse=on',
+	  'match' =>  'Your message was sent to ',
+	  'referer' => 'Referer: http://www.t-mobile.com/messaging/',
+	},
+
+
+	'omnipoint' =>
+	{ 'url' => 'http://www.omnipoint.com/cgi-bin/message.cgi',
+	  'format' => 'load=%s&phone=%s&message=%s',
+	  'match' => 'message_sent.html',
+	  'referer' => 'Referer: http://www.omnipoint.com/common/center/main.html',
+	  'arg1' =>  url_encode('http://www.omnipoint.com/common/center/message_sent.html') },
+#       "POST /cgi-bin/message.cgi HTTP/1.0\r
+#        Host: www.omnipoint.com\r
+#        Accept: text/html, text/plain, text/sgml, */*;q=0.01\r
+#        Accept-Encoding: gzip, compress\r
+#        Accept-Language: en\r
+#        Pragma: no-cache\r
+#        Cache-Control: no-cache\r
+#        User-Agent: Lynx/2.8.3rel.1 libwww-FM/2.14\r
+#        Referer: http://www.omnipoint.com/common/center/main.html\r
+#        Content-type: application/x-www-form-urlencoded\r
+#        Content-length: 131\r
+#        \r
+#        load=http%3A%2F%2Fwww.omnipoint.com%2Fcommon%2Fcenter%2Fmessage_sent.h\
+#        tml&phone=19173798338&message=test+via+omnipoint%27s+web+page"
+
+	'bam' =>
+	{ 'url' => 'http://www3.bam.com/cgi-bin/sms/sms.cgi',
+	  'format' => 'msg_type=messaging&area_code=%s&exchange=%s&extension=%s&message=%s&tCharacterCount=0',
+	  'cut_pin_3' => 'true',
+	  'match' => 'Your Message Has Been Accepted For Delivery' },
+
+# att not tested yet
+	'att' =>
+	{ 'url' => 'http://www.mobile.att.net/mc/pager_show.cgi',
+	 'format' => 'category=personal&pin=%s&sizebox=%s' },
+
+	);
+
+my $usage="Usage: $myname {--destination=aliasid | --pin=pagerid --company={" . join('|', keys %pageinfo) . "} [-nofallback] [-fallbackmode company] [-directory qpage.cf]}\n";
+
+my @company;
+my $pin;
+my $fallbackmode= undef;
+
+my $destination=  $opt{'destination'} || undef;
+my $nofallback=   $opt{'nofallback'}  || 0;
+my $directory=    $opt{'directory'}   || "/etc/qpage.cf";
+
+
+if (!defined($destination))
+{
+	$pin= $opt{'pin'} || syslog_die "$usage";
+	$company[0]= $opt{'company'} || syslog_die "$usage";
+	syslog_die "$myname: fallback only valid with --destination\n"
+		if defined($opt{'fallbackmode'}) or defined($opt{'nofallback'});
+} else {
+	load_destination();
+	$fallbackmode= $opt{'fallbackmode'}|| "qpage-direct";
+	push(@company, $fallbackmode) unless $nofallback;
+}
+
+my $timeout= $opt{'timeout'} || 40;
+my $message= $opt{'message'} || join (' ', <STDIN>);
+
+$message =~ s/\n/ /g;
+
+syslog_warn "$myname: attempting delivery via $company[0]" if $debug;
+deliver_page($company[0]);
+# still here? do a fallback
+
+shift @company;
+if (@company > 0)
+{
+	$pin= $destination;    # use the qpage destination
+	syslog_warn "$myname: attempting delivery to $destination via $company[0]";
+	deliver_page($company[0]);
+}
+
+syslog_warn "$myname: no successful pages sent";
+exit 3;
+
+sub syslog_die {
+    my $thing = shift;
+
+    syslog ("err", $thing);
+    die "$myname: $thing\n";
+}
+
+sub syslog_warn {
+	my $thing= shift;
+
+	syslog("notice", $thing) unless $debug;
+	warn "$myname: $thing\n" if $debug;
+}
+
+sub deliver_page {
+	my $company= $_[0];
+
+	syslog_die "$myname: Unknown paging method/company: $company"
+		unless exists($pageinfo{$company});
+
+	if ($company eq "qpage-direct")
+	{
+		open(QPAGE, "|qpage -p $destination -f $from") ||
+			syslog_die "$myname: cannot open qpage: $!";
+		print QPAGE "$message\n";
+		print QPAGE ".\n";
+		close QPAGE || syslog_die "$myname: qpage exit error: $?";
+		syslog_warn "$myname: page sent to $destination via qpage direct";
+		exit 0;
+	}
+
+	# chop up url
+	my ($protocol, $hostname, $path)= ($pageinfo{$company}{'url'} =~ m!([^:]+)://([^/]+)(.*)!);
+	my $port;
+
+	if ($hostname =~ m!([^:]+)(:\d+)!)
+	{
+		$hostname= $1; $port= $2;
+	}
+
+	$port=80 unless defined($port);
+	$port=~ s/://;
+
+	if ($debug) {
+		print "Message to $pin at $company via $pageinfo{$company}{'url'}\n";
+		print "Protocol is $protocol, server is $hostname, port is $port, path is $path\n";
+	}
+
+	if ($protocol eq "snpp")
+	{
+		my $rc=
+			send_snpp($hostname, $port, $pin,
+				$message . "\nFrom $from via SNPP to $hostname");
+		syslog_warn("page to $pin at $company via $pageinfo{$company}{'url'} " . ($rc ? "success" : "FAILED") );
+		exit 0 if $rc;
+		return 0;
+	}
+
+
+	if ($debug) {
+		open COMMAND, ">&STDOUT" || die "$myname: can't dup fd for debugging: $!";
+	} else {
+	    my $pro = getprotobyname ('tcp');
+	    if (!defined $pro) {
+		syslog_die "$myname: could not getprotobyname tcp: is there a network here?\n";
+	    }
+	    if (!defined socket (COMMAND, PF_INET, SOCK_STREAM, $pro)) {
+		syslog_die "$myname: could not create socket: $!\n";
+	    }
+	    my $address = inet_aton ($hostname);
+	    if (!defined $address) {
+		syslog_die "$myname: $hostname could not inet_aton";
+	    }
+	    my $sin = sockaddr_in (80, $address);
+		if (!defined $sin) {
+			syslog_die "$myname: $hostname/$address could not sockaddr_in";
+		}
+
+	    my $r;
+
+	    syslog_die "$myname: cannot setsockopt: $!"
+		unless setsockopt(COMMAND, SOL_SOCKET, SO_LINGER, pack "i i", 1, 10);
+
+	    eval {
+		local $SIG{"ALRM"} = sub { die "alarm\n" };
+
+		alarm $timeout;
+
+		$r = connect (COMMAND, $sin);
+
+		alarm 0;
+	    };
+
+	    if ($@) {
+			if ($@ eq "alarm\n") {
+				syslog_die "$myname: $hostname/$address timeout";
+			} else {
+				syslog_die "$myname: $hostname/$address interrupted syscall: $!";
+			}
+	    }
+
+	    if (!defined $r) {
+		syslog_die "$myname: $hostname/$address could not connect: $!";
+	    }
+
+	}
+
+
+	if ($company eq "skytel-http")
+	{
+	    # Skytel's form chokes on or eats up these characters - so substitute them
+	    $message =~ s/[&]/{and}/g;
+	    $message =~ s/[+]/{plus}/g;
+	    $message =~ s/[%]/{percent}/g;
+	} elsif ($company eq "bam")
+	{
+	    # bam doesn't like carrots.  Silly rabbit...
+	    $message =~ s/</(/g;
+	    $message =~ s/>/)/g;
+	}
+
+	$message= url_encode($message);  # format for POST'ing
+
+	my $data;
+
+	if (defined($pageinfo{$company}{'arg1'}))
+	{
+		$data= sprintf $pageinfo{$company}{'format'},
+			$pageinfo{$company}{'arg1'}, $pin, $message;
+	} elsif (defined($pageinfo{$company}{'cut_pin_3'}))
+	{
+		syslog_die "PIN must be 10-digit number for this company"
+			unless $pin =~ /^\d{10}$/;
+		my ($areacode, $exchange, $suffix)=
+			(substr($pin,0,3), substr($pin,3,3), substr($pin,6,4));
+		$data= sprintf $pageinfo{$company}{'format'},
+			$areacode, $exchange, $suffix, $message;
+	}
+	else
+	{
+		$data= sprintf $pageinfo{$company}{'format'}, $pin, $message;
+	}
+
+	select COMMAND; $|=1; select STDOUT;
+
+	print COMMAND "POST $path HTTP/1.0\r\n" .
+		      "Host: $hostname\r\n" .
+		      "Accept: text/html, text/plain\r\n" .
+		      "User-Agent: $myname\r\n" .
+		( defined($pageinfo{$company}{'referer'}) ?
+			"$pageinfo{$company}{'referer'}\r\n" : "" ) .
+		      "Content-type: application/x-www-form-urlencoded\r\n" .
+		      "Content-length: " . length($data) . "\r\n\r\n" .
+		      $data;
+
+	print COMMAND "\r\n" if $debug;
+
+	$SIG{"PIPE"} = 'IGNORE';
+	shutdown COMMAND, 1 unless $debug; # SHUT_WR - disallow further writes
+
+
+	my $response= "";
+	my @response;
+
+	alarm $timeout; # just die if we get stuck somehow listening on the socket
+
+	@response= <COMMAND>; $response= join('', @response);
+
+	print length($response), " bytes received.\n";
+
+	if ( $response =~ $pageinfo{$company}{'match'} )
+	{
+		print "Message delivery confirmed to $pin at $hostname:\n";
+		syslog_warn("page to $pin at $company via $pageinfo{$company}{'url'} success");
+		exit 0;
+	} else {
+		print "No match - cannot confirm message delivery.\n";
+		my $rc= open(TRACE, ">/tmp/pageomat.response.$company.$$");
+		if ($rc)
+		{
+			print TRACE $response;
+			close TRACE;
+		} else {
+			syslog_warn "$myname: cannot create tracefile /tmp/pageomat.$company.$$: $!";
+		}
+		syslog_warn("page to $pin at $company via $pageinfo{$company}{'url'} FAILED, " . ($rc ? "see tracefile" : "tracefile failed too") );
+		return 1;
+	}
+}
+
+
+sub send_snpp
+{
+	my ($host, $port, $pagerid, $text) = @_;
+	my $rc;
+	my $snpp;
+
+	if (! ($snpp= Net::SNPP->new ($host, Port => $port, Timeout => $timeout)) )
+	{
+	   syslog_warn "$myname: SNPP->new fails: $!";
+	   return 0;
+	}
+
+	$rc= $snpp->send ( Pager => [ $pagerid ], Message => "$text" );
+	
+	if ($rc == 0)
+	{
+		syslog_warn "$myname: SNPP send failed: [sorry, no diagnostics]" unless $rc;
+		return 0;
+	}
+	$snpp->quit;
+	syslog_warn "$myname: successful SNPP delivery to $host" if $debug;
+	return 1;
+}
+
+
+
+
+sub url_encode {
+
+    my $text = shift;
+
+    $text =~ s/([^a-zA-Z0-9_\-.])/uc sprintf("%%%02x",ord($1))/eg;
+
+    return $text;
+}
+
+sub load_destination {
+#
+#  open paging directory - qpage.cf format
+#  look up $destination
+#    if found, set $pin, @company
+
+	my %qpagedir= ();
+	my ($pager, $pagerid, $service)= ("", "", "");
+	my $state= 'nothingseen'; # or 'pagerseen'
+
+# parse qpage.cf entries:
+#
+# pager=thisuser
+#  pagerid=1234567890
+#  service=skytel
+
+	open QPAGECF, "<" . $directory || syslog_die "$myname: cannot open $directory: $!\n";
+
+	while (<QPAGECF>)
+	{
+		chomp;
+
+		if       ($state eq 'nothingseen')
+		{
+			if ( /^\s*pager\s*=\s*(\w+)/ )
+			{
+				$state= 'pagerseen';
+				$pager= $1;
+			}
+		} elsif  ($state eq 'pagerseen')
+		{
+			if ( /^\s*(pagerid|service)\s*=\s*([^ #]+).*$/ )
+			{
+				$pagerid= $2 if $1 eq "pagerid";
+				$service= $2 if $1 eq "service";
+				if ($pagerid ne "" and $service ne "")
+				{
+					$qpagedir{$pager}= [ $pagerid, $service ];
+					$state= 'nothingseen';
+					$pagerid="";
+					$service="";
+				}
+			} elsif ( /^\s*pager\s*=\s*(\w+)/ )
+			{
+				syslog_warn "$myname: discarding entry $pager - incomplete";
+				$pager= $1;
+			}
+
+		};
+	};
+
+	syslog_die "$myname: could not find destination $destination in $directory.\n"
+		if !exists($qpagedir{$destination});
+
+	$pin= $qpagedir{$destination}[0];
+	push(@company, $qpagedir{$destination}[1]);
+
+# foreach my $user (keys %qpagedir)
+# {
+# 	print "$user: $qpagedir{$user}[0], $qpagedir{$user}[1]\n";
+# }
+}

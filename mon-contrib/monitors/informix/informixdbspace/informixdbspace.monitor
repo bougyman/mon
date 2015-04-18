@@ -1,0 +1,84 @@
+#!/usr/local/bin/perl -w
+# 
+# $Id: informixdbspace.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+# Usage: server:KBfree [server:KBfree] 
+#
+#    Copyright (C) 1999, SKECHERS USA, Inc.
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+# 
+# $Log: informixdbspace.monitor,v $
+# Revision 1.1.1.1  2005/02/18 17:52:24  trockij
+# initial
+#
+# Revision 1.1  2000/02/02 21:06:02  clay
+# Initial revision
+#
+#
+use DBI;
+use strict;
+# Initialize variables
+my $server    = "";
+my $min_avail = "";
+my $database  = "sysmaster";
+my $username  = "";
+my $password  = "";
+my @failures;
+# Get the server name from the first parameter
+foreach (@ARGV) {
+    if (length($_) !=0) {
+        ($server, $min_avail) = split /:/, $_, 2;
+# Set environment variables
+        $ENV{LD_LIBRARY_PATH} = "/usr/informix/prod/lib:/usr/informix/prod/lib/esql";
+        $ENV{INFORMIXDIR}     = "/usr/informix/prod"; 
+        $ENV{INFORMIXSERVER}  = "$server";
+# Select free dbspace from sysmaster tables -- Assumes a 2K page size
+        my $sel_stmt = "select name, sum(nfree * 2) \         
+                        from sysdbspaces d, syschunks c \
+                        where d.dbsnum = c.dbsnum \
+                        group by 1 \
+                        order by 1";
+# Connect to the database
+        my $dbh = DBI->connect($database, $username, $password, 'Informix');
+# Prepare the SQL statement
+        (my $sth = $dbh->prepare($sel_stmt)) or die "Failed to prepare '$sel_stmt'\n";
+# Execute the SQL statement
+        $sth->execute;
+# Check free space
+        while (my ($dbspace, $freekb) = $sth->fetchrow) {
+            $dbspace =~ s/\s+//;
+# Note: In our environment, we set up dbspaces for physical and logical logs
+#       By default, we call them dbplog and dbllog, respectively. We don't want
+#       to check free space in these logs
+ 
+            if (!defined ($freekb)) {
+                push (@failures, "dbspace error: $!");
+                next;
+            } elsif (($freekb < $min_avail) && ($dbspace !~ /log/)) {
+                push (@failures, "$freekb free in $dbspace on $server");
+            }
+        }
+# Disconnect
+        $dbh->disconnect;
+    } else {
+        print "No server:KBfree specified!\n";
+        exit 2;
+    }
+}
+if (@failures) {
+    print join (", ", @failures), "\n";
+    exit 1;
+}
+exit 0;

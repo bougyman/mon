@@ -1,0 +1,185 @@
+#!/usr/bin/perl 
+#
+# Try to authenticate to a pubcookie login server.  See http://www.pubcookie.org
+
+# User, password and realm can either be specified on the command line
+# or in the monitor-auth.cf file.
+#
+# Arguments are "[-c monitor-auth-config] [-u user] [-p pass] [-r realm] [-t timeout] host [host...]"
+#
+# Adapted from "nis.monitor" by
+# Carnegie Mellon University, Computing Services
+#
+# nis.monitor written by Juha Ylitalo <jylitalo@iki.fi>
+#
+#    Copyright (C) 1999, Juha Ylitalo
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+use IO::File;
+use LWP;
+use HTTP::Request;
+use HTTP::Cookies;
+#use LWP::Debug qw(+);
+
+
+getopts ("c:p:r:t:u:");
+$TIMEOUT = $opt_t || 30;
+$user = $opt_u;
+$password = $opt_p;
+$realm = $opt_r;
+unless (&parse_cf) {
+  print "Monitoring Error\nNo user/password specified on command line and Can't open or parse config file\n";
+  exit 255;
+}
+
+@failures = ();
+@report = ();
+
+foreach $server ( @ARGV ) {
+    &pubcookie_login_poll( $server );
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n\n";
+print join "\n", @report;
+print "\n";
+exit 1;
+
+
+sub pubcookie_login_poll {
+    my ( $server ) = @_;
+    my ($pin, $pout);
+    my ($cell, $cmd, $pid);
+    my $service;
+###############################################################
+    eval {
+
+      local $SIG{ALRM} = sub { die "Timeout Alarm" };
+      my $ua= new LWP::UserAgent;
+      my $url="https://$server";
+      alarm $TIMEOUT;
+      my $request= new HTTP::Request (HEAD => "$url");
+      $res = $ua->simple_request($request);
+      alarm 0;
+      my $subj=$res->header("Client-SSL-Cert-Subject");
+      if ($subj =~ /CN=([\.\w]+)$/) {
+        $service=$1;
+      }
+    };
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+      push @failures, $appsrv;
+      push @report, $appsrv . ":Timed Out\n";
+      return @failures;
+    }
+    eval {
+
+        local $SIG{ALRM} = sub { die "Timeout Alarm" };
+        alarm $TIMEOUT;
+        my $ua= new LWP::UserAgent;
+        my $cj= new HTTP::Cookies;
+        $ua->cookie_jar($cj);
+        my $request= new HTTP::Request (POST => "https://$server/login.cgi");
+
+        $request->content_type('application/x-www-form-urlencoded');
+        if ($service) {
+            $request->header("host", $service);
+        }
+        $request->content("user=$user");
+        $request->add_content("&realm=$realm");
+        $request->add_content("&pass=$password");
+        $request->add_content("&one=webiso.andrew.cmu.edu");
+        $request->add_content("&two=pinit");
+        $request->add_content("&creds_from_greq=1");
+        $request->add_content("&three=1");
+        $request->add_content("&four=");
+        $request->add_content("&five=");
+        $request->add_content("&six=webiso.andrew.cmu.edu");
+        $request->add_content("&seven=/login.cgi");
+        $request->add_content("&pinit=true");
+        $request->add_content("&reply=1");
+        my $res = $ua->request($request);
+        if ($res->is_success) {
+          my %cookies;
+
+          $cj->scan(sub{
+                      #print "COOKIE: $_[1]:$_[4]\n";
+                      $cookies{$_[1]}=1;
+                    });
+          # pubcookie_cred and pubcookie_l will be rejected by HTTP::Cookies
+          # if the servername doesn't match
+          if ($cookies{pubcookie_g}) {
+            if (not defined($cookies{pubcookie_l}) or
+                not defined($cookies{pubcookie_cred})) {
+                # wrong service name.... complain or not?
+            }
+            #print "OK\n";
+          } else {
+            #print "auth reply cookies not present\n";
+            push @failures, $server;
+            push @report, $server . ": authentication request failed\n";
+          }
+          #print $cj->as_string(0), "\n\n\n";
+          #print $res->as_string(), "\n";
+        } else {
+          push @failures, $server;
+          push @report, $server . ": " . $res->status_line();
+        }
+        alarm 0; # Cancel the alarm
+      };
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+        push @report , "$server: Time Out\n";
+        push @failures , $server;
+    }
+    return @failures;
+}
+
+sub parse_cf {
+  my (%users, %passwords, %realms);
+  my $g=$ENV{MON_GROUP};
+  my $s=$ENV{MON_SERVICE};
+  my $file = $opt_c || $ENV{MON_CFBASEDIR}."/monitor-auth.cf";
+  $cf=new IO::File "<$file" or return 0;
+  while (<$cf>) {
+    if (/^(\S+):user\s*=\s*(\S+)$/) {
+      $users{$1}=$2;
+    }
+    if (/^(\S+):password\s*=\s*(\S+)$/) {
+      $passwords{$1}=$2;
+    }
+    if (/^(\S+):realm\s*=\s*(\S+)$/) {
+      $realms{$1}=$2;
+    }
+  }
+  $user ||=   $users{"$g:$s"};
+  $user ||= $users{"$g:*"};
+  $user ||= $users{"*:$s"};
+  $user ||= $users{"*:*"};
+  $password ||=   $passwords{"$g:$s"};
+  $password ||= $passwords{"$g:*"};
+  $password ||= $passwords{"*:$s"};
+  $password ||= $passwords{"*:*"};
+  $realm ||=   $realms{"$g:$s"};
+  $realm ||= $realms{"$g:*"};
+  $realm ||= $realms{"*:$s"};
+  $realm ||= $realms{"*:*"};
+  return 0 unless (defined($user) && defined($password) && defined($realm));
+  return 1;
+}

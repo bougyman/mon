@@ -1,0 +1,127 @@
+#!/usr/bin/perl
+
+# raid.monitor
+# A unified RAID monitor to monitor both software and hardware RAID.
+# Works with Linux software RAID, 3ware's tw_cli tool, and Areca's areca_cli tool.
+# Augie Schwer <augie@corp.sonic.net>
+#
+# -D file  Debug file; output will be appended to the specified as well as to STDOUT.
+#
+
+use strict;
+use warnings;
+
+use Getopt::Std;
+
+my %opt;
+getopts ("D:", \%opt);
+my $DEBUG = $opt{"D"} || 0;
+if ($DEBUG)
+{
+	open ( DEBUG , ">>$DEBUG" ) or die "Could not open debug file $DEBUG :  $!";
+}
+
+
+my $MDSTAT= '/proc/mdstat';
+my $TWCLI = `which tw_cli 2> /dev/null`;
+my $ARCCLI= `which areca_cli 2> /dev/null`;
+
+chomp $TWCLI;
+chomp $ARCCLI;
+
+my $mdstat = '';
+
+# Check for any failed software RAID.
+if ( -f $MDSTAT )
+{
+	$mdstat = `egrep "\[.*_.*\]" $MDSTAT`;
+	$mdstat = '' if $mdstat =~ 'read_ahead not set'; # Fix for Red Hat 7.3 boxes.
+}
+if ( $mdstat )
+{
+	print "Failure of one or more software RAID devices\n";
+
+	if ( $DEBUG )
+	{
+		my $time = localtime(time);
+		print DEBUG $time . " Failure of one or more software RAID devices\n";
+		print DEBUG $time . " $mdstat";
+	}
+        
+	exit 1;
+}
+
+# Check for any 3ware RAID failures.
+if ( -x $TWCLI )
+{
+	my %controllers = ();
+	# Handle multiple controllers.
+	my @controllers = `$TWCLI info | grep '^c' | awk {'print \$1'}`;
+	my (@units,@ports);
+
+	# Iterate through controllers and find broken ports and units.
+	for my $controller (@controllers)
+	{
+		chomp $controller;
+		@{$controllers{$controller}->{'failed_units'}} = `$TWCLI info $controller | grep -v 'NOT-PRESENT' | grep '^u' | awk {'print \$3'} | grep -v 'OK' | grep -v 'VERIFYING' | grep -v 'VERIFY-PAUSED'`;
+		@{$controllers{$controller}->{'failed_ports'}} = `$TWCLI info $controller | grep -v 'NOT-PRESENT' | grep '^p' | awk {'print \$2'} | grep -v 'OK' | grep -v 'VERIFYING' | grep -v 'VERIFY-PAUSED'`;
+	}
+
+	# Display failure and exit with an error if there are any failed ports or units.
+	for my $controller (@controllers)
+	{
+		if ( @{$controllers{$controller}->{'failed_units'}} or @{$controllers{$controller}->{'failed_ports'}} )
+		{
+			print "Failure of one or more of the hardware RAID devices.\n";
+
+			if ( $DEBUG )
+			{
+				my $time = localtime(time);
+				print DEBUG $time . " Failure of one or more of the hardware RAID devices.\n";
+				if (  @{$controllers{$controller}->{'failed_units'}} )
+				{
+					print DEBUG $time . " Failed Units :\n";
+					foreach my $failed_unit ( @{$controllers{$controller}->{'failed_units'}} )
+					{
+						print DEBUG $time . " $failed_unit\n";
+					}
+				}
+				if (  @{$controllers{$controller}->{'failed_ports'}} )
+				{
+					print DEBUG $time . " Failed Ports :\n";
+					foreach my $failed_port ( @{$controllers{$controller}->{'failed_ports'}} )
+					{
+						print DEBUG $time . " $failed_port\n";
+					}
+				}
+			}
+			
+			exit 1;
+		}
+	}
+}
+
+# Check for any Areca RAID failures.
+if ( -x $ARCCLI )
+{
+	my @failed_raid_sets = `$ARCCLI rsf info | grep 'Raid Set' | grep -v 'Normal'`;
+	# Display failure and exit with an error if there were any failed Raid Sets.
+	if ( @failed_raid_sets )
+	{
+			print "Failure of one or more of the hardware RAID devices.\n";
+
+			if ( $DEBUG )
+			{
+				my $time = localtime(time);
+				print DEBUG $time . " Failure of one or more of the hardware RAID devices.\n";
+				print DEBUG $time . " @failed_raid_sets\n";
+			}
+
+			exit 1;
+	}
+}
+
+# Otherwise everything was OK.
+print "Success\n";
+exit 0;
+

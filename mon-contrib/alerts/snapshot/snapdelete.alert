@@ -1,0 +1,123 @@
+#!/usr/bin/perl
+#
+# NetApp Snapshot deletion alert script
+# By: Theo Van Dinter (tvd@colltech.com, felicity@kluge.net) (c) 1998-2001
+#
+# Revision Info: $Id: snapdelete.alert,v 1.1.1.1 2005/02/18 17:52:13 trockij Exp $
+#
+# first line of STDIN (summary) is hosts seperated by whitespace.
+# rest of lines are in the format "#.#GB free on host:/vol/volume/.snapshot".
+#
+# assumes you're using my netappfree.monitor script as well (need more
+# verbose error reporting than the standard netappfree.monitor provides.)
+# assumes rsh access to the filer. (there's no other way to do a snap delete.)
+#
+# This program is free software; you can redistribute it and/or modify it
+# under the terms of the GNU General Public License as published by the
+# Free Software Foundation; either version 2 of the License, or (at your
+# option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU
+# General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write to the Free Software
+# Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
+#
+
+use strict;
+use Getopt::Std;
+use vars qw/$opt_m $opt_M $opt_o $opt_v/;
+getopts ("m:Mo:v:");
+
+my(@delorder) = (); # names to delete, in order.
+my(@delvalid) = qw/ weekly nightly hourly /; # valid snaps to delete.
+@delorder = split(/,/,$opt_o) if ( defined $opt_o );
+@delvalid = split(/,/,$opt_v) if ( defined $opt_v );
+
+my($delregex) = '^(' . join("|",@delvalid) . ')\.\d+$';
+
+my(@hosts) = split(/\s+/, scalar <STDIN>);
+
+die "Need at least 1 hostname to handle!" unless (@hosts);
+
+$ENV{'PATH'} = "/bin:/usr/bin"; # secured path
+
+while ( chomp($_=<STDIN>) ) {
+	next unless /\S/;		# skip blank lines
+	next unless /\.snapshot$/;	# only care about snapshots
+
+	# Split the enhanced netappfree.monitor detailed output.
+	# requires an OnTap version that understands volumes (/vol/...)
+	my($host,$volume) = (m!^.+?free on ([^:]+):/vol/([^/]+)!);
+
+	die "Couldn't get host and volume from \"$_\"!"
+		unless ( $host && $volume );
+
+	open (RSH,"rsh $host -l root snap list $volume|") ||
+		die "Can't run rsh:$!";
+
+	# skip the useless working .... crap ...
+	1 until ( ($_=<RSH>) =~ /^\s*$/ );
+
+	# figure out which snapshots are around, order oldest first.
+	my(%snaps,@snapinfo);
+	my($todel) = "";
+	while ( chomp($_=<RSH>) ) { # parse the listing
+  		push(@snapinfo,$_);
+  		next unless /^\s*\d/; # skip non-snapshot line
+
+		if ( @delorder ) {
+  			my($snaptype,$snapnum) = /\s(\S+)\.(\d+)\s*$/;
+			unshift(@{$snaps{$snaptype}}, "$snaptype.$snapnum");
+		}
+		else { # which are valid?
+			my($snapname) = /\s(\S+\.\d+)\s*$/;
+			next unless ( $snapname );
+
+			$todel = $snapname if ( $snapname =~ /$delregex/o );
+		}
+	}
+	close (RSH);
+
+	# pick the best one to use if we specify which to delete...
+	if ( @delorder ) {
+		foreach ( @delorder ) {
+			$todel = shift @{$snaps{$_}};
+			last if ( $todel );
+		}
+	}
+
+  	if ( $todel ) { # delete the snapshot ...
+ 		system("rsh $host -l root snap delete $volume $todel");
+	
+		&Mailsomething($opt_m,
+ 			"removed $host volume $volume snapshot \"$todel\"")
+				if ( $opt_m );
+  	}
+  	elsif ( $opt_M && $opt_m ) { # no snapshots to delete, wants mail.
+		&Mailsomething($opt_m,
+			"alert!  $host volume $volume",
+			"No snapshots were found eligible for removal, please do something!\n",
+   			"\nResults of \"snap list $volume\":\n\n",
+			join("\n",@snapinfo));
+  	}
+}
+
+# Sends out mail using sendmail ... Should really change this to
+# Mail::Internet or something ... <sigh>
+#
+sub Mailsomething {
+	my($to,$subject,@body) = @_;
+
+	die "To not given!" unless ( $to );
+	die "Subject not given!" unless ( $subject );
+
+	open(MAIL,"|/usr/lib/sendmail -t");
+	print MAIL "To: $to\nFrom: nobody\nSubject: $subject\n\n",@body,"\n";
+	close(MAIL);
+	return;
+}
+

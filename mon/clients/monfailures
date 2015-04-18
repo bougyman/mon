@@ -1,0 +1,119 @@
+#!/usr/bin/perl -w
+
+# Quickly show Mon failure status from command line.
+
+# to configure, hard-code the user and password for either
+# your public Mon username or a username that is only allowed
+# to use the "list" command and nothing else.  I run this
+# script out of inetd on the mon server so the people who can
+# see its results can't read the script (and see the hard-coded
+# password).
+
+# Written by Ed Ravin <eravin@panix.com> Wed Jan  2 12:23:44 EST 2002
+# Release Version: 1.2
+
+
+# $Header: /cvsroot-fuse/mon/mon/clients/monfailures,v 1.1.1.1 2004/06/09 05:18:07 trockij Exp $
+
+use strict;
+
+
+my %opt;
+use Getopt::Long;
+GetOptions (\%opt, "debug",  "server=s", "port=s", "user=s", "password=s");
+
+############################  configurable stuff 
+my $default_user="";
+my $default_password= "";
+############################ 
+
+
+my $debug= $opt{'debug'} || 0; 
+
+my (%failures);
+my ($now);
+
+
+use Mon::Client;
+
+my $mon;
+
+# find the client
+
+    if (!defined ($mon = Mon::Client->new)) {
+		die "$0: could not create client object: $@";
+    }
+
+	if (defined $opt{'server'}) {
+	    $mon->host ($opt{'server'});
+	}
+	else {
+		$mon->host ("localhost");
+	}
+
+	$mon->port ($opt{'port'})   if (defined $opt{'port'});
+	$mon->username($opt{'user'} || $default_user);
+	$mon->password($opt{'password'} || $default_password);
+
+	$mon->connect;
+	die "$0: Could not connect to server: " . $mon->error . "\n"
+		unless $mon->connected;
+
+	if ($mon->username ne "")
+	{
+	    $mon->login;
+	    die "$0: login failure: " . $mon->error . "\n" if $mon->error;
+	}
+
+	# Load data from Mon
+
+
+	%failures = $mon->list_failures;
+	die "$0: Error doing list_failures : " . $mon->error
+		if ($mon->error);
+
+	$now= time;  # time mon data was fetched
+
+
+# group=thathost service=port8888 opstatus=0 last_opstatus=0 exitval=1 timer=11
+# last_success=0 last_trap=0 last_check=955058065 ack=0 ackcomment=''
+# alerts_sent=0 depstatus=0 depend='' monitor='tcp.monitor -p 8888'
+# last_summary='thathost'
+# last_detail='\0athathost could not connect: Connection refused\0a'
+# last_failure=955058067 interval=60 first_failure=955055062
+# failure_duration=3052
+
+my ($watch, $service, $downtime, $summary, $acked);
+format STDOUT_TOP =
+
+Hostgroup:Service               Down Since           Error Summary
+-----------------               ----------           -------------
+.
+
+format STDOUT =
+@<<<<<<<<<<<<<<<<<<<<<<<<<<<<<  @<<<<<<<<<<<<<<<<<<  @<<<<<<<<<<<<<<<<<<<<<<<<<
+$watch . ":" . $service,   $downtime,             $summary
+.
+
+# list out any failures
+if (%failures)
+{
+	foreach $watch (keys %failures) {
+	   foreach $service (keys %{$failures{$watch}}) {
+			my $sref= \%{$failures{$watch}->{$service}};
+			$downtime= localtime $sref->{'first_failure'};
+			$acked= $sref->{'ack'} !=0;
+			$summary= $sref->{'last_summary'};
+
+	$summary= "[acked] $summary" if $acked;
+	write;
+			}
+	}
+	print "\n";
+	exit(1);
+}
+else
+{
+	print "No failures found.\n";
+	exit(0);
+}

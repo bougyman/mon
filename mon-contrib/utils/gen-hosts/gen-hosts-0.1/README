@@ -1,0 +1,27 @@
+-------------------------------------------------------------------
+- gen-hosts 0.1
+-------------------------------------------------------------------
+gen-hosts is a perl utility program for mon that is meant to work along 
+with cf-to-hosts (included in the mon distribution) in order to 
+eliminate your dependency on DNS being up for mon to work properly.
+
+The version of cf-to-hosts included in this distribution is
+a more robust version of cf-to-hosts than is currently
+included in mon (as of version 0.38.21), because it defaults
+to using DNS (via the Net::DNS module) instead  of gethostbyname(),
+which will return the first match from your host's /etc/hosts
+file, if one is available, hence, it will not pick up DNS
+changes for existing hostnames.
+
+It is highly recommended that you use this version of cf-to-hosts 
+along with gen-hosts.
+
+Please see the script for more documentation and usage details.
+
+mon is available from:
+        http://www.kernel.org/software/mon/
+ 
+gen-hosts should be available from:
+        http://www.nam-shub.com/files/
+
+Andrew Ryan <andrewr@nam-shub.com> - 2001-01-19 

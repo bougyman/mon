@@ -1,0 +1,88 @@
+config globals in %CF
+
+$ALERTDIR
+$AUTHFILE
+$AUTHTYPE
+$BASEDIR
+$CF
+$CFBASEDIR
+$CLIENT_TIMEOUT
+$DTLOGFILE
+$DTLOGGING
+$LOGDIR
+$MAXPROCS
+$MAX_KEEP
+$OCFILE
+$PIDFILE
+$RANDSTART
+$SCRIPTDIR
+$SERVPORT
+$SNMPPORT
+$STATEDIR
+$TRAPPORT
+$USERFILE
+
+
+
+globals
+
+$RCSID
+$AUTHOR
+$OS
+$TRAP_PDU
+$SLEEPINT
+$STOPPED
+$STOPPED_TIME
+$TRAP_PRO_VERSION
+$PROT_VERSION
+$HOSTNAME
+$PWD
+%oncall
+$iovec
+$numclients
+$clientcount
+%clients
+
+@last_alerts
+@last_failures
+$procs
+$fdset_rbits
+$fdset_ebits
+%watch_disabled
+$i (debugging only)
+
+$tm
+$lasttm
+
+alert flags
+    $FL_MONITOR
+    $FL_UPALERT
+    $FL_TRAP
+    $FL_TRAPTIMEOUT
+    $FL_STARTUPALERT
+
+trap types
+    $TRAP_COLDSTART
+    $TRAP_WARMSTART
+    $TRAP_LINKDOWN
+    $TRAP_LINKUP
+    $TRAP_AUTHFAIL
+    $TRAP_EGPNEIGHBORLOSS
+    $TRAP_ENTERPRISE
+    $TRAP_HEARTBEAT
+
+opstatuses
+    $STAT_FAIL
+    $STAT_OK
+    $STAT_COLDSTART
+    $STAT_WARMSTART
+    $STAT_LINKDOWN
+    $STAT_UNKNOWN
+    $STAT_TIMEOUT
+    $STAT_UNTESTED
+    $STAT_DEPEND
+    $STAT_WARN
+%OPSTAT
+
+%MONITORHASH
+%ALERTHASH

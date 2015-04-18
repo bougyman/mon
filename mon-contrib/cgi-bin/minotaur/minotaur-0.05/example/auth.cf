@@ -1,0 +1,27 @@
+#
+# authentication file
+#
+# entries look like this:
+# command: {user|all}[,user...]
+#
+# THE DEFAULT IT TO DENY ACCESS TO ALL IF THIS FILE
+# DOES NOT EXIST, OR IF A COMMAND IS NOT DEFINED HERE
+#
+
+list:		 test, mon, all
+servertime:	       mon, all
+reset:		       mon
+loadstate:	       mon
+savestate:	       mon
+term:		       mon
+stop:		       mon
+start:		       mon
+set:		       mon
+get:		       mon
+dump:		       mon
+disable:	 test, mon
+enable:		 test, mon
+test:		 test, mon
+ack:		       mon
+reload:		       mon
+clear:		       mon

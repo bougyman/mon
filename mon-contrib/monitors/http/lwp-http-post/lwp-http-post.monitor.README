@@ -1,0 +1,7 @@
+#!/usr/bin/perl
+# File:         lwp-http-post.monitor
+# Author:       Kastus Shchuka, kastus@epocrates.com
+# Date:         Thu Apr 18 19:10:11 PDT 2002
+# Description:  Perform an HTTP POST preceded by GET to set cookies, following redirections -- using LWP.
+# Based on:     lwp-http.mon by Daniel Hagerty, hag@linnaean.org
+#

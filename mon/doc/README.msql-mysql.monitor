@@ -1,0 +1,34 @@
+mysql-mysql.monitor README
+==========================
+
+See the monitor script itself for most of the pertinent usage information.
+
+This is msql-mysql.monitor, a monitor for mon that tries to intelligently
+check if an mSQL or MySQL SQL server is operational.
+
+This monitor required the perl5 modules DBI, DBD::mysql, and DBD::mSQL,
+available from CPAN (http://www.cpan.org/).
+
+The monitor may be installed as msql.monitor, in which case it defaults to
+mSQL mode, or as mysql.monitor, in which case it defaults to MySQL mode. 
+Regardless of how it is installed, the --mode switch may be used to force
+the monitor into msql or mysql mode.
+
+In order for the monitor to succeed, the following must be true:
+
+- For either mode, the server must be up and answering.
+- For mSQL mode, the server ACLs must allow connections from the host running
+  mon as the effective user running mon to the given database.
+- For MySQL mode, the server grant tables must allow connections from the host
+  running mon with the username and password provided to the given database.
+- For either mode, the database specified must exist, and must contain at
+  least one table
+
+If any of these conditions are not met, the monitor will fail and the DBI
+error will be returned to mon for processing by the appropriate alerts.
+
+-- 
+j.
+
+James FitzGibbon                                                james@ican.net
+System Engineer, ACC Global Net                   Voice/Fax (416)207-7171/7610

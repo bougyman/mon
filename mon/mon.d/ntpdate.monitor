@@ -1,0 +1,424 @@
+#!/usr/bin/perl
+#
+# ntpdate.monitor Verify that NTP is running and times are within tolerance
+# ntpdate will do most of the work for us
+#
+
+=head1 NAME
+
+B<ntpdate.monitor> - ntp monitor using ntpdate to do most of the work
+
+=head1 DESCRIPTION
+
+A mon monitor to verify that ntp is running on multiple servers, those
+servers have synchronized time, and that the times are within
+specified limits.
+
+The mon server should be running ntp since the times are reported
+relative to the system performing the query.
+
+=head1 SYNOPSIS
+
+B<ntpdate.monitor -d -l log_file_YYYYMM.log --maxstratum nn --maxoffset n.nn>
+
+=head1 OPTIONS
+
+=over 5
+
+=item B<--maxstratum> Maximum stratum number, default is 10. Stratum
+16 indicates that ntp is running on a system, but the clock is not
+synchronized. An alarm will be triggered if this value is exceeded.
+
+=item B<--maxoffset> Maximum value of the clock offset in seconds,
+default is 800 ms (a large value, ntp typically keeps clocks within
+milliseconds of each other).  An alarm will be triggered if this value
+is exceeded.
+
+=item B<-l log_file_template> or B<--log log_file_template>
+
+/path/to/logs/internet_web_YYYYMM.log Current year & month are substituted
+for YYYYMM, that is the only possible template at this time. The format of the
+log file is:
+
+ time server stratum offset delay
+
+time is in UNIX seconds, offset, and delay are in seconds.
+
+=item B<-shortalerts>
+
+Use only hostname in alert list. For organizations with long FQDNs
+this will make mail and pager alerts more readable.
+
+=item B<--htmlfile /full/path/to/file.html>
+
+Optional location to write the formated results from the current
+test. Be sure that the directory is writeable by the user under whom
+mon is running.
+
+=item B<-d> or B<--debug>
+
+Debug/Test/Verbose, for manual testing only.
+
+=item B<--ntpdate>
+
+Specify the location of ntpdate, the default is /usr/sbin/ntpdate
+
+=back
+
+=head1 MON CONFIGURATION EXAMPLE
+
+ hostgroup ntp ntp1.somedomain.org ntp2.somedomain.org ntp3.somedomain.org
+
+ watch ntp
+   service ntpdate
+   interval 30m
+   monitor ntpdate.monitor --maxoffset 0.100 --log /usr/local/mon/logs/gv-ntp-YYYYMM.log
+      period wd {Sun-Sat}
+      alert mail.alert user@somedomain.org
+      alertevery 1h summary
+
+=head1 BUGS
+
+Listing a server twice can cause ntpdate to report that server as
+Stratum 0.
+
+The shortalerts option only reports the hostname, it could be extended
+to provide a configurable number of FQND fields.
+
+ntpdate will be removed from the NTP distribution at some point. This
+monitor will need to be modified to use some form of ntpd -q instead.
+
+Check the first line of this file to be sure that it points to an
+appropriate perl executable.
+
+=head1 AUTHOR
+
+Jon Meek, meekj@ieee.org
+
+=head1 SEE ALSO
+
+ntp.monitor by  Daniel Hagerty <hag@linnaean.org>
+
+=cut
+
+$RCSid = q{$Id: ntpdate.monitor,v 1.3 2004/10/06 16:31:51 trockij Exp $ };
+
+#
+# Jon Meek
+# Lawrenceville, NJ
+# meekj at ieee.org
+#
+#
+# $Id: ntpdate.monitor,v 1.3 2004/10/06 16:31:51 trockij Exp $
+#
+#    Copyright (C) 2002, Jon Meek
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use Getopt::Long;
+GetOptions(
+	   "maxstratum=i" => \$MaxStratum,
+	   "maxoffset=f" => \$MaxOffset,
+#	   "dns" => \$UseDNS,
+	   "d|debug" => \$Debug,
+	   "l=s" => \$LogFile,
+	   "log=s" => \$LogFile,
+	   "htmlfile=s" => \$HtmlFile,
+	   "shortalerts" => \$ShortAlerts,
+	   "ntpdate=s" => \$NTPDATE,
+	  );
+
+use Net::DNS;
+use Sys::Hostname;
+use POSIX qw(strftime);
+
+#
+# Set Defaults
+#
+# ntpdate reports stratum 16 if ntp is running, but time is not synchronized
+#                 stratum 0 will be reported if ntp is not running
+#
+$MaxStratum = 10 unless $MaxStratum;
+$MinStratum = 1;
+
+# Use the first occurrence of this stratum as the reference time for alarms
+$ReferenceStratum = 1 unless $ReferenceStratum;
+
+#
+# Trigger alarm if the time is ever off by this much
+#
+$MaxOffset  = 0.800 unless $MaxOffset; # seconds
+$NTPDATE = '/usr/sbin/ntpdate' unless $NTPDATE;
+
+$HtmlFileHandle = &HTMLheader($HtmlFile) if ($HtmlFile ne "" && HTMLheader);
+
+@Failures = ();
+@Hosts = @ARGV; # Host names are left on the command line after Getopt
+
+%NameByIP = &DNSlookups(\@Hosts);
+
+$TimeOfDay = time;       # Current time
+print "TimeOfDay: $TimeOfDay\n" if $Debug;
+
+$cmd = qq{$NTPDATE -q @Hosts 2>&1 |};
+
+$pid = open(NTP, $cmd) || die "Couldn't run $cmd\n";
+
+$detail = "";
+$ntpdate_output = "";
+
+while ($in = <NTP>) {
+  # print $in if $Debug;
+  $ntpdate_output .= $in;
+
+  chomp $in;
+
+  #
+  # Pick out server strings
+  #
+  if ($in =~ /^server\s+([\d\.]+),\s+stratum\s+(\d+),\s+offset\s+([\d\.\-\+]+),\s+delay\s+([\d\.\-\+]+)/) {
+    $ip = $1;
+    $stratum = $2;
+    $offset = $3;
+    $delay = $4;
+    $name = $NameByIP{$ip};
+    print "$in   Name: $name  Stratum: $stratum\n" if $Debug;
+
+    $detail .= "$in   Name: $name  Stratum: $stratum\n";
+
+    if (exists $NameByIP{$ip}) { # Use system name if we have it
+      $HostName = $NameByIP{$ip};
+    } else {
+      $HostName = $ip;           # Otherwise use IP address
+    }
+
+    $IP{$HostName}      = $ip;
+    $Stratum{$HostName} = $stratum;
+    $Offset{$HostName}  = $offset;
+    $Delay{$HostName}   = $delay;
+    $Detail{$HostName}  = $in;
+
+    if ((!defined $ReferenceOffset) && ($stratum == 1)) { # Save offset from first stratum 1 server seen
+      $ReferenceOffset = $offset;
+    }
+
+    #
+    # Prepare log entries
+    #
+    if ($LogFile or $Debug) {
+      $LogString{$HostName} = qq{$TimeOfDay $HostName $stratum $offset $delay};
+    }
+  }
+}
+
+#
+# Build formatted results and check alarm limits
+#
+$FmtDetail = qq{NTP Server                                   Delta, s Stratum   Rel, s    Offset, s\n};
+
+&HTMLtableHeader($HtmlFileHandle, 'NTP Server', 'Delta, s', 'Stratum', 'Rel, s', 'Offset, s', 'Status') if ($HtmlFile ne "");
+
+foreach $hostname (sort keys %Stratum) {
+  $DeltaTime = $Offset{$hostname} - $ReferenceOffset;
+  $DeltaTimeByHost{$hostname} = $DeltaTime;
+
+  $FmtDetail .= sprintf ("%-40s %12.6f %3d %12.6f %12.6f",
+    $hostname,  $DeltaTime,  $Stratum{$hostname},  $Offset{$hostname},  $Delay{$hostname});
+
+  $fail_string = '&nbsp;';
+
+  if (($Stratum{$hostname} > $MaxStratum) || ($Stratum{$hostname} < $MinStratum)
+      || (abs($DeltaTime) > $MaxOffset)) {
+    $ip = $IP{$hostname};
+    $FailureDetail{$hostname} = $Detail{$hostname};
+    push(@Failures, $hostname);
+    $FmtDetail .= q{  Fail};
+    $fail_string = 'Fail';
+  }
+
+  $FmtDetail .= "\n";
+
+  if ($HtmlFile ne "") {
+    $fDeltaTime = sprintf("%12.6f", $DeltaTime);
+    $fOffset = sprintf("%12.6f", $Offset{$hostname});
+    $fDelay = sprintf("%12.6f", $Delay{$hostname});
+    &HTMLtableRow($HtmlFileHandle, $hostname,  $fDeltaTime, $Stratum{$hostname}, $fOffset, $fDelay, $fail_string);
+  }
+
+
+}
+
+print "\n$FmtDetail\n" if $Debug;
+
+$detail .= "\n$FmtDetail\n";
+
+#
+# Write results to logfile, if -l
+#
+if ($LogFile) {
+
+  $LogFile = $LogFile;
+  ($sec, $min, $hour, $mday, $Month, $Year, $wday, $yday, $isdst) =
+    localtime($TimeOfDay);
+  $Month++; $Year += 1900;
+  $YYYYMM = sprintf('%04d%02d', $Year, $Month);
+  $LogFile =~ s/YYYYMM/$YYYYMM/; # Fill in current year and month
+
+  if (-e $LogFile) {		# Check for existing log file
+    $NewLogFile = 0;
+  } else {
+    $NewLogFile = 1;
+  }
+
+  open(LOG, ">>$LogFile") || warn "$0 Can't open logfile: $LogFile\n";
+
+  foreach $ip (sort keys %LogString) {
+    print LOG "$LogString{$ip}\n";
+  }
+
+  close LOG;
+}
+
+foreach $ip (sort keys %LogString) {
+    print "LOG: $LogString{$ip}\n" if ($Debug);
+    $detail .= "LOG: $LogString{$ip}\n";
+}
+
+&HTMLtrailer($HtmlFileHandle) if $HtmlFile;
+
+if (@Failures == 0) {		# Indicate "all OK" to mon
+  print "\n$detail";
+  print "\nntpdate -q output:\n\n$ntpdate_output";
+  exit 0;
+}
+
+#
+# Otherwise we have one or more failures
+#
+
+if ($ShortAlerts) {
+  foreach $host (sort @Failures) {
+    if ($host =~ /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/) { # IP address, don't shorten
+      push(@SortedFailures, $host);
+    } else {
+      $host =~ /(.*?)\./;
+      push(@SortedFailures, $1);
+    }
+  }
+} else {
+  @SortedFailures = sort @Failures;
+}
+
+
+print "------- Have Failures -------\n" if $Debug;
+
+print "@SortedFailures\n";
+
+print "------- Details -------\n" if $Debug;
+print $detail;
+
+#foreach $hostname (sort keys %FailureDetail) {
+#    print "$NameByIP{$hostname} $hostname $FailureDetail{$hostname}    $DeltaTimeByHost{$hostname} s\n";
+#}
+
+print "\nntpdate -q output:\n\n$ntpdate_output";
+
+exit 1; # Indicate failure to mon
+
+##############################################################################
+
+
+#
+# Get the IP addresses for the hosts (because ntpdate returns IP addresses)
+#
+sub DNSlookups {
+  my ($Hosts) = @_;
+
+  $res = new Net::DNS::Resolver;
+  for (my $i = 0; $i < @$Hosts; $i++) {
+    $target = $Hosts->[$i];
+    $query = $res->search($target);
+
+    if ($query) {
+      foreach $rr ($query->answer) {
+	#print "$target  Type: ", $rr->type, "\n" if $Debug;
+	if ($rr->type eq "A") {
+	  print $rr->address . ' ' if $Debug;
+	  $NameByIP{$rr->address} = $target;
+	}
+      }
+    }
+  }
+  return %NameByIP;
+}
+
+sub HTMLheader {
+  #
+  # Print basic standard header for this application
+  #
+    my($FileName) = @_;
+    local *F;
+    open(F, ">$FileName") || warn "$$ can't open $FileName, check permissions";
+
+$Title = "NTP Server Status";
+$MonitorHostname = hostname;
+$FmtTimeNow = strftime("%A %d-%b-%Y  %H:%M:%S %Z", localtime(time));
+
+print F <<"EndOfHeader";
+<HTML>
+<HEAD>
+<TITLE>$Title</TITLE>
+</HEAD>
+<BODY bgcolor="#ffffff" text="#000000">
+<H1>$Title from $MonitorHostname</H1>
+<p>$FmtTimeNow</p>
+<table border=2 cellpadding=3>
+EndOfHeader
+
+    return *F;
+}
+
+
+sub HTMLtableHeader {
+ my($FileHandle, @Headers) = @_;
+ print $FileHandle "<TR>\n";
+ foreach $h (@Headers) {
+   print $FileHandle "<TH>$h</TH>\n";
+ }
+ print $FileHandle "</TR>\n";
+}
+
+sub HTMLtableRow {
+ my ($FileHandle, @Fields) = @_;
+ my ($align, $f);
+ $align = '';
+ print $FileHandle "<TR>\n";
+ foreach $f (@Fields) {
+   print $FileHandle "<TD$align>$f</TD>\n";
+   $align = ' align=right';
+ }
+ print $FileHandle "</TR>\n";
+}
+
+sub HTMLtrailer {
+  #
+  # Print basic standard trailer for this application
+  #
+    my($FileHandle) = @_;
+
+    print $FileHandle "</table>\n</body>\n</html>\n";
+    close $FileHandle;
+}

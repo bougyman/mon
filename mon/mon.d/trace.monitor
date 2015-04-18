@@ -1,0 +1,786 @@
+#!/usr/bin/perl
+#
+# trace.monitor
+#
+# trace the route to an address, record previous routes,
+# compare newest path to last path and report divergences
+# while considering load-balanced hops, and log paths
+# historically.
+#
+# for use with mon
+#
+# use "trace.monitor -h" for help
+#
+# Jim Trocki
+#
+# $Id: trace.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $
+#
+#    Copyright (C) 2001-2003, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use strict;
+
+use Getopt::Std;
+use Data::Dumper;
+
+sub traceroute;
+sub print_path;
+sub load_last;
+sub path_to_string;
+sub debug;
+sub path_to_hash;
+sub test;
+sub append_log;
+sub print_hop;
+sub usage;
+sub process_hosts;
+
+my %opt;
+getopts ('hLs:l:d:t:m:', \%opt);
+
+if ($opt{"h"})
+{
+    usage;
+    exit;
+}
+
+die "must supply host\n" if (@ARGV == 0);
+
+my $TIMEOUT = $opt{"t"} || 30;
+my $DEBUG = $opt{"d"} || 0;
+my $METHOD = "m";
+
+if ($opt{"m"} ne "" && $opt{"m"} !~ /^[mn]$/)
+{
+    die "method must be one of 'n' or 'm'\n";
+}
+
+if ($opt{"m"})
+{
+    $METHOD = $opt{"m"};
+}
+
+#my $LOGDIR = "/var/lib/mon/log.d";
+#my $STATEDIR = "/var/lib/mon/state.d";
+my $LOGDIR = ".";
+my $STATEDIR = ".";
+
+if (-d $opt{"l"})
+{
+    $LOGDIR = $opt{"l"};
+}
+
+elsif (-d $ENV{"MON_LOGDIR"})
+{
+    $LOGDIR = $ENV{"MON_LOGDIR"};
+}
+
+if (-d $opt{"s"})
+{
+    $STATEDIR = $opt{"s"};
+}
+
+elsif (-d $ENV{"MON_STATEDIR"})
+{
+    $STATEDIR = $ENV{"MON_STATEDIR"};
+}
+
+#
+# do the testing on each host
+#
+my ($failures, $failure_detail, $successes, $success_detail) =
+	process_hosts (@ARGV);
+
+#
+# all the testing/logging is done,
+# now report the successes and failures
+#
+my $num_failures = @{$failures};
+
+if ($num_failures)
+{
+    print "@{$failures}\n";
+}
+
+else
+{
+    print "\n";
+}
+
+for (my $i = 0; $i < @{$failures}; $i++)
+{
+    print "$failures->[$i]\n--------------------\n";
+    print "$failure_detail->[$i]\n";
+    print "\n";
+}
+
+if ($num_failures)
+{
+    print "\n";
+}
+
+for (my $i = 0; $i < @{$successes}; $i++)
+{
+    print "$successes->[$i]\n---------------------------\n";
+    print "$success_detail->[$i]\n";
+    print "\n";
+}
+
+exit $num_failures;
+
+
+#
+# print path
+#
+# if second arg is true, return the string
+# instead of printing it
+#
+sub print_path
+{
+    my ($path, $str) = @_;
+
+    my $string = "";
+
+    for (my $i= 0; $i < @{$path->{"path"}}; $i++)
+    {
+	my $hop = $path->{"path"}->[$i];
+	my @h = ();
+	foreach my $list (@{$hop})
+	{
+	    push @h, sprintf ('%-15s %-10s', $list->[0], $list->[1]);
+	}
+
+	if ($str)
+	{
+	    $string .= sprintf ("%02d %s\n", $i, "@h");
+	}
+	else
+	{
+	    printf ("%02d %s\n", $i, "@h");
+	}
+    }
+
+    $string;
+}
+
+
+sub print_hop
+{
+    my ($path, $hopnum) = @_;
+
+    my $hop = $path->{"path"}->[$hopnum];
+    my @h = ();
+    foreach my $list (@{$hop})
+    {
+	push @h, sprintf ('%-15s %-10s', $list->[0], $list->[1]);
+    }
+
+    sprintf ("%02d %s\n", $hopnum, "@h");
+}
+
+
+sub save_last
+{
+    my ($f, $p) = @_;
+
+    if (!open (OUT, ">$f"))
+    {
+    	return "$!";
+    }
+
+    if (!$p->{"time"})
+    {
+    	print OUT time . " ";
+    }
+
+    else
+    {
+    	print OUT "$p->{time} ";
+    }
+
+    print OUT "$p->{to} ";
+
+    print OUT path_to_string ($p), "\n";
+
+    close (OUT);
+
+    "";
+}
+
+
+sub append_log
+{
+    my ($f, $p) = @_;
+
+    if (!open (OUT, ">>$f"))
+    {
+    	return "$!";
+    }
+
+    if (!$p->{"time"})
+    {
+    	print OUT time . " ";
+    }
+
+    else
+    {
+    	print OUT "$p->{time} ";
+    }
+
+    print OUT "$p->{to} ";
+
+    print OUT path_to_string ($p), "\n";
+
+    close (OUT);
+
+    "";
+}
+
+
+sub load_last
+{
+    my ($f) = @_;
+
+    if (!open (IN, $f))
+    {
+    	return "$!";
+    }
+
+    my ($time, $path, $to);
+
+    while (<IN>)
+    {
+	next if (/^\s*#/ || /^\s*$/);
+    	chomp;
+
+	next if (!/^\d+\s/);
+
+	($time, $to, $path) = split (/\s+/, $_);
+	last;
+    }
+
+    close (IN);
+
+    if ($path eq "")
+    {
+    	return ("no path found in file");
+    }
+
+    my %p;
+
+    $p{"time"} = $time;
+    $p{"to"} = $to;
+    $p{"path"} = string_to_path ($path);
+    $p{"hpath"} = path_to_hash ($p{"path"});
+
+    ("", { %p });
+}
+
+
+sub path_to_string
+{
+    my ($path) = @_;
+
+    my @formatted_path;
+
+    foreach my $hop (@{$path->{"path"}})
+    {
+	my @tries = ();
+
+	foreach my $hop_try (@{$hop})
+	{
+	    push @tries, "$hop_try->[0]/$hop_try->[1]";
+	}
+
+	push @formatted_path, join (",", @tries);
+    }
+
+    join ("-", @formatted_path);
+}
+
+
+sub string_to_path
+{
+    my ($string) = @_;
+
+    my @path;
+
+    foreach my $hop (split (/-/, $string))
+    {
+	my @tries = ();
+
+    	foreach my $try (split (/,/, $hop))
+	{
+	    push @tries, [split (/\//, $try)];
+	}
+
+	push @path, [@tries];
+    }
+
+    [@path];
+}
+
+
+sub save_path
+{
+    my ($file, $path) = @_;
+
+}
+
+
+#
+# returns -1 if paths do not diverge,
+# or the index into @{$path1} where they do.
+#
+sub compare_paths
+{
+    my ($path1, $path2, $behavior) = @_;
+
+    #
+    # $behavior is one of:
+    #	"n"	normal
+    #	"m"	mux mode, treat all routes on the same hop as
+    #		equals
+    #
+
+    my $i = 0;
+    my $diverge = -1;
+
+    while ($i < @{$path1->{"path"}} && $diverge == -1)
+    {
+	debug ("comparing hop $i");
+
+	#
+	# path1 is longer than path2
+	#
+    	if ($i >= @{$path2->{"path"}})
+	{
+	    debug ("path1 longer than path2");
+	    $diverge = $i;
+	    last;
+	}
+
+	else
+	{
+	    #
+	    # MUX method
+	    #
+	    # no divergence if at least one of the routers for this
+	    # hop matches with the last sample. this is an attempt
+	    # to consider load-balanced hops.
+	    # 
+	    #
+	    if ($behavior eq "m")
+	    {
+		debug ("comparing using mux");
+
+		my $found = 0;
+
+	    	foreach my $ip (keys %{$path1->{"hpath"}->[$i]})
+		{
+		    if ($path2->{"hpath"}->[$i]->{$ip} > 0)
+		    {
+			debug ("found matching route at $i");
+			$found = 1;
+			last;
+		    }
+		}
+
+		if (!$found)
+		{
+		    debug ("did not find matching router at pos $i");
+		    $diverge = $i;
+		    last;
+		}
+	    }
+
+	    #
+	    # DEFAULT method
+	    #
+	    # default is to compare all routers for each hop
+	    # between path samples, and if they differ at all,
+	    # then consider it a divergence.
+	    #
+	    else
+	    {
+		debug ("comparing using default");
+
+		#
+		# hop tries differ
+		#
+		if (@{$path1->{"path"}->[$i]} != @{$path2->{"path"}->[$i]})
+		{
+		    $diverge = $i;
+		    last;
+		}
+
+		else
+		{
+		    for (my $j = 0; $j < @{$path1->{"path"}->[$i]}; $j++)
+		    {
+		    	if ($path1->{"path"}->[$i]->[$j]->[0] ne
+				$path2->{"path"}->[$i]->[$j]->[0])
+			{
+			    debug ("found divergence index $j");
+			    $diverge = $i;
+			    last;
+			}
+
+			else
+			{
+			    debug ("no divergence index $j");
+			}
+		    }
+		}
+	    }
+	}
+
+	$i++;
+    }
+
+    if ($diverge != -1 && @{$path1->{"path"}} != @{$path2->{"path"}})
+    {
+	debug ("path lengths differ");
+    	return $#{$path1->{"path"}};
+    }
+
+    return $diverge;
+}
+
+#
+# traceroute to a host and return a data structure of the hops
+# and timings
+#
+# returns the list:
+# (
+#  "error msg, empty string if no error",
+#  {
+#    "path" =>
+#       [
+#         [["hop1 try1", ms], ["hop1 try2", ms], ["hop1 try3", ms]],
+#         [["hop2 try2", ms], ...],
+#         ...
+#       ],
+#    "hpath" =>
+#       [
+#         {"ipaddr" => count, ...},
+#       ],
+#  }
+# )
+#
+sub traceroute
+{
+    my ($host, $timeout, $traceroute_args) = @_;
+
+    my $pid;
+
+    if (!($pid = open (IN, "traceroute -n $traceroute_args $host 2>/dev/null |")))
+    {
+    	return ($!, []);
+    }
+
+    my $hop = 0;
+    my @hops = ();
+    my @hash_hops = ();
+
+    if ($timeout)
+    {
+	$SIG{"ALRM"} = sub {die "timeout" };
+    }
+
+    eval
+    {
+    	if ($timeout)
+	{
+	    alarm ($timeout);
+	}
+
+	while (<IN>)
+	{
+	    if (!/^\s*\d+/)
+	    {
+		debug ("skipping $_");
+		next;
+	    }
+
+	    my $line = $_;
+	    chomp $line;
+	    $line =~ s/^\s*//;
+
+	    debug ($line, 5);
+
+	    my @l = split (/\s+/, $line);
+
+	    $hop = shift @l;
+	    my @hoplist = ();
+	    my %hophash = ();
+	    my $i = 0;
+	    my $router = "";
+
+	    while ($i < @l)
+	    {
+		if ($l[$i] =~ /^\d+\.\d+\.\d+\.\d+$/)
+		{
+		    $router = $l[$i];
+		    $i++;
+		}
+
+		#
+		# timeout
+		#
+		elsif ($l[$i] eq "*")
+		{
+		    push @hoplist, ["*", 0];
+		    $hophash{"*"}++;
+		    $i++;
+		    next;
+		}
+
+		#
+		# a real router reply
+		#
+		if ($router ne "")
+		{
+		    if ($l[$i+1] ne "ms")
+		    {
+			close (IN);
+			return ("expecting ms [$line]", []);
+		    }
+
+		    my $time = $l[$i];
+		    $i += 2;
+		    push @hoplist, [$router, $time];
+		    $hophash{$router}++;
+
+		    #
+		    # skip over failures
+		    #
+		    if ($l[$i] =~ /^!/)
+		    {
+			$i++;
+		    }
+		}
+
+		else
+		{
+		    close (IN);
+		    return ("don't know [$line]", []);
+		}
+	    }
+
+	    push @hops, [@hoplist];
+	    push @hash_hops, {%hophash};
+	}
+
+	if ($timeout)
+	{
+	    alarm (0);
+	}
+    };
+
+    close (IN);
+
+    if ($@ && $timeout && $@ =~ /timeout/)
+    {
+	kill 9, $pid;
+	push @hops, [["timeout", $timeout]];
+    	return ("timeout", [@hops]);
+    }
+
+    my $t = time;
+    ("", {
+    	"path" => [@hops],
+	"hpath" => [@hash_hops],
+	"time" => $t,
+	"to" => $host,
+    });
+}
+
+
+sub debug
+{
+    my ($msg, $level) = @_;
+
+    if ($DEBUG && $level <= $DEBUG)
+    {
+	print STDERR "$msg\n";
+    }
+}
+
+
+sub path_to_hash
+{
+    my $path = shift;
+
+    my @new_path = ();
+
+    for (my $i = 0; $i < @{$path}; $i++)
+    {
+    	my $hop = $path->[$i];
+
+	for (my $j = 0; $j < @{$hop}; $j++)
+	{
+	    $new_path[$i]->{$hop->[$j]->[0]}++;
+	}
+    }
+
+    [@new_path];
+}
+
+
+sub test
+{
+    my ($msg, $path1, $path2) = @_;
+
+    $path1->{"hpath"} = path_to_hash ($path1->{"path"});
+    $path2->{"hpath"} = path_to_hash ($path2->{"path"});
+
+    print "BEGIN: $msg\n";
+
+    my $r = compare_paths ($path1, $path2, "m");
+
+    if ($r == -1)
+    {
+    	print "END: $msg no divergence\n";
+    }
+
+    else
+    {
+    	print "END: $msg divergence at $r\n";
+    }
+}
+
+
+sub usage
+{
+    print <<EOF;
+usage: trace.monitor -h
+trace.monitor [-L] [-s dir] [-l dir] [-d num] [-t args] [-m {m,n}] host [host...]
+traceroute to a host, compare the route paths between invocations. for use
+with "mon".
+
+    -L		append results to a log file
+    -s dir	state dir, overrides MON_STATEDIR
+    -l dir	log dir, overrides MON_LOGDIR
+    -d num	debug, 1=low 5=high
+    -t args	args to be passed to tcpdump
+    -m {m,n}	comparison methods, load-balanced or not
+
+logs are named "host-month-year.log"
+
+EOF
+}
+
+
+sub process_hosts
+{
+    my (@hosts) = @_;
+
+    my (@failures, @failure_detail, @successes, @success_detail);
+
+    my @loctime = localtime;
+
+    foreach my $host (@hosts)
+    {
+	my $last_file = "$STATEDIR/$host.lasttrace";
+	my $log_file = sprintf ('%s/%s-%s-%s.log', $LOGDIR, $host,
+	    $loctime[4], 1900 + $loctime[5]);
+
+	my ($err, $p) = traceroute ($host, $TIMEOUT);
+
+	if ($err ne "")
+	{
+	    push @failures, $host;
+	    push @failure_detail, "$host: $err\n";
+	    next;
+	}
+
+	my ($last, $err);
+
+	if (-f $last_file)
+	{
+	    debug ("loading last $last_file");
+	    ($err, $last) = load_last ($last_file);
+	    if ($err ne "")
+	    {
+		die "could not load last trace for $host: $err\n";
+	    }
+	}
+
+	$err = save_last ($last_file, $p);
+	if ($err ne "")
+	{
+	    die "could not save last trace for $host: $err\n";
+	}
+
+	if ($opt{"L"})
+	{
+	    $err = append_log ($log_file, $p);
+	    if ($err ne "")
+	    {
+		die "could not append to log: $err\n";
+	    }
+	}
+
+	my $diverge = undef;
+
+	if (defined ($last))
+	{
+	    $diverge = compare_paths ($p, $last, $METHOD);
+
+	    if ($diverge != -1)
+	    {
+		push @failures, $host;
+
+		my $old_pathstr = "";
+		my $new_pathstr = "";
+
+		for (my $i = 0; $i < @{$p->{"path"}}; $i++)
+		{
+		    my $l_hop = print_hop ($last, $i);
+		    my $n_hop = print_hop ($p, $i);
+
+		    my $s = "  ";
+		    if ($i == $diverge)
+		    {
+			$s = "* ";
+		    }
+
+		    $l_hop = "$s$l_hop";
+		    $n_hop = "$s$n_hop";
+
+		    $old_pathstr .= "$l_hop";
+		    $new_pathstr .= "$n_hop";
+		}
+
+		push @failure_detail, "divergence at hop $diverge\n" .
+		    "old: " . print_hop ($last, $diverge) . 
+		    "new: " . print_hop ($p, $diverge) . "\n" .
+		    "was: " . localtime ($last->{"time"}) . "\n$old_pathstr\n" .
+		    "is: "  . localtime ($p->{"time"}) . "\n$new_pathstr\n";
+	    }
+	}
+
+	if ($diverge == -1 || !defined $diverge)
+	{
+	    push @successes, $host;
+	    push @success_detail, "at " . localtime ($p->{"time"}) . "\n" .
+		    print_path ($p, 1) . "\n";
+	}
+    }
+
+    ([@failures], [@failure_detail], [@successes], [@success_detail]);
+}

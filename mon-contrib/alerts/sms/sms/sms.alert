@@ -1,0 +1,75 @@
+#!/usr/bin/perl
+#
+# sms.alert - send an alert via SMS (sendsms)          v1.5 2003-04-07
+#
+# This will accept multiple phone numbers in @ARGV and call 
+# sendsms for each one of them.
+#
+# sendsms-specific options:
+#   -n destination number
+#   -t "message"
+#   host
+#
+# Peter Holzleitner, P.Holzleitner@computer.org
+# Jim Trocki, trockij@transmeta.com
+#
+#    Copyright (C) 1998, Peter Holzleitner
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# History:
+#
+#    1.5  filter single quotes (Erik Bolso)
+#    1.4  fix loop break bug (Geta Andualem)
+#    1.0  original release (P.Holzleitner)
+#
+use Getopt::Std;
+use Sys::Syslog;
+
+openlog('sms.alert', '', 'user');
+getopts ("s:g:h:t:c:f:l:q:u");
+
+#
+# the first line is summary information, adequate to send to a pager
+# or email subject line
+#
+# the following lines normally contain more detailed information,
+# but this is monitor-dependent
+#
+@MSG=<STDIN>;
+$summary = shift @MSG;
+chomp $summary;
+$detail = join(' ', @MSG);
+$detail =~ tr/\r\n\'/   /s;
+$detail = substr($detail, 0, 130);  # real cutoff to 160 total done in sendsms
+
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+($hr,$min,$sec) = split(':', $tm);
+
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+foreach $pagedest (@ARGV) {
+  syslog('notice', "sendsms calling $pagedest");
+  SMS: for($retry = 1; $retry < 4; $retry++)
+    {
+    $res = system("/usr/sbin/sendsms -n '$pagedest' -t '$ALERT $opt_g/$opt_s: $summary ($hr:$min) $detail' &");
+    last SMS if $res == 0;
+    syslog('warning', "sendsms to $pagedest failed, retrying($retry) after delay");
+    sleep 15;
+    }
+  sleep 5;
+}

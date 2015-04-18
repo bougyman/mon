@@ -1,0 +1,32 @@
+To: mon@linux.kernel.org
+Subject: New Monitor: icecast.monitor
+
+Hi.. Thanks, Jim, for your work on mon.. it's saved us so much 
+headache...  well, and caused a bit, too, but thankfully so.. :) 
+
+Anyway, here's a new little monitor. It's for Icecast servers. Icecast 
+is a server for streaming MP3 music out and the latest release due out 
+any day also streams the new Ogg Vorbis format. Info at 
+http://xiph.org . 
+
+I guess this mon might be a little strange in that you can specify 
+things in your mon.conf hostgroup line *after* each hostname that will 
+cause the monitor to act. 
+
+You can just put in a hostname, and it'll check to make sure the 
+Icecast server is responding. You can optionally put a ':' after the 
+hostname, and then a comma-separated list of Icecast mountpoints that 
+will be checked for. Every once in a while a given stream dies for any 
+number of reasons, and needs to be restarted. 
+
+The monitor will report back any fallen mountpoints along with the 
+hostname (format: hostname:mountpoint ) or just *hostname if the 
+whole server is not responding. 
+
+The source is included inline. 
+
+Commentary appreciated! 
+
+Mark 
+-- 
+Mark Rushing 

@@ -1,0 +1,121 @@
+#!/usr/bin/perl
+# SNMP monitoring of printmib compliant printers
+# $Id: printmib.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+# Added changes as per information from Andrew Ryan 
+# fixed bug where it would not return error if the device was not a printer
+# or was not responding to snmp connects
+#
+# returns 1 if problem with printer
+#
+# Seth Vidal (skvidal@phy.duke.edu)
+# many portions of this code were hacked out of hpnp.monitor
+# newer hps don't support the oid specified in hpnp so I wrote this to watch
+# them - it should work with almost any printmib compliant printer
+#    Copyright (C) 2000, Seth Vidal
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+#first update under cvs
+
+use SNMP;
+use Getopt::Long;
+
+
+$SNMP::use_long_names=1;
+$ENV{'MIBS'}="ALL";
+$SNMP::use_enums=1;
+$SNMP::use_sprint_value=1;
+
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i");
+die "no host arguments\n" if (@ARGV == 0);
+$COMM = $opt{"community"} || "public";
+$TIMEOUT = $opt{"timeout"} * 1000 * 1000 || 2000000;
+$RETRIES = $opt{"retries"} || 5;
+$string="prtAlertTable";
+my @err;
+foreach $host (@ARGV) {
+ my $error=0;
+
+  undef $sess;
+    if (!defined($sess = new SNMP::Session (DestHost => $host, 
+                                            Timeout => $TIMEOUT,
+                                            Community => $COMM,
+                                            Retries => $RETRIES))) {
+        push @err, "cannot create SNMP session to $host";
+        push @hosts, $host;
+        next;
+     } else {
+        my $testvar = new SNMP::Varbind(['printmib.prtChannel.prtChannelTable.prtChannelEntry.prtChannelType.1',1]);
+        my $descr=$sess->get($testvar);
+        if (($descr eq "") || ($sess->{ErrorNum} ne 0)) {
+         push @err, "$host is probably down (or might not be a printer)";
+         push @hosts, $host; 
+        }
+     }
+
+ my $tablevar = new SNMP::Varbind([$string]);
+  for ($val=$sess->getnext($tablevar); #get the data
+       $tablevar->[$SNMP::Varbind::tag_f] =~ /$string/ #stay in the table
+       and not $sess->{ErrorStr};
+       $val=$sess->getnext($tablevar)) {
+             @oidname=split(/\./, $tablevar->[$SNMP::Varbind::tag_f]);
+             $uniq{$oidname[-1]}=1;
+                   #don't want the whole string just the last section
+             ${$oidname[-1]}{$tablevar->[$SNMP::Varbind::iid_f]}=$val; 
+                   #stick it into a hash by that name
+       }
+
+ #at this point all the field names are in a hash for uniqueness called $uniq 
+ #and all the data is indexed by the indexnumber in hashes named after the last
+ #portion of the object id tag so I dump the field names to an array grab the 
+ #index numbers from any of them (first one in the array)and I print over 
+ #them - print how you'd like
+
+    @fields=keys(%uniq);
+      foreach $index (sort (keys %{$fields[0]})) {
+       if ("$prtAlertCode{$index}" ne "23") { 
+                             #code 23 is powersaving on most newer hp's
+         if ("$prtAlertCode{$index}" eq "other") { 
+                             #sometimes powersaving is other on older hp's
+            if ("$prtAlertDescription{$index}" !~ m/SAVE/i) { #so I check for "SAVE" in the descript
+                 $error++;
+                 push @err, "Error on host $host = $prtAlertDescription{$index}";
+                 }
+           } else {
+            $error++;
+            push @err, "Error on host $host = $prtAlertDescription{$index}";
+         }
+       }
+    }
+  #clear out the named hashes 
+  foreach $field (@fields) {
+      %{$field}=();
+  }
+  if ($error > 0) {
+       push @hosts, $host
+  }       
+}
+
+if ($#hosts > -1) {
+   print "@hosts\n";
+   print "Errors:\n";
+  foreach $error (@err) {
+    print  "$error\n";
+  }
+exit 1;
+}
+
+exit 0;

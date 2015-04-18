@@ -1,0 +1,113 @@
+# NAME
+#  snmpdiskspace.monitor
+#
+#
+# SYNOPSIS
+#  snmpdiskspace.monitor [--list] [--timeout seconds] [--config filename]
+#                        [--community string] [--free minfree] 
+#                        [--retries retries] [--usemib <mibtype>] host...
+#
+#
+# DESCRIPTION
+#  This script uses the Host Resources MIB (RFC1514), and optionally
+#  the MS Windows NT Performance MIB, or UCD-SNMP extensions
+#  (enterprises.ucdavis.dskTable.dskEntry) to monitor diskspace on hosts
+#  via SNMP.
+#
+#  snmpdiskspace.monitor uses a config file to allow the specification of
+#  minimum free space on a per-host and per-partition basis. The config 
+#  file allows the use of regular expressions, so it is quite flexible in
+#  what it can allow. See the sample config file for more details and
+#  syntax.
+#
+#  The script only checks disks marked as "FixedDisks" by the Host MIB,
+#  which should help cut down on the number of CD-ROM drives 
+#  erroneously reported as being full! Since the drive classification
+#  portion of the UCD Host MIB isn't too great on many OS'es, though,
+#  this won't buy you a lot. Empire's SNMP agent gets this right on
+#  all the hosts that I checked, though. Not sure about the MS MIB.
+#  UCD-SNMP only checks specific partition types (md, hd, sd, ida)
+# 
+#  snmpdiskspace.monitor is intended for use as a monitor for the mon
+#  network monitoring package.
+#
+#
+# OPTIONS
+#  --community   The SNMP community string to use. Default is "public".
+#  --config      The config file to use. Default is either 
+#                /etc/mon/snmpdiskspace.cf or 
+#                /usr/lib/mon/mon.d/snmpdiskspace.cf, in that order.
+#  --retries     The number of retries to use, if we get an SNMP timeout.
+#                Default is retry 5 times.
+#  --timeout     Seconds to wait before declaring a timeout on an SNMP get.
+#                Default is 20 seconds.
+#  --free        The default minimum free space, in a percentage or absolute
+#                quantity, as per the config file. Thus, arguments of, for
+#                example, "20%", "1gb", "50mb" are all valid.
+#                Default is 5% free on every partition checked.
+#
+#  --ifree       The default minimum free inode percentage, specified as
+#                a percentage.  Default is 5% free.
+#
+#  --list        Give a verbose listing of all partitions checked on all 
+#                specified hosts.
+#
+#  --listall     like --list, but also lists the thresholds defined for
+#                each filesystem, so you can doublecheck the config file
+#
+#  --usemib      Choose which MIB to use: one or more of host, perf, ucd
+#                Default tries all three, in that order
+#
+#  --debug       enable debug output for config file parsing and MIB fetching
+#
+#
+# EXIT STATUS
+#  Exit status is as follows:
+#    0     No problems detected.
+#    1     Free space on any host was below the supplied parameter.
+#    2     A "soft" error occurred, either a SNMP library error, 
+#          or could not get a response from the server. 
+#
+#  In the case where both a soft error and a freespace violation are
+#  detected, exit status is 1.
+#
+# BUGS
+# When using the net-snmp agent, you must build it with "--with-dummy-values"
+# or the monitor may not parse the Host Resources MIB properly.
+#
+# List of local filesystem types used when parsing the UCD MIB should be
+# configurable.
+#
+#
+# NOTES
+# $Id: README.snmpdiskspace.monitor,v 1.2 2007/05/03 11:25:04 trockij Exp $
+#
+#  * Added support for inode status via UCD-SNMP MIB.  Fourth column in config
+#  file (optional) is for inode%.
+#  * added --debug and --usemib options.  Latter needed so you can force use
+#  of UCD mib if you want inode status.
+#  * rearranged the error messages to be more Mon-like (hostname first)
+#  * added code to synchronize instance numbers when using UCD MIB.  This
+#  could solve the "sparse MIB" problem usually fixed by the
+#  --with-dummy-values option in net-snmp if needed for other agents
+#  Ed Ravin (eravin@panix.com), January 2005
+#
+#  Added support for regex hostnames and partition names in the config file,
+#  'use strict' by andrew ryan <andrewr@nam-shub.com>.
+#
+#  Generalised to handle multible mibs by jens persson <jens.persson@btj.se>
+#  Changes Copyright (C) 2000, jens persson
+#
+#  Modified for use with UCD-SNMP by Johannes Walch for 
+#  NWE GmbH (j.walch@nwe.de)
+#
+#  Support for UCD's disk MIB added by Matt Simonsen <matt@careercast.com>
+#
+#
+# SEE ALSO
+#  mon: http://www.kernel.org/software/mon/
+#
+#  This requires the UCD SNMP library and G.S. Marzot's Perl SNMP
+#  module. (http://ucd-snmp.ucdavis.edu and CPAN, respectively).
+#
+#  The Empire SystemEdge SNMP agent: http://www.empire.com

@@ -1,0 +1,122 @@
+#!/usr/bin/perl
+#
+# Monitor radius processes
+#
+# Based upon radius.monitor by Brian Moore, posted to the mon mailing list
+#
+# Arguments are:
+#
+# --username=user --password=pass --secret=secret
+#	[--port=#] [--attempts=#] [--dictionary=/path/to/dictionary]
+#	hostname [hostname ...]
+#
+# Arguments are in standard POSIX format and can be given as the least
+# significant part (i.e. -p is the same as --password).
+#
+# This monitor performs a real RADIUS check, attempting to be as much like a
+# terminal server as possible.  This requires that you include a username,
+# password, and secret in your mon.cf file.  Depending on your unix
+# implementation, this may allow unscrupulous users to view the command line
+# arguments, including your RADIUS secret.  If you prefer, you can uncomment
+# three lines below (see comments) to provide defaults for username,
+# password, and secret.
+#
+# This monitor attempts to check a username and password up to n times
+# (defaults to 9, but can be set via the --attempts=# command line switch). 
+# It only registers a failure to mon after failing to receive a satisfactory
+# response n times.  It returns an immediate failure to mon if it receives a
+# failed authentication.  For this reason, you will need to create a dummy
+# user on your RADIUS server for authentication testing.
+#
+#
+#    Copyright (C) 1998, ACC TelEnterprises
+#    Written by James FitzGibbon <james@ican.net>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use Authen::Radius;
+use Sys::Hostname;
+use Getopt::Long;
+
+GetOptions( \%options, "port=i", "secret=s", "username=s", "password=s", "attempts=i", "dictionary=s" );
+
+$options{"port"} ||= 1645;
+$options{"attempts"} ||= 9;
+
+#
+# uncomment these three lines and replace with appropriate info if you'd prefer
+# not to pass sensitive information on the command line
+#
+$options{"username"} = "username";
+$options{"password"} = "password";
+$options{"secret"} = "radius-secret";
+$options{"dictionary"} = "/etc/radius/dictionary";
+
+Authen::Radius->load_dictionary( $options{dictionary} );
+
+undef $diag;
+
+@failed_hosts = ();
+
+foreach $host (@ARGV) {
+    $auth = new Authen::Radius(Host   => "$host:$options{port}",
+                               Secret => $options{secret} );
+	$auth->add_attributes(
+		{ Name => "User-Name", Value => $options{username} },
+		{ Name => "Password", Value => $options{password} },
+		{ Name => "NAS-IP-Address", Value => join( ".", unpack ( "C4", (gethostbyname( hostname() ))[4] ) ) },
+	);
+	$done = 0;
+	$attempts = 0;
+	while( ! $done ) {
+		$auth->send_packet( ACCESS_REQUEST );
+		$err = $auth->get_error();
+		if( $err ne "ENONE" ) {
+			$attempts++;
+			if( $attempts > $options{attempts} ) {
+				push @failed_hosts, $host;
+				push( @failures, "$host failed for user $options{username}: " . $auth->strerror( $err ) );
+				$done = 1;
+			}
+			next;
+		}
+		$resptype = $auth->recv_packet();
+		$err = $auth->get_error();
+		if( $err ne "ENONE" ) {
+			$attempts++;
+			if( $attempts > $options{attempts} ) {
+				push @failed_hosts, $host;
+				push( @failures, "$host failed for user $options{username}: " . $auth->strerror( $err ) );
+				$done = 1;
+			}
+		} elsif( $resptype == ACCESS_REJECT ) {
+				push @failed_hosts, $host;
+				push( @failures, "$host returned bad auth for user $options{username}" );
+				$done = 1;
+		} else {
+			$done = 1;
+		}
+	}
+}
+
+if (@failed_hosts) {
+    print "@failed_hosts\n\n";
+    print join (", ", @failures), "\n";
+    exit 1;
+};
+
+
+exit 0;

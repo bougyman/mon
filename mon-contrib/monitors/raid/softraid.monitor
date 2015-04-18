@@ -1,0 +1,88 @@
+#!/bin/bash
+# softraid.monitor
+# Linux Software RAID check with mon compatible output/return values
+# For monitoring, call without arguments.
+# To initialize a reference file, call with argument "learn".
+# This script does not need root permissions, but the calling user needs
+# permissions to read and write a reference file.
+# The reference file $md_ref must exist. To generate it:
+#   softraid.monitor learn
+# THIS NEEDS TO BE SOMEWHERE THE CHECKING USER CAN WRITE
+md_ref="/var/something/mdstat.reference"
+#
+# Return values: 3 /proc/mdstat missing, no Software RAID?
+#                2 reference file either missing or not writeable with learn
+#                1 RAID not okay
+#                0 all okay
+
+# Author: Kevin Ivory
+# Copyright: 2004-2011, Kevin Ivory <Ivory@SerNet.de>
+# License: GNU General Public License
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+
+# basic script security: begin
+# no default access for group and others to new files/directories
+umask u=rwx,go=
+# Set very basic PATH, add only as needed
+export PATH=/usr/bin:/bin
+# Internal Field Separator (word splitting)
+# if unset, default value is <space><tab><newline>
+unset IFS
+# Do not let user preload libraries with the environment variables:
+unset LD_PRELOAD LD_LIBRARY_PATH
+# No language specials, only Posix standard
+unset LANG
+export LC_ALL=POSIX
+# set -u      Treat  unset  variables  and  parameters other than the
+#             special parameters "@" and "*" as an  error  when  per-
+#             forming parameter expansion.  If expansion is attempted
+#             on an unset variable or parameter, the shell prints  an
+#             error  message,  and,  if not interactive, exits with a
+#             non-zero status.
+set -u
+# basic script security: end
+
+mdstat="/proc/mdstat"
+if [ ! -r "$mdstat" ]; then
+  echo -e "$HOSTNAME:$0
+        Missing RAID status file: $mdstat
+        Perhaps no software RAID?"
+  exit 3
+fi
+# auto-read-only is a normal status used for boot/hibernation: at this time
+# it is critical for raid-array to be read-only. It automatically switches
+# to read-write on first write (that is the 'auto' bit - it automatically
+# stops being read-only).
+# regular expression used because of kernel dependent output
+if [ "${1:-unset}" = "learn" ]; then
+  sed 's/active \?(auto-read-only)/active/' "$mdstat" > "$md_ref"
+  [ $? -ne 0 ] && { echo "Writing to $md_ref failed."; exit 2; }
+fi
+if [ ! -r "$md_ref" ]; then
+  echo -e "$HOSTNAME:$0
+        Missing RAID reference file: $md_ref
+        Generate with: $0 learn"
+  exit 2
+fi
+md_out="Complete contents of $mdstat:\n\n$(cat $mdstat)"
+diff=$(diff -U 0 -w $md_ref <(sed 's/active \?(auto-read-only)/active/' $mdstat))
+stat=$?
+if [ $stat -eq 0 ]; then
+  echo -e "$HOSTNAME\nSoftware RAID ok:\n$md_out"
+else
+  echo -e "$HOSTNAME\nSoftware RAID not ok:\n$diff\n\n$md_out"
+  exit 1
+fi
+# end of softraid.monitor

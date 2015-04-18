@@ -1,0 +1,315 @@
+#!/usr/local/bin/perl -w
+# File:		ntp.monitor
+# Author:	Daniel Hagerty, hag@linnaean.org
+# Date:		Sun Feb 20 00:38:21 2000
+# Description:  ntp monitor for mon.
+#
+# $Id: ntp.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+# Command Line options:
+# -s max_stratum
+# 	Raise an error if stratum is above this number.
+# -c
+#	Raise an error if the read clock differs from the local clock
+#	by more than 30 seconds.
+#
+
+###
+
+use strict;
+
+use Symbol;
+use Getopt::Std;
+
+###
+
+use vars qw($opt_s $opt_c);
+
+my $getopt_str = "s:c:";
+
+##
+
+# Hashref that we accumulate errors into
+my $error_accumulator;
+
+###
+
+sub main {
+    usage_error() if(@_ == 0);
+
+    my @hosts = @_;
+
+    foreach my $host (@hosts) {
+	do_host_ntp_parse($host);
+    }
+    my $exitval = 0;
+    $exitval = 1 if(dump_errs());
+    exit($exitval);
+}
+
+# Do a per host ntpq run.
+sub do_host_ntp_parse {
+    my $host = shift;
+    my $text;
+
+    open(NTPQ, "ntpq -n -c rv $host 2>&1 |");
+    while(<NTPQ>) {
+	$text .= $_;
+    }
+    close(NTPQ);
+
+    while($text) {
+	if($text =~ /([a-zA-Z0-9]+)=/) {
+	    # Standard NTPc output.  Lookup the specialized handler for
+	    # this tag, or use the default if there isn't one.
+	    my $tag = $1;
+	    my $ref = qualify_to_ref($tag, "handlers");
+	    my $code = *{$ref}{CODE};
+
+	    my $textref = \$text;
+	    my $oldtext = $text;
+
+	    if(defined($code)) {
+#		print "Calling special $tag\n";
+		my @val = &{$code}($textref);
+		if($val[0] != 0) {
+		    accum_err($host, $val[1]);
+		}
+	    } else {
+		my @val = handler_default($textref);
+		if($val[0] != 0) {
+		    accum_err($host, $val[1]);
+		}
+	    }
+	    if($text eq $oldtext) {
+		# We didn't do any work; we blew it.
+		dump_errs();
+		die "XXX no work accomplished";
+	    }
+	} else {
+	    # NTP error of some type.
+	    if($text =~ m/Network is unreachable/) {
+		accum_err($host, "Network unreachable");
+		return;
+	    }
+	    if($text =~ m/timed out, nothing received/) {
+		accum_err($host, "Connection timed out; host down?");
+		return;
+	    }
+	    if($text =~ m/ntpq: read: Connection refused/) {
+		accum_err($host, "Connection refused; daemon down?");
+		return;
+	    }
+	    if($text =~ m/^\*\*\*Can't find host / ) {
+		accum_err($host, "DNS lookup failed");
+		return;
+	    }
+	    accum_err($host, "Unparsed error: $text");
+	    return;
+	}
+    }
+}
+
+sub usage_error {
+    my $progname = $0;
+    $progname =~ s,.*/,,;
+    print STDERR "Usage error: $progname [ -c ] [-s max_strat ] hosts ...\n";
+    exit 1;
+}
+
+##
+
+sub dump_errs {
+    my @hosts = sort keys(%{$error_accumulator});
+    my $host_str = join(" ", @hosts);
+
+    return unless(@hosts);
+
+    print "NTP check failed: $host_str\n";
+    foreach my $host (@hosts) {
+	print "Host $host:\n";
+	map { print $_ } @{$error_accumulator->{$host}};
+    }
+}
+
+# Blow our brains out appropriately for a mon monitor
+sub accum_err {
+    my $host = shift;
+    my $errtext = shift;
+
+    if($errtext eq "") {
+	$errtext = "Program error, no text available\n";
+    } elsif(substr($errtext, length($errtext) - 1, 1) ne "\n") {
+	$errtext .= "\n";
+    }
+
+    push(@{$error_accumulator->{$host}}, $errtext);
+}
+
+sub handler_default {
+    my $textref = shift;
+    my $maybe_sep = shift;
+    my $maybe_count = shift;
+
+    my $used_seperator;
+
+    my $do_sepsearch = sub {
+	my $sep = shift;
+	my $count = 1;
+	if(defined($maybe_count)) {
+	    $count = $maybe_count;
+	}
+
+	my $sepindex;
+
+	while($count--) {
+	    my @indexargs = ($$textref, $sep);
+
+	    if($sepindex) {
+		push(@indexargs, $sepindex+1);
+	    }
+
+	    # I hate you for making me do this.
+	    my $perl_sucks = "'" . join("', '", @indexargs) . "'";
+
+	    $sepindex = eval "index $perl_sucks";
+	    return() if($sepindex == -1);
+	}
+
+	return($sepindex);
+    };
+
+    my $sepindex;
+
+    if(defined($maybe_sep)) {
+	$sepindex = &{$do_sepsearch}($maybe_sep);
+	$used_seperator = $maybe_sep;
+    } else {
+	# Least common first
+	my @seperators = ("\n", ",\n", ", ");
+	my @indexes;
+	foreach my $trysep (@seperators) {
+	    push(@indexes, &{$do_sepsearch}($trysep));
+	}
+	for(my $i = 0; $i < scalar(@seperators); $i++) {
+	    my $maybe_short = $indexes[$i];
+	    if(defined($maybe_short)) {
+		if(!defined($sepindex)) {
+		    $sepindex = $maybe_short;
+		    $used_seperator = $seperators[$i];
+		} elsif($maybe_short < $sepindex) {
+		    $sepindex = $maybe_short;
+		    $used_seperator = $seperators[$i];
+		}
+	    }
+	}
+    }
+    die "XXX default handler parse failure" unless $sepindex;
+
+    my $string = substr($$textref, 0, $sepindex);
+
+    $string =~/([a-zA-Z0-9]+)=(.*)/;
+    my $tag = $1;
+    my $value = $2;
+
+    die "XXX default handler parse failure" unless(defined($tag));
+    die "XXX default handler parse failure" unless(defined($value));
+
+#    print "Default($tag): $value\n";
+
+    my $newstringindex = $sepindex + length($used_seperator);
+    if($newstringindex > length($$textref)) {
+	return(1, "XXX default handler parse failure");
+    } else {
+	$$textref = substr($$textref, $newstringindex);
+    }
+    return(0, $value);
+}
+
+sub handler_default_die {
+    my @val = handler_default(@_);
+    if($val[0] != 0) {
+	die "XXX fatal parse failure";
+    }
+    return(@val);
+}
+
+###
+
+package handlers;
+
+use strict;
+
+use Time::ParseDate;
+use Time::Local;
+
+##
+
+sub status {
+    my $textref = shift;
+
+    my @val = main::handler_default_die($textref, "\n");
+
+    my $status = $val[1];
+    if($status =~ /sync_unspec/) {
+	return(1, "unsynchronized");
+    }
+
+    return(0, "");
+}
+
+sub stratum {
+    my $textref = shift;
+
+    my @val = main::handler_default_die($textref);
+
+    my $stratum = $val[1];
+    if($stratum == 0) {
+	return(1, "stratum(0) is insane");
+    }
+    my $max_strat = defined($main::opt_s) ? $main::opt_s + 1 : 16;
+    if($stratum >= $max_strat) {
+	return(1, "stratum($stratum) is too high");
+    }
+
+    return(0, "");
+}
+
+sub reftime {
+    my $textref = shift;
+
+    my @val = main::handler_default_die($textref, ", ", 2);
+    my $reftime = $val[1];
+
+    return(0, "");
+}
+
+sub clock {
+    my $textref = shift;
+
+    my @val = main::handler_default_die($textref, ", ", 2);
+    my $clock = $val[1];
+
+    if(defined($main::opt_c)) {
+	$clock =~ m/([0-9a-f]{8}\.[0-9a-f]{8})  (.*)/ ||
+	    die "Didn't understand clock";
+	my $remote_time = parsedate($2);
+	my $local_time = timelocal(localtime(time));
+
+	if(abs($remote_time - $local_time) > $main::opt_c) {
+	    return(1, "local/remote clock difference too great");
+	}
+    }
+    return(0, "");
+}
+
+
+###
+
+package main;
+
+getopts($getopt_str) || usage_error();
+
+&main(@ARGV);
+
+###

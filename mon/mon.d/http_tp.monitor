@@ -1,0 +1,224 @@
+#!/usr/bin/perl
+#
+# Try to connect to a http server.
+# For use with "mon".
+#
+# Version to measure and log http file transfer speed and use a proxy
+#
+# Use: "-l log_file -T alarm_seconds -t timeout_seconds host [host:/path_to_doc ...]"
+#       -d for interactive commandline debugging
+#
+# Configuration file example:
+#
+# hostgroup internet_web www.ama-assn.org
+#                       www.gartner.com
+#                       test.mysite.com:/~meekj/ca_zip.txt
+#                       ot.myweb.com/ca_zip.txt@proxy.mysite.com
+#
+# watch internet_web
+#        service internet_web
+#        interval 5m
+#        monitor http_tp.monitor -l /usr/local/mon/logs/internet_web_YYYYMM.log -T 15 -t 100
+#        period wd {Sun-Sat}
+#            alert mail.alert firewall_admin
+#            alertevery 1h summary
+#
+# TODO: Allow port number to be specified in URL
+#
+#
+# Jon Meek
+# Lawrenceville, NJ
+# meekj@ieee.org
+#
+# $Id: http_tp.monitor,v 1.1.1.1 2004/06/09 05:18:05 trockij Exp $
+#
+#    Copyright (C) 1998, Jon Meek
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+use Time::HiRes qw( gettimeofday tv_interval );
+use LWP::UserAgent;
+use HTTP::Request::Common;
+
+getopts ("dt:T:l:");
+#$PORT = $opt_p || 80;
+$TIMEOUT = $opt_t || 30;
+
+@failures = ();
+
+$TimeOfDay = time;
+
+foreach $host_path (@ARGV) { # Build host and path lists
+
+  print "ARG: $host_path\n" if $opt_d;
+
+  undef $proxy_server;
+  if ($host_path =~ /@/) {
+    ($host_path, $proxy_server) = split(/@/, $host_path, 2);
+  }
+
+  ($host, $Path) = split(/\//, $host_path, 2);
+
+  if (defined $proxy_server) {
+    $ProxyServer = $proxy_server;
+  } else {
+    $ProxyServer = 'noproxy';
+  }
+
+  if ($opt_d) {
+    print "$host - $ProxyServer - $Path\n";
+  }
+
+  push(@Hosts, $host);
+  push(@Proxies, $ProxyServer);
+  push(@Paths, $Path);
+}
+
+# Open logfile, if -l
+
+if ($opt_l) {
+    open(LOG, ">>$opt_l") || warn "$0 Can't open logfile: $opt_l\n";
+}
+
+# Do a dummy httpGET to initialize the code, if we don't do this there
+# will be 250 ms extra added to the first time. This dummy call
+# still does not completely clear this problem, there may still be an
+# extra 10ms on the first test.
+
+$host = '';
+$path = '';
+$proxy = '';
+
+($OK, $ByteCount, $GetTime) = &httpGET($host, $path, $proxy);
+
+for ($i = 0; $i <= $#Hosts; $i++) {
+  
+  $host = $Hosts[$i];
+  $proxy = $Proxies[$i];
+  $path = $Paths[$i];
+  
+  print "$host - $path - $proxy\n\n" if ($opt_d);
+  ($OK, $ByteCount, $GetTime) = &httpGET($host, $path, $proxy);
+  
+  if (!defined (OK) || $OK == 0) {
+    push (@failures, $host);
+  }
+  if (length($path) < 1) {	# Set the path for logging purposes
+    $path = '/';		# we don't want an empty, space separated, field
+  }
+  $ResultString{$i} = sprintf "%d %s %s %s %d %8.3f",
+  $TimeOfDay, $proxy, $host, $path, $ByteCount, $GetTime;
+  
+  #    print "$ResultString{$i}\n";
+}
+
+# Write results to logfile, if -l
+
+if ($opt_l) {
+  
+  $LogFile = $opt_l;
+  ($sec,$min,$hour,$mday,$Month,$Year,$wday,$yday,$isdst) =
+    localtime($TimeOfDay);
+  $Month++; $Year += 1900;
+  $YYYYMM = sprintf('%04d%02d', $Year, $Month);
+  $LogFile =~ s/YYYYMM/$YYYYMM/; # Fill in current year and month
+  
+  if (-e $LogFile) {		 # Check for existing log file
+    $NewLogFile = 0;
+  } else {
+    $NewLogFile = 1;
+  }
+  
+  open(LOG, ">>$LogFile") || warn "$0 Can't open logfile: $LogFile\n";
+  
+  foreach $host (sort keys %ResultString) {
+    print LOG "$ResultString{$host}\n";
+  }
+  
+  close LOG;
+}
+
+if (@failures == 0) {
+  exit 0;
+}
+
+print join (" ", sort @failures), "\n";
+
+foreach $host (sort keys %ResultString) {
+  print "$ResultString{$host}\n";
+}
+
+exit 1;
+
+
+sub httpGET {
+  
+  my($Server, $Path, $Proxy) = @_;
+  my($ServerOK, $TheContent, $ByteCount, $URL,
+     $dt, $t0, $t1, $ResultCode, $TheContent, $ua);
+  
+  $URL = "http://$Server/$Path";
+  $ua = new LWP::UserAgent;
+  
+  $ua->timeout($TIMEOUT);	# Set timeout for LWP, used to do an eval/alarm
+  
+  print "URL: $URL   Proxy: $Proxy\n" if $opt_d;
+  
+  $TheContent = '';
+  
+  if ($Proxy ne 'noproxy') {
+    $ua->proxy('http', "http://$Proxy");
+  }
+  
+  $dt = 0;
+  $t0 = [gettimeofday];		# Get start time
+  
+  $response = $ua->request(GET $URL);
+  
+  $t1 = [gettimeofday];		# Get end time
+  $dt = tv_interval($t0, $t1);
+  
+  $ResultCode = $response->code();
+  $TheContent = $response->content();
+  
+  $ByteCount = length($TheContent);
+  
+  if ($ResultCode == 200) {	# HTTP/1.1 200 OK
+    $ServerOK = 1;
+  } else {
+    $ServerOK = 0;
+  }
+  
+  if ($ServerOK) {		# Success, otherwise set time to -1 to indicate time-out
+    #    $t1 = [gettimeofday];
+    #    $dt = tv_interval($t0, $t1);
+  } else {
+    $dt = -1;
+  }
+  
+  if (($opt_T) && ($dt >= 0)) { # Check time limit for alarm
+    if ($dt > $opt_T) {
+      $ServerOK = 0;
+    } else {
+      $ServerOK = 1;
+    }
+  }
+  
+  print "ServerOK: $ServerOK - dt: $dt - ResultCode $ResultCode\n" if $opt_d;
+  
+  return $ServerOK, $ByteCount, $dt;
+}

@@ -1,0 +1,760 @@
+#!/usr/bin/perl -w
+
+=head1 NAME
+
+phttp.monitor - parallel http monitor.
+
+=head1 SYNOPSIS
+
+type this:
+
+ phttp.monitor --help
+
+and read, it is a safe job.
+
+=head1 DESCRIPTION
+
+phttp.monitor checks http servers in parallel without forking. The request
+can be an arbitrary multi-line string and the response can be parsed using
+an arbitrary regular expression. So, HTTP proxies, GET POST PUT TRACE directives,
+authorization scheme, xxx code or  complex content responses,  are all possible.
+
+
+=head1 RETURN STATUS
+
+ O on success for all hosts, or usage demand (--help option)
+ 1 on failure of any host
+
+=head1 SUMMARY LINE
+
+list of hosts that failed the test with the connection time (in secondes) 
+beetween (), if any, like :
+
+ www.foo.org(15) www.boo.com(1)
+
+=head1 DETAILS
+
+detail output (just after summary) follows this convention:
+
+=over
+
+=item *
+
+lines beginning with + are successes
+
+=item *
+
+lines beginning with ~ are just warnings
+
+=item *
+
+lines beginning with - are failures
+
+=back
+
+=head1 CAVEATS
+
+=head2 OPEN FILE HANDLES
+
+Be careful that the number of open file handles is limited. Usually 1024
+and since 0, 1, 2 (stdin, stdout, stderr) are already open, you have 
+only 1021 maximum connections allowed and upon upper connections the tests will 
+systematically fail.
+
+=head2 TIMEOUT
+
+The timeout counter for each host begins just after the first connect command.
+The name resolution is already done so it does not count. But since everything
+is done in parallel, be carefull that the timeout can come from your proper
+bandwidth, cpu etc. For example, using the same host on both sides (client and
+server) and running phttp.monitor with a "-n 19" nice value, the first 
+complete response comes after ~35 secondes and the last 
+after ~55 secondes. All were successful, thanks to Apache. 
+Yes, I demanded the same header page 1021 times and I am not rich 
+(an old Cirix 133 Mega hertz).
+
+=head2 DOS
+
+Deny Of Service is easy if you have a good tube and a good box.
+Please, do not use this software for hard war.
+Be nice.
+
+=head1 LICENCE
+
+This is GNU PUBLIC LICENCE software
+
+=head1 AUTHOR
+
+Gilles LAMIRAL lamiral@mail.dotcom.fr
+
+=cut
+
+require 5.002;   # Give me more than five
+use strict;       # 
+use English;      # because use French does not work...
+use Getopt::Long; # way home
+use Socket;       # ou chaussette
+use POSIX;        # or Y
+use FileHandle;   
+use IO::Select;
+# No I did not go in a laugh school, I just sucked a clown...
+use Time::HiRes qw(gettimeofday usleep);
+
+$OUTPUT_AUTOFLUSH = 1;
+
+my $VERSION = 0.02; 
+
+my(
+	$help, 
+	$debugGeneral,  $debugOptions, $debugResolution,
+	$debugCreation, $debugConnection, $debugSelection,
+	$debugWriting,  $debugReading,    $debugResults,
+	$debugAnalyse,  $debugEverything,
+);
+
+#my $hostname;
+my(
+	$port,    
+	$request,    $nbrequests, $inserthost,
+	$timeout,    $softimeout, $regex);
+
+getoptions();
+usage(), exit(0) if ($help);
+defaultvalues();
+
+my @list = split(/\s+/, join(" ", @ARGV, (" ")) x $nbrequests);
+
+#my $iaddr     = gethostbyname($hostname);
+#my @iaddr     = unpack('C4', $iaddr);
+#$debugGeneral and print 'my ip          = ', join('.',@iaddr), "\n";
+my $proto     = getprotobyname('tcp');
+#my $paddr     = sockaddr_in(0, $iaddr);
+
+$debugGeneral and print dump_posix();
+
+$debugGeneral and print "CREATING THE USEFUL DATA\n";
+my (%client, %onrace, %offrace, %badrace, %goodrace, %pacerace, %fh2id);
+
+my $count = 0;
+foreach my $host (@list) {
+	$count++;
+	$client{$count}{'host'} = $host;
+	$client{$count}{'success'} = "";
+	$client{$count}{'problem'} = "";
+	$onrace{$count}++;
+}
+
+resolve_names();
+create_sockets();
+first_connection();
+write_preparation();
+
+my $readwriteable_handles = new IO::Select();
+
+($debugGeneral or $debugWriting or $debugReading)
+	and print "SELECTING, WRITING, READING AND CLOSING\n";
+
+# What write
+
+my %notconnected = %onrace;
+
+ONRACE: while(keys(%onrace)){
+	my (@new_writeable, @new_readable, @new_errorable);
+	
+	$debugGeneral and print dump_onrace();
+
+	my @id = sort { $a <=> $b } keys(%onrace);
+
+	IDT: foreach my $id (@id) {
+		my $now = gettimeofday;
+		my $begin = $client{$id}{"begin"};
+		if (($now - $begin) > $timeout) {
+			# game over, baby.
+			$client{$id}{"problem"} .= "- hard timeout reached\n";
+			$debugConnection and print "hard timeout reached\n";
+			$client{$id}{"fhandle"}->close();
+			delete($notconnected{$id});
+			outrace($id);
+			next IDT;
+		};
+	}
+
+	# We have to look if the connection succeeded
+	# before doing IO
+	@id = sort { $a <=> $b } keys(%notconnected);
+	ID: foreach my $id (@id) {
+		my($command) = "";
+		$command = connect($client{$id}{"fhandle"}, $client{$id}{"hispaddr"});
+		$debugConnection and print "reconnect host id : $client{$id}{'host'} $id\n";
+		if (defined($command) and ($command == 1)) {
+			# Linux success
+			$debugConnection and print "reconnect succeeded : [$command]\n";
+			$client{$id}{"success"} .= "+ reconnect succeeded\n";
+			delete($notconnected{$id});
+			$onrace{$id}++;
+			#next ID;
+		} elsif ((not defined($command)) 
+			and (($! == EISCONN()))) {
+			# Solaris success
+			$client{$id}{"success"} .= "+ reconnect command succeeded EISCONN : $!\n";
+			$debugConnection and print "reconnect command succeeded EISCONN : $! ", 
+				scalar($! + 0), "\n";
+			# good and sorry.
+			delete($notconnected{$id});
+			$onrace{$id}++;
+			#next ID;
+		} elsif ((not defined($command)) 
+			and (($! == EALREADY()) or ($! == EAGAIN()))) {
+			#$client{$id}{"problem"} .= "~ reconnect command EALREADY : $!\n";
+			$debugConnection and print "reconnect command EALREADY : $! ", 
+				scalar($! + 0), "\n";
+			# not so bad, play again.
+			$onrace{$id}++;
+			next ID;
+		} elsif (defined($command) and ($command == -1) and ($! == ETIMEOUT())) {
+			$client{$id}{"problem"} .= "- reconnect command failed ETIMEOUT : $!\n";
+			$debugConnection and print "reconnect command failed by timeout : $!\n";
+			$client{$id}{"fhandle"}->close();
+			delete($notconnected{$id});
+			outrace($id);
+			next ID;
+		} else {
+			$client{$id}{"problem"} .= "- reconnect command failed : $!\n";
+			$debugConnection and print "reconnect command failed : $! ", 
+				scalar($! + 0), "\n";
+			if (defined($command)) {
+				$debugConnection and print "command status : $command\n"; 
+			}else{
+				$debugConnection and print "command status : not defined\n"; 
+			}
+			$client{$id}{"fhandle"}->close();
+			$debugConnection and print "deleting $client{$id}{'host'} $id\n";
+			delete($notconnected{$id});
+			outrace($id);
+			next ID;
+		}
+		
+		$readwriteable_handles->add($client{$id}{"fhandle"});
+		$fh2id{$client{$id}{"fhandle"}} = $id;
+	}
+	
+	@new_writeable = $readwriteable_handles->can_write(10);
+	@new_readable  = $readwriteable_handles->can_read(2);
+	$debugWriting and print "writeable : ", join (" ", map { $fh2id{$_} } @new_writeable), "\n";
+	$debugReading and print "readable  : ", join (" ", map { $fh2id{$_} } @new_readable), "\n";
+	
+	WRITE: foreach my $sock (@new_writeable) {
+		my($id, $nleft, $bytes_wrote);
+		$id = $fh2id{$sock};
+		$nleft = length ($client{$id}{"wbuf"});
+		next if ($nleft == 0);
+		$debugWriting and print "syswrite to $client{$id}{'host'} $nleft bytes\n";
+		$bytes_wrote = syswrite ($sock, $client{$id}{"wbuf"}, $nleft);
+		
+		if (defined($bytes_wrote)){
+			$debugWriting and print "bytes_wrote = $bytes_wrote\n";
+			if ($bytes_wrote == 0) {
+				# Server close the connexion
+				$readwriteable_handles->remove($sock);
+				$client{$id}{"problem"} .= "- server close the connexion : $!\n";
+				$debugWriting and print "server close the connexion : $!\n";
+				$sock->close();
+				outrace($id);
+			}else{
+				substr($client{$id}{"wbuf"}, 0, $bytes_wrote) = "";
+				if (length($client{$id}{"wbuf"}) == 0) {
+					# No more writing
+					$client{$id}{"success"} .= "+ syswrite command succeeded\n";
+					$debugWriting and print "syswrite command succeeded on $client{$id}{'host'}\n";
+					#$readwriteable_handles->remove($sock);
+					#$sock->close();
+					#delete($onrace{$id});
+				}
+			}
+		}else{
+			if ($! == EAGAIN()){
+				$debugWriting and print  "EAGAIN\n";
+				next WRITE;
+			}elsif($! == EINPROGRESS()){
+				$debugWriting and print  "EINPROGRESS\n";
+				next WRITE;
+			}else{
+				$debugWriting and print  "Do not know what happened : $!\n";
+				next WRITE;
+			}
+		}
+	}
+	READ: foreach my $sock (@new_readable) {
+		my($id, $buf);
+		$id = $fh2id{$sock};
+		$buf = <$sock>;
+		if ($buf) {
+			$debugReading 
+				and print "reading from $client{$id}{'host'} : ",
+				length($buf), " bytes\n";
+			$client{$id}{'rbuf'} .= $buf;
+		} else {
+			$debugReading and print "reading from $client{$id}{'host'} : ", 0, " bytes\n";
+			$readwriteable_handles->remove($sock);
+			$sock->close();
+			delete($onrace{$id});
+			finishrace($id);
+		}
+	}
+	usleep (100000);
+}
+
+analyse_race();
+
+$debugResults and dump_final();
+
+summary();
+
+details();
+
+exit 1 if scalar(%badrace);
+exit 0;
+
+# burk !
+################################################################################
+################################## END OF MAIN #################################
+################################################################################
+
+sub getoptions {
+	GetOptions(
+		"help"                 => \$help,
+	
+	        "Dopt"                 => \$debugOptions,
+	        "Dgen"                 => \$debugGeneral,
+	        "Dres"                 => \$debugResolution,
+	        "Dcre"                 => \$debugCreation,
+	        "Dcon"                 => \$debugConnection,
+	        "Dsel"                 => \$debugSelection,
+	        "Dwri"                 => \$debugWriting,
+	        "Drea"                 => \$debugReading,
+		"Dana"                 => \$debugAnalyse,
+		"Dfin"                 => \$debugResults,
+	        "Dall"                 => \$debugEverything,
+
+		"port=i"               => \$port,
+	
+		"nbrequests=i"         => \$nbrequests,
+		"request=s"            => \$request,
+		"inserthost!"           => \$inserthost,
+		"timeout=i"            => \$timeout,
+		"softimeout=i"         => \$softimeout,
+		"regex=s"              => \$regex,
+#		"hostname=s"           => \$hostname,
+	);
+}
+
+sub defaultvalues {
+	$port       = defined($port)       ? $port : 80;
+	$request = defined($request)       ? $request 
+		: 'HEAD / HTTP/1.0\nUser-Agent: phttp.monitor\n\n';
+	# Thanks so much Larry Wall ! finger in the nose.
+	$request =~ s!\Q\n!\n!g ;
+	$nbrequests = defined($nbrequests) ? $nbrequests : 1;
+	$inserthost = defined($inserthost) ? $inserthost : 1;
+	$timeout    = defined($timeout)    ? $timeout    : 20;
+	$softimeout = defined($softimeout) ? $softimeout : $timeout;
+	$regex      = defined($regex)      ? $regex      : '^HTTP/([\d\.]+)\s+200\b';
+
+
+	$debugOptions    = 1, $debugGeneral   = 1, $debugCreation = 1,
+	$debugResolution = 1,
+	$debugConnection = 1, $debugSelection = 1, $debugWriting  = 1,
+	$debugReading    = 1, $debugResults   = 1, $debugAnalyse  = 1
+		if ($debugEverything);
+
+	$debugOptions and print dump_options();
+	
+	sub dump_options {
+		# Why I wrote a function for this?
+		# Silly !
+	
+		my (@dump);
+		push (@dump,
+			"port           = $port", "\n",
+			"request        = $request", "\n",
+			"nbrequests     = $nbrequests", "\n",
+			"inserthost     = $inserthost", "\n",
+			"timeout        = $timeout", "\n",
+			"softimeout     = $softimeout", "\n",
+			"regex          = $regex", "\n",
+		);
+		return (@dump);
+	}
+}
+
+
+sub usage {
+	print <<EOF;
+VERSION               : $VERSION
+USAGE                 : $0 [options] host1 host2 ...
+
+OPTIONS
+
+ --help               : print the command usage (this message).
+ 
+ --port         <int> : the http port to connect to.
+			default is 80.
+
+ --request   <string> : the request send to the servers.
+			default is
+			HEAD / HTTP/1.0\\nUser-Agent: phttp.monitor\\n\\n
+			
+			CAVEAT: Do not forget to quote the string.
+			use -Dopt to see what you really input.
+			You can use \\n to mean newline.
+
+ --(no)inserthost    : insert individual hostname and port in 
+                        the HTTP request.
+                        really usefull with virtual servers.
+                        default is on.
+                        If you do not want this feature, use --noinserthost
+
+ --nbrequests   <int> : number of requests to do per host
+                        do not use it to make DOS attack, please.
+			default is 1.
+
+ --timeout      <int> : time out for any connection.
+                        do not forget that all is done in parallel and may
+			that timeout can come from bandwith, cpu usage, etc.
+			default is 20.
+  
+ --softimeout   <int> : soft timeout for any connection.
+                        the connection will not be interupted when the
+			soft timeout is reached but the test will fail.
+			default is <--timeout>
+  
+ --regex     <string> : regular expression to match for a good http response.
+			default is :
+			^HTTP/([\\d\\.]+)\\s+200\\b
+			
+			CAVEAT: Do not forget to quote the string.
+			use -Dopt to see what you really input.
+
+ --Dgen               : print general debug information.
+ --Dopt               : print option and variables values.
+ --Dres               : print debug information on name resolution.
+ --Dcre               : print debug information on non blocking socket creation.
+ --Dcon               : print debug information on socket connection.
+ --Dsel               : print debug information on selecting socket.
+ --Dwri               : print debug information on writing socket.
+ --Drea               : print debug information on reading socket.
+ --Dana               : print debug information on analysing results.
+ --Dfin               : print debug information on final results.
+ --Dall               : print all debug information.
+ 
+ 
+ARGUMENTS
+
+ host1 host2 ...      : list of host to check
+
+DEFAULT
+
+with no option, the default behavior is exactly like the command:
+
+$0 \\
+    --port=80 \\
+    --nbrequests=1 \\
+    --request='HEAD / HTTP/1.0\\nUser-Agent: phttp.monitor\\n\\n' \\
+    --inserthost \\
+    --timeout=20 \\
+    --softimeout=20 \\
+    --regex='^HTTP/([\\d\\.]+)\\s+200\\b'
+EOF
+
+}
+
+sub write_preparation {
+	my @id = sort { $a <=> $b } keys(%onrace);
+	
+	$debugWriting and print "PREPARING THE WRITE MESSAGES\n";
+	
+	foreach my $id (@id) {
+		# I did not start to try with real HTTP server !
+		#my $message = "$id" x 100 . "\n";
+		
+
+		my $message = qq!$request!;
+		if ($inserthost) {
+			$message =~ s/\n\n/\nHost: $client{$id}{'host'}\n\n/;
+		};
+		
+		$client{$id}{"wbuf"} = $message x 1;
+		$debugWriting and print $client{$id}{"wbuf"};
+		$client{$id}{"length_to_write"} = length($client{$id}{"wbuf"});
+	}
+}
+
+sub outrace {
+	my ($id) = @_;
+	
+	$client{$id}{'end'} = gettimeofday;
+	delete($onrace{$id});
+	$badrace{$id}++;
+	$offrace{$id}++;
+}
+
+sub finishrace {
+	my ($id) = @_;
+	delete($onrace{$id});
+	$client{$id}{'end'} = gettimeofday;
+	$goodrace{$id}++;
+}
+
+sub first_connection {
+	($debugGeneral or $debugConnection) and print "ASKING FOR CONNECTIONS\n";
+	$debugConnection and print dump_onrace();
+
+	my @id = sort { $a <=> $b } keys(%onrace);
+	foreach my $id (@id) {
+		my ($command);
+		$debugConnection and printf "%-4s %s\n", $id, $client{$id}{'host'};
+		$client{$id}{"begin"} = gettimeofday;
+		$command = connect($client{$id}{"fhandle"}, $client{$id}{"hispaddr"});
+		$debugConnection and print "connect : $!\n";
+		if ((not defined($command)) and ($! == EINPROGRESS())){
+			# Good in non blocking context
+			$client{$id}{"success"} .= "+ first connect succeeded\n";
+			$onrace{$id}++;
+		}else{
+			$client{$id}{"problem"} .= "- first connect failed : [$command] $!\n";
+			$debugConnection and print "first connect failed : [$command] $!\n";
+			$client{$id}{"fhandle"}->close();
+			outrace($id);
+			next;
+		}
+	}
+}
+
+sub resolve_names {
+	($debugGeneral or $debugResolution) and print "RESOLVING NAMES\n";
+	$debugResolution and print dump_onrace();
+	my @id = sort { $a <=> $b } keys(%onrace);
+	foreach my $id (@id) {
+		my ($command, $hisiaddr, $hispaddr);
+		$hisiaddr = inet_aton($client{$id}{'host'});
+		if (defined($hisiaddr)){
+			# Good
+			$client{$id}{"success"} .= "+ resolving $client{$id}{'host'} succeeded\n";
+			$debugResolution and printf "%-4s %20s %-15s\n", 
+				$id, $client{$id}{'host'}, join('.', unpack('C4', $hisiaddr));
+			$onrace{$id}++;
+		}else{
+			# Bad
+			$client{$id}{"problem"} .= "- could not resolve $client{$id}{'host'}\n";
+			$debugResolution and printf "%-4s %20s %-15s\n", 
+				$id, $client{$id}{'host'}, "....";
+			# This is just because it fails early.
+			$client{$id}{'begin'} = gettimeofday;
+			outrace($id);
+			next;
+		}
+		$hispaddr = pack_sockaddr_in($port, $hisiaddr);
+		if (defined($hispaddr)){
+			# Good
+			$client{$id}{"success"} .= "+ pack_sockaddr_in command succeeded\n";
+			$client{$id}{"hispaddr"} = $hispaddr;
+			$onrace{$id}++;
+		}else{
+			# Bad
+			$client{$id}{"problem"} .= "- pack_sockaddr_in command failed\n";
+			$debugConnection and print "pack_sockaddr_in command failed\n";
+			$client{$id}{"fhandle"}->close();
+			outrace($id);
+			next;
+		}
+	}
+}
+sub create_sockets {
+	($debugGeneral or $debugCreation)
+		and print "CREATING THE NON-BLOCKING SOCKETS\n";
+	$debugCreation
+		and print dump_onrace();
+
+	my @id = sort { $a <=> $b } keys(%onrace);
+	foreach my $id (@id) {
+		my $command;
+		$client{$id}{"fhandle"} = new FileHandle;
+		$client{$id}{"fhandle"}->autoflush();
+		$command = socket($client{$id}{"fhandle"}, PF_INET, SOCK_STREAM, $proto);
+		if (defined($command)) {
+			if ($command != 0){
+				# Good
+				$client{$id}{"success"} .= "+ socket command succeeded\n";
+				$debugCreation and print "socket command succeeded $id -> $client{$id}{'host'}\n";
+				$onrace{$id}++;
+			}else {
+				# Bad
+				$client{$id}{"problem"} .= "- socket command failed [$command] $!\n";
+				$debugCreation and print "socket command failed $id -> $client{$id}{'host'} [$command] $!\n";
+				$client{$id}{"fhandle"}->close();
+				# This is just because it fails early.
+				$client{$id}{'begin'} = gettimeofday;
+				outrace($id);
+				next;
+			}
+		}else{
+			# Bad
+			$client{$id}{"problem"} .= "- socket command failed [undef] $!\n";
+			$debugCreation and print "socket command failed $id -> $client{$id}{'host'} [undef] $!\n";
+			$client{$id}{"fhandle"}->close();
+			# This is just because it fails early.
+			$client{$id}{'begin'} = gettimeofday;
+			outrace($id);
+			next;
+		}
+		$command = fcntl($client{$id}{"fhandle"}, F_SETFL(), O_NONBLOCK);
+		if ($command == 0){
+			# Good
+			$client{$id}{"success"} .= "+ fcntl command succeeded\n";
+			$onrace{$id}++;
+		}else{
+			# Bad
+			$client{$id}{"problem"} .= "- fcntl command failed $!\n";
+			$debugCreation and print "fcntl command failed $!\n";
+			$client{$id}{"fhandle"}->close();
+			# This is just because it fails early.
+			$client{$id}{'begin'} = gettimeofday;
+			outrace($id);
+			next;
+		}
+	}
+}
+
+
+sub dump_posix {
+	my (@dump);
+	push (@dump,
+		"eagain         = ", EAGAIN(), "\n",
+		"einprogress 	= ", EINPROGRESS(), "\n",
+		"etimeout    	= ", ETIMEDOUT(), "\n",
+		"ealready    	= ", EALREADY(), "\n",
+		"eisconn    	= ", EISCONN(), "\n",
+	);
+	return (@dump);
+}
+
+sub dump_onrace {
+	my @dump;
+	push (@dump,
+		"ONRACE : ",
+		join(" ", sort { $a <=> $b } keys(%onrace)),
+		"\n",
+	);
+	return @dump;
+}
+
+sub dump_final {
+
+	print "-" x 0, "\n" x 0,
+	      "-" x 36, " RESULTS ", "-" x 35, , "\n",
+	;
+	print "SUCCESS : ",
+		join (" ", 
+			sort map { 
+				"$client{$_}{'host'}"
+				. "("
+				. int($client{$_}{'end'} - $client{$_}{'begin'} + 0.5)
+				. ")"
+			} keys(%pacerace)),
+		"\n";
+	print "FAILED  : ",
+		join (" ", sort map {
+				"$client{$_}{'host'}"
+				. "("
+				. int($client{$_}{'end'} - $client{$_}{'begin'} + 0.5)
+				. ")"
+			} keys(%badrace)),
+		"\n";
+	print "-" x 80, "\n";
+
+}
+
+sub analyse_race {
+	$debugGeneral and print "ANALYSING RESPONSES\n";
+	foreach my $id (sort { $a <=> $b } keys(%goodrace)) {
+		my $rbuf = $client{$id}{'rbuf'};
+		my $host = $client{$id}{'host'};
+		my $timeresponse = $client{$id}{'end'} - $client{$id}{'begin'};
+		$debugAnalyse and print "$host response in $timeresponse s :\n$rbuf";
+		
+		if ($rbuf =~ m~$regex~) {
+			
+			$client{$id}{"success"} .= "+ match the pattern expected\n";
+			my $end = $client{$id}{'end'};
+			my $begin = $client{$id}{'begin'};
+			if (($end - $begin) > $softimeout) {
+				# game over, baby.
+				$client{$id}{"problem"} .= "- soft timeout reached\n";
+				$debugAnalyse and print "soft timeout reached\n";
+				$badrace{$id}++;
+			}
+			else{
+				$pacerace{$id}++;
+			};
+		}else{
+			$client{$id}{"problem"} .= "- did not match the pattern expected\n";
+			$badrace{$id}++;
+		}
+	}
+}
+
+sub summary {
+	my @summary;
+	$debugGeneral and print "SUMARY LINE :\n";
+	return unless (scalar(%badrace));
+	
+	foreach my $id 
+		(sort {
+			$client{$::a}{'host'} cmp $client{$::b}{'host'}
+			||
+			($client{$::a}{'end'} - $client{$::a}{'begin'})
+			<=>
+			($client{$::b}{'end'} - $client{$::b}{'begin'})
+			||
+			$::a <=> $::b
+		} keys(%badrace)) {
+		push(@summary, 
+			"$client{$id}{'host'}"
+			. "("
+			. int($client{$id}{'end'} - $client{$id}{'begin'} + 0.5)
+			. ")"
+		)
+		;
+	}
+	print join (" ", @summary), "\n" x 1;
+
+	return;
+	# The first I wrote (it works, of course)
+	# the sorting is alphabetic
+	print join (" ", sort map {
+			"$client{$_}{'host'}"
+			. "("
+			. int($client{$_}{'end'} - $client{$_}{'begin'} + 0.5)
+			. ")"
+		} keys(%badrace)),
+	"\n" x 2;
+
+}
+
+sub details {
+	$debugGeneral and print "DETAILS :\n";
+	foreach my $id 
+		(sort {
+			$client{$::a}{'host'} cmp $client{$::b}{'host'}
+			||
+			$::a <=> $::b
+		} keys(%badrace)) {
+		print 
+			"\nDetail for id:$id -> $client{$id}{'host'}(",
+			int($client{$id}{'end'} - $client{$id}{'begin'} + 0.5),
+			")\n",
+			$client{$id}{'success'},
+			$client{$id}{'problem'},
+		;
+	}
+}

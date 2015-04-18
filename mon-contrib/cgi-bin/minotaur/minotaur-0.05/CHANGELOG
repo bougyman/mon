@@ -1,0 +1,91 @@
+This is the ChangeLog file for minotaur.
+
+From mino-0.04 to minotaur-0.05
+===============================
+
+- Change the broken minotaur homepage in README.
+
+- Corrected Jim Trocki mispelling in all the documentation.
+  Sorry Jim.
+
+From mino-0.03 to minotaur-0.04
+===============================
+
+Major changes:
+
+- Minotaur Home Page and online demonstration available at 
+  http://www.linux-france.org/prj/minotaure/
+
+- Security: Added User/Password login scheme.
+
+- Added a Infos section which is simply any html code comming from
+  a file. Localisation (multi language) scheme is respected.
+
+- Can disable or enable hosts from the "Host" column in the "Status" table.
+  The "Members" table is still readonly because MON can not do the job.
+  
+- Can disable or enable service from the "Service" column in the "Status" table.
+  The "Members" table is still readonly because MON can not do the job.
+
+- added a bin/ directory wich contains the minotaur.pl script.
+
+- added an example / wich contains some files that are only example
+  for the mon server (the ones used in the documentation)
+
+- The configuration files are now in the directory etc/
+
+
+Minor changes:
+
+- Added useful english comments in etc/messages.conf
+
+- Added useful english comments in etc/minotaur-cgi.conf
+
+- Adapted to Mon::Client 0.7 but aliases need an update.
+
+- Adapted to MON-0.38.16
+
+- Added command option -Ddisa to show debug printing on disabled things.
+
+- Added command option -Dconf to show debug printing when reading the 
+  configuration file.
+
+- Added new values in the refresh menu popup (in preferences table).
+
+- Changed the navigation bar and suppressed the old too big table titles.
+  The titles are just emphased and bigger in the navigation bar.
+
+- All the titles in the navigation bar can be changed.
+
+- Server name and server time are at the top now.
+
+- The bgcolor of the page is configurable. default: lightblue.
+
+- The html title page gives the MON server name and the server time.
+
+- The preference table is at the bottom of the page now.
+
+- Structured the configuration file.
+
+- Historic: The default "date from" filter is configurable 
+            keyword : historicFromDate (in seconds)
+
+- Historic: upalert and startupalert use the darkgreen color.
+
+- Tables: The border size is configurable: tableborder
+
+- Tables: The backgroung color  is configurable: tablebgcolor
+
+
+From mino-0.02 to minotaur-0.03
+===============================
+
+- Rename the archive
+- Add server time 
+- Add server name
+- Adapted to mon-0.38.13
+
+From NearNothing to mino-0.02
+=============================
+
+Everything except the above §.

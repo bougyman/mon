@@ -1,0 +1,50 @@
+# SNMP monitoring of ethernet repeaters
+#
+# Returns 1 on SNMP errors, 2 for other errors (usually failure to
+# communicate with device).
+#
+# Phil Gregory
+#
+# rptr.monitor, v. 0.9, 2000-02-28
+#
+# Initially derived from the hpnp.monitor code.
+#
+#
+#    Copyright (C) 2000, Phil Gregory
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+# Still TODO:
+#
+#   - Be more discerning about errors.  Currently, everything not
+#     "operational" is considered an error.  Depending on how people use
+#     this, the monitor may only want to report "malfunctioning" groups
+#     and ports.
+#
+#   - The program should try to detect cases where the host exists, but
+#     does not support the correct MIB.  (In this case, the repeater MIB.)
+#
+#   - Checking the ports to see if they're autopartitioned might be
+#     useful.
+#
+#   - There may be a better way to work through the ports.  In particular,
+#     there should only be entries in rptrGroupTable for existing groups.
+#     Querying only existing groups is much better on the bandwidth than
+#     trying all possible groups and ignoring the errors (which is how the
+#     script currently works).  It also appears possible for ports to be
+#     numbered higher than the maximum number of ports--e.g. the 3Com SSII
+#     switch 1000 where the 13 ports are numbered 1-12 and 14. (I need to
+#     look at UCD's snmptable and see how they get table dimensions.)

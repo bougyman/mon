@@ -1,0 +1,30 @@
+#
+# $Id: https.monitor.README,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+# An extremely simple https monitor for mon.
+#
+# Code structure based on Jon Meek & Jim Trocki's http.monitor program.
+#
+# https code taken from the get_page.pl function from the
+# Net::SSLeay distribution by Sampo Kellomaki <sampo@iki.fi>
+#
+# It makes use of the Net::SSLeay library and the OpenSSL package
+# (www.openssl.org).
+#
+# To get around the problem that Net::SSLeay carps to STDERR
+# uncontrollably about a number of things (e.g. connection refused),
+# we get around this by running the actual ssl get as an escaped
+# perl program and dropping the stderr of that instance. Gross, but
+# strangely effective.
+#
+# Use the -v option if you actually want to see the full result and
+# all headers. You'd never use this from mon, since it provides
+# non-mon-compliant output, but it can be interesting from the command
+# line.
+#
+#
+#
+#     Distribution and use of this program is under the same terms
+#     as the OpenSSL package itself (i.e. free, but mandatory
+#     attribution; NO WARRANTY). Please consult COPYRIGHT file in
+#     the root of the SSLeay distribution.

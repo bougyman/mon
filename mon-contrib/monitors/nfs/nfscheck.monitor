@@ -1,0 +1,280 @@
+#!/usr/bin/perl -w
+#
+# look for NFS mount troubles on a host (such as unresponsive servers)
+#
+# for use with mon and nagios
+#
+# -n       Nagios output (default is mon)
+# -t num   Timeout, in seconds, for accessing an
+#          nfs-mounted filesystem
+# -d dir[,dir...]   Check only these dirs. Default is to find all
+#                   NFS mounts in mtab/mnttab
+#
+# remaining items in ARGV are tested, as in -d
+#
+#
+# Jim Trocki <trockij@arctic.org>
+#
+# Copyright 2008 Unisys
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use POSIX;
+use Data::Dumper;
+use English;
+use Getopt::Std;
+
+sub get_dirs;
+sub check_running;
+
+my %opt;
+getopts ("d:nt:", \%opt);
+
+my $PS;
+my $MTAB;
+my $NAGIOS = $opt{"n"} || 0;
+my $TIMEOUT = $opt{"t"} || 1;
+
+#
+# various platforms have various locations for the mount table and
+# "ps" options
+#
+# Linux SunOS HP-UX
+my $sysname = (POSIX::uname())[0];
+
+if ($sysname eq "Linux")
+{
+    $PS = "ps auxww";
+    $MTAB = "/etc/mtab";
+}
+
+elsif ($sysname eq "SunOS" || $sysname eq "HP-UX")
+{
+    $PS = "ps -aef";
+    $MTAB = "/etc/mnttab";
+}
+
+elsif ($sysname eq "NetBSD")
+{
+    $PS = "ps auxww";
+    $MTAB = 'mount | awk "{print \$1 \" \" \$3 \" \" \$5}" |';
+}
+
+else
+{
+    die "no settings for $sysname";
+}
+
+#
+# bail if nfschecks are hanging around
+#
+if (my @nfschecks_running = check_running)
+{
+    print "NFS CRITICAL: monitors are running: @nfschecks_running\n";
+    exit (2);
+}
+
+#
+# assemble list of dirs to test
+#
+# each dir element is ["/mount/point", "host:/src/path"]
+#
+my @dirs = ();
+
+if ($opt{"d"})
+{
+    foreach my $dir (split /,/, $opt{"d"})
+    {
+    	push @dirs, [$dir, "unspecified"];
+    }
+}
+
+if (@dirs == 0)
+{
+    foreach my $dir (@ARGV)
+    {
+    	push @dirs, [$dir, "unspecified"];
+    }
+}
+
+if (!@dirs)
+{
+    @dirs = get_dirs;
+}
+
+if (@dirs == 0)
+{
+    print "No nfs mounts found";
+    exit (0);
+}
+
+#
+# test the mounts
+#
+my @failures;
+my @good;
+
+foreach $mountpoint (@dirs)
+{
+    my ($stat, $err) = check_mounts ($mountpoint->[0], $TIMEOUT);
+
+    if ($stat)
+    {
+    	push @failures, "$mountpoint->[0] ($mountpoint->[1]:$err)";
+    }
+
+    else
+    {
+    	push @good, "$mountpoint->[0] ($mountpoint->[1])";
+    }
+}
+
+
+if (@failures)
+{
+    print "NFS ERROR: @failures\n";
+
+    foreach my $mnt (@failures)
+    {
+    	print "FAIL: $mnt\n";
+    }
+
+    print "\n";
+
+    foreach my $mnt (@good)
+    {
+    	print "OK  : $mnt\n";
+    }
+
+    exit 2;
+}
+
+print "ALL OK: @good\n";
+foreach my $mnt (@good)
+{
+    print "OK : $mnt\n";
+}
+
+exit (0);
+
+
+###########################################
+
+sub get_dirs
+{
+    #
+    # gather list of nfs-mounted volumes
+    #
+    open (IN, $MTAB) || die "NFS CRITICAL: could not open mtab $MTAB: $!";
+
+    my @dirs = ();
+
+    while (<IN>)
+    {
+	my ($src, $dst, $type) = (split /\s+/)[0,1,2];
+	next if ($type !~ /^nfs(?!d)/);
+	push (@dirs, [$dst, $src]);
+    }
+
+    close (IN);
+
+    return @dirs;
+}
+
+
+#
+# see if nfschecks are running
+#
+sub check_running
+{
+    open (IN, "$PS |") ||
+	    die "NFS CRITICAL: could not open pipe to ps to check for nfscheck procs";
+
+    my @nfschecks_running = ();
+
+    while (<IN>)
+    {
+	chomp;
+	next if (!/perl.*nfscheck.monitor/);
+	s/^\s*//;
+	my ($user, $pid) = (split (/\s+/, $_, 3))[0,1];
+	next if ($pid == $$);
+	push @nfschecks_running, "$user/$pid";
+    }
+
+    close (IN);
+
+    return @nfschecks_running;
+}
+
+
+sub check_mounts
+{
+    my ($mountpoint, $timeout) = @_;
+
+    my $pid;
+    my $OK = 0;
+    my $child_stat = -1;
+
+    #
+    # child
+    #
+    if (($pid = fork) == 0)
+    {
+	$ERRNO = 0;
+
+	#
+	# this should hang
+	#
+	if (chdir $mountpoint)
+	{
+	    exit (0);
+	}
+
+	exit ($ERRNO);
+    }
+
+    eval
+    {
+	local $SIG{ALRM} = sub { die "timeout" };
+	alarm $timeout;
+
+	waitpid ($pid, 0);
+
+	$child_stat = $? >> 8;
+    };
+
+    alarm (0);
+
+    #
+    # time expired, kill child
+    #
+    if ($EVAL_ERROR =~ /^timeout/)
+    {
+	kill (9, $pid);
+	return (1, "timeout");
+    }
+
+    if ($child_stat)
+    {
+	$ERRNO = $child_stat;
+	return (1, $ERRNO);
+    }
+
+    else
+    {
+	return (0, "ok");
+    }
+}

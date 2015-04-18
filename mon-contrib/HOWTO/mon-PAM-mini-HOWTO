@@ -1,0 +1,299 @@
+Setting Up PAM Authentication With mon mini-HOWTO
+Andrew Ryan, andrewr@nam-shub.com
+$Id: mon-PAM-mini-HOWTO,v 1.1.1.1 2005/02/18 17:52:13 trockij Exp $
+
+This document describes how to use PAM authentication with the network
+monitoring software mon, gives some specific configuration
+examples, and points out some gotchas with PAM authentication in mon. 
+------------------------------------------------------------
+
+Contents
+	1.0  Introduction
+	2.0  Caveats and Risks
+	3.0  Setting Up PAM Support For mon in Your OS
+	     3.1  Setting Up PAM Support For Solaris Using Solaris PAM
+	     3.2  Setting Up PAM Support Using Linux-PAM (for Linux,
+	     	  FreeBSD, Solaris, SunOS and HP-UX 9.0 too!)
+	     3.3  Notes on Shadow Password Support with mon and PAM
+	4.0  Setting up PAM Authentication in mon
+	5.0  Examples
+	     5.1  Setting Up LDAP+SSL PAM Authentication in mon
+	     5.2  Stacking PAM Modules
+	     5.3  Other Cool-Looking PAM Services (which haven't been
+	     tested with mon)
+
+
+------------------------------------------------------------
+1.0  Introduction
+
+PAM (Pluggable Authentication Module) is an architecture for providing
+one or more of the following four services: authentication, account
+management, session management, and password management. PAM allows
+applications to share these functions, and for these functions to be
+maintained separately from the applications themselves. Thus, not
+every application developer has to write routines to perform
+authentication within their applications.
+
+You can use PAM as an authentication mechanism for mon, and in the
+process gain support for cool login methods like shadow passwords,
+LDAP, and NT domains into your mon server. In addition, PAM modules
+can be "stacked," which allows you to require authentication against
+more than one PAM module.
+
+
+
+------------------------------------------------------------
+2.0  Caveats and Risks
+
+It is important to understand what you are getting yourself into when
+you use PAM with mon. Using PAM with mon should increase your
+security, not decrease it.
+
+Perhaps the biggest risk involved is that your passwords are going to
+stay around in the memory of the mon program. When a C program is done
+using a password, it can release the memory and the password is more
+or less gone.
+
+Unfortunately, in perl, we can't do our own memory management
+(fortunately, we don't have to!). Even an 'undef' does not guarantee
+that memory is going to be released or that values will be
+forgotten. If you're really really paranoid about certain passwords,
+don't use PAM authentication for mon, at least for these passwords.
+
+There is also some risk inherent in some of the third party free
+PAM modules that are out there. Some of them might not work with mon,
+or they might not work well at your site. This is something of a fact
+of life with free software, but at least it doesn't cost you anything
+to try. Of course it's also an issue with non-free software as well :)
+
+
+
+------------------------------------------------------------
+3.0 Setting Up PAM Support For mon in Your OS
+
+Before you set up mon to use PAM for authentication, you first need to
+set up PAM for mon in your operating system. We discuss the two major
+PAM implementations here, Solaris and Linux PAM. Linux PAM has been
+ported to FreeBSD, Solaris, SunOS and HP-UX 9.0, so it's not just for
+Linux, but the instructions are the same. If you aren't running Linux,
+and you use Linux-PAM, however, you have to expect to be on your own
+as far as support goes, both with Linux-PAM and your vendor.
+
+
+
+------------------------------------------------------------
+3.1  Setting Up PAM Support For Solaris Using Solaris PAM
+
+PAM on Solaris is configured in the file /etc/pam.conf. You should
+reference the man page for pam.conf(4) for syntax details. What I
+suggest is adding a new PAM service for mon, with the following 4
+lines (you may choose to use a different PAM module):
+
+# Solaris PAM configuration for mon and www.padl.com's pam_ldap
+mon   auth      required        /usr/lib/security/pam_ldap.so.1 
+mon   account   required        /usr/lib/security/pam_ldap.so.1 
+mon   session   required        /usr/lib/security/pam_ldap.so.1 
+mon   password  required        /usr/lib/security/pam_ldap.so.1 
+
+Or, use shadow passwords with this configuration (see the section
+on notes for shadow passwords later in this document):
+# Solaris PAM configuration for shadow passwords
+mon   auth      required        /usr/lib/security/pam_unix.so.1 
+mon   account   required        /usr/lib/security/pam_unix.so.1 
+mon   session   required        /usr/lib/security/pam_unix.so.1 
+mon   password  required        /usr/lib/security/pam_unix.so.1 
+
+Be really careful about the syntax in the pam.conf file, and I highly
+recommend that you keep a root shell open while you're editing this
+file, especially when you first begin experimenting with PAM.  If you
+mangle the pam.conf file, NO PAM AUTHENTICATION WILL WORK AND YOU WILL
+BE UNABLE TO LOG IN TO THE SYSTEM. 
+
+Don't worry about defining PAM services (like account) that you won't
+use. It doesn't hurt, and it makes a good placeholder.
+
+
+
+------------------------------------------------------------
+3.2  Setting Up PAM Support Using Linux PAM (for Linux,
+     FreeBSD, Solaris, SunOS and HP-UX 9.0 too!)
+
+Linux PAM has a different syntax but it's just as easy to set up. You
+can reference the pam(8) man page or the Linux PAM page at
+    http://www.kernel.org/pub/linux/libs/pam/
+for more information.
+
+Instead of one configuration file for all of PAM, like Solaris uses,
+Linux uses a directory, /etc/pam.d/, which contains one file
+per PAM service. The contents of each file look very much like the
+Solaris pam.conf file, except that there's no service name. To duplicate what
+we did above, and set up a "mon" PAM service which used pam_ldap for
+authentication, we would create a file called /etc/pam.d/mon with the
+following lines:
+
+#%PAM-1.0
+auth      required        /lib/security/pam_ldap.so.1
+account   required        /lib/security/pam_ldap.so.1
+session   required        /lib/security/pam_ldap.so.1
+password  required        /lib/security/pam_ldap.so.1
+
+Or for shadow passwords:
+#%PAM-1.0
+auth      required        /lib/security/pam_pwdb.so.1 shadow nullok
+account   required        /lib/security/pam_pwdb.so.1
+session   required        /lib/security/pam_pwdb.so.1
+password  required        /lib/security/pam_pwdb.so.1
+
+Again, don't worry about defining PAM services (like account) that you
+won't use. It doesn't hurt, and it makes a good placeholder.
+
+
+
+------------------------------------------------------------
+3.3  Notes on Shadow Password Support with mon and PAM
+
+Shadow password authentication is far and away the most commonly used
+and best-supported PAM service (Sun supports Solaris', and RedHat
+supports the Linux version). You can use it with mon, although there
+is an important fact to note. 
+
+By default, in order to read the shadow password file, you must be
+root, because /etc/shadow is 0400 and owned by root. That means that
+either the mon server must run as root, or that your password file
+must have less restrictive permissions. You could make it 0444, but
+that's like having no shadow password support at all.
+
+An intermediate approach is to create a new group, say "mon", and then
+'chgrp mon /etc/shadow ; chmod 0440 /etc/shadow'. Now put the user
+which mon runs at, preferably a dedicated user who does nothing else,
+into the "mon" group and now the shadow password file will be readable
+only by root and the mon user, which hopefully is a locked account
+used only to run mon and nothing else.
+
+
+
+------------------------------------------------------------
+4.0  Setting up PAM Authentication in mon
+
+Configuring PAM support in the OS is the hard part, the mon portion
+is quite easy. You need to add/change 2 lines in your mon.cf file, for
+example: 
+
+# Use userfile authentication, followed by PAM authentication
+authtype = userfile pam
+# Use the "mon" PAM service
+pamservice = mon
+
+Note that in the above example, we're still using userfile
+authentication as the first check. If mon authenticates a user via
+userfile authentication, PAM is not consulted. But if userfile
+authentication fails, PAM is checked and the user is either
+authenticated or rejected. I like to keep userfile authentication for
+my default mon.cgi user, since it has a password and username that may
+be sent in the clear and I don't really want to have users in my
+password database with clear/known passwords.
+
+
+
+
+------------------------------------------------------------
+5.0  Examples
+
+We will discuss some examples of other interesting PAM services which
+mon users might find interesting. Please contribute your own examples
+and success stories to this section!
+
+
+------------------------------------------------------------
+5.1  Setting Up LDAP+SSL PAM Authentication in mon
+
+The original reason I wanted PAM support in mon was to use LDAP
+authentication for our organization. It is a really cool application
+of LDAP and PAM which will allow you to implement secure, distributed
+authentication for mon in conjunction with the mon.cgi GUI. It will
+also spare you from having to maintain a separate mon password file.
+
+Because there are a lot of different ways in which LDAP can be set up,
+I won't cover all possibilities here. We got this working using
+essentially the following method, connecting to a Netscape 4.1
+Directory Server. OpenLDAP may also work but I've never tried it.
+
+The basic outline:
+  1. Download and install the Netscape LDAP SDK from
+  http://www.iplanet.com/
+  2. Download the latest pam_ldap from http://www.padl.com/
+  3. Presumably you have a LDAP server, either Netscape or OpenLDAP,
+  which is working and has the correct entries in it to allow
+  authentication. I'm not sure if OpenLDAP works with SSL 
+  (it definitely works without SSL), you should check the
+  latest release notes for pam_ldap.
+  4. Compile and install pam_ldap.so into /lib/security. Make
+  sure to configure and build with ssl support.
+  5. Set your /etc/ldap.conf file to point to your LDAP server, and
+  change the base name to match your organization.
+  6. Put a copy of cert7.db (which ships with Netscape Communicator)
+  in the path that you specified in the ldap.conf file under
+  sslpath.
+  7. Change the authtype config parameter to include "pam" in your
+  mon.cf, and also change the pamservice variable to be the PAM
+  service that you just set up (in the above example, we used "mon").
+  8. Reset mon.
+  9. Test mon authentication with a user that you know doesn't exist
+  in a local password file (assuming you're using one of the files
+  authentication types in conjunction with PAM).
+
+A minimal ldap.conf file could look like this (with the names changed,
+this is what we use):
+host 1.2.3.4
+base o=your_org.name
+ldap_version 3
+port 636
+ssl yes
+sslpath /etc/cert7.db
+
+
+
+------------------------------------------------------------
+5.2  Stacking PAM Modules
+
+As mentioned previously, PAM modules can be stacked to require one or
+more forms of authentication. Using different keywords, authentication
+can be controlled to a very fine degree. Here are Solaris and Linux
+examples of stacking modules to require that the mon password a user
+submits is found both on an LDAP server and on the local machine's
+shadow password file:
+
+# Solaris /etc/pam.conf example of stacking modules to require
+# both LDAP authentication and shadow password authentication for
+# the 'mon' service
+mon auth required   /usr/lib/security/pam_ldap.so.1
+mon auth required   /usr/lib/security/pam_unix.so.1 try_first_pass
+
+# Linux /etc/pam.d/mon example of stacking modules to require
+# both LDAP authentication and shadow password authentication for
+# the 'mon' service
+auth      required        /lib/security/pam_ldap.so.1
+auth      required        /lib/security/pam_pwdb.so.1 shadow nullok try_first_pass
+
+
+This example just scratches the surface of what you can do by stacking
+PAM authentication modules. Please reference your PAM documentation
+for more examples and syntax.
+
+
+
+------------------------------------------------------------
+5.3  Other Cool-Looking PAM Services (which haven't been tested with
+     mon)
+
+See this page for more PAM modules:
+    http://www.kernel.org/pub/linux/libs/pam/modules.html
+
+Some cool modules that stand out:
+* pam_ntdom - Authenticate against an NT PDC. From the Samba project.
+* pam_securid (static passwds only) - Using static passwords, you can
+  authenticate against an ACE server (2-factor would work as well but
+  would be of very limited usefulness, better to implement 2-factor
+  authentication at the web server layer, e.g. mod_securid for Apache).
+* Netware - Authenticate against a Netware server
+* kerberos, S/Key, Radius, TACACS+ - Self-explanatory.

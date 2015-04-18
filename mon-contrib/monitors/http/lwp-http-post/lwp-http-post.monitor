@@ -1,0 +1,188 @@
+#!/usr/bin/perl
+# File:		lwp-http-post.monitor
+# Author:	Kastus Shchuka, kastus@epocrates.com
+# Date:		Thu Apr 18 19:10:11 PDT 2002
+# Description:	Perform an HTTP POST preceded by GET to set cookies, following redirections -- using LWP.
+# Based on:	lwp-http.mon by Daniel Hagerty, hag@linnaean.org
+#
+
+#use strict;
+
+use LWP::UserAgent;
+use HTTP::Cookies;
+use HTTP::Request::Common qw(GET POST);
+use Getopt::Std;
+use File::Basename;
+use URI;
+
+###
+
+use vars qw($opt_h $opt_p $opt_t $opt_z $opt_d $opt_r $opt_s $opt_P
+	    $opt_v $opt_c $opt_f);
+
+##
+
+# Configure this.
+my $maintainer = 'unixteam@epocrates.com';
+
+##
+
+my $port;
+my $directory;
+my $regex;
+my $proto = "http";
+my $timeout = 60;
+my $formdata;
+
+my $version = "0.1";
+my $agent = "Yet Another Monitor Bot/$version";
+
+my $u_proto;
+
+# We make our own specialization of LWP::UserAgent that performs
+# redirection in POST requests
+
+{
+	package RequestAgent;
+	@ISA = qw(LWP::UserAgent);
+
+	sub new
+	{
+		my $self = LWP::UserAgent::new(@_);
+		$self->agent("lwp-request/$main::VERSION");
+		$self;
+	}
+
+	sub redirect_ok
+		{ 1; }
+}
+
+
+###
+
+sub main {
+	do_usage() if(@_ == 0);
+
+	$directory = $opt_d if($opt_d);
+	$port = $opt_p if($opt_p);
+	$timeout = $opt_t if($opt_t);
+	$regex = $opt_r if($opt_r);
+	$proto = "https" if ($opt_s);
+	$proto = $opt_P if($opt_P);
+	
+	$formdata = $opt_f if ($opt_f);
+
+
+	$directory =~ s/^\///;	# Nuke leading slash
+	$u_proto = $proto; $u_proto =~ tr/[a-z]/[A-Z]/;
+
+	my $ua = RequestAgent->new() || lose("LWP create failure");
+	$ua->agent($agent);
+	$ua->from($maintainer);
+	$ua->timeout($timeout);
+
+	my @failed;
+	my %failure;
+host:
+	foreach my $host (@_) {
+		my $ht_lose = sub {
+			push(@failed, $host);
+			$failure{$host} = join(" ", @_);
+
+			# This generates a warning.
+			next host;
+		};
+	
+		if($opt_c) {
+			# Generate new cookies for each host.
+			my $cookies = HTTP::Cookies->new() ||
+			&{$ht_lose}("HTTP::Cookies create failure");
+
+			$ua->cookie_jar($cookies);
+		}
+
+		my $uri_str = "$proto://$host/$directory";
+		my $request = HTTP::Request->new("GET" => $uri_str) ||
+	    		&{$ht_lose}("HTTP::Request create failure");
+		my $req = GET $uri_str;
+		my $uri = $req->uri();
+		$uri->port($port) if(defined($port));
+
+		my $response = $ua->request($req) ||
+			&{$ht_lose}("UserAgent GET request failure");
+
+		unless($response->is_success) {
+			&{$ht_lose}("Request failed:", $response->message);
+		}
+
+		$req = POST $uri_str;
+		my $uri = $req->uri();
+		$uri->port($port) if(defined($port));
+		$req->content($formdata);
+		$response = $ua->request($req) ||
+			&{$ht_lose}("UserAgent POST request failure");
+
+		unless($response->is_success) {
+			&{$ht_lose}("Request failed:", $response->message);
+		}
+
+		my $strref = $response->content_ref;
+		if(!$opt_z && length($$strref) == 0) {
+	    		&{$ht_lose}("Empty document");
+		}
+
+		if(defined($regex)) {
+			my $winning;
+			map {$winning++ if(/$regex/);} split("\n", $$strref);
+			if($opt_v) {
+				&{$ht_lose}("Failure regex matches:", $winning) if($winning);
+			} elsif(!$winning) {
+				&{$ht_lose}("Regex not found");
+			}
+		}
+	}
+	if(@failed) {
+		print "$u_proto Failures: " . join(" ", @failed) . "\n";
+		foreach my $fail (@failed) {
+			print "$fail: $failure{$fail}\n";
+		}
+		exit(1);
+	}
+	exit;
+}
+
+sub lose {
+	die join(" ", @_);
+}
+
+sub do_usage {
+	my $extended = shift;
+
+	my $base = basename $0;
+	print STDERR "Usage: $base [options...] hosts ...\n";
+	if($extended) {
+	print <<'EOF';
+-h		Help.  You're reading it.
+-d URL		URL to test on the remote host.  Default is /.
+-p PORT		Port to connect to.  Default is proto specific.
+-P PROTO	Protocol to fetch.  Default is http.
+-s		Fetch via https.  Equivalent to -P https.
+-t TIMEOUT	Timeout for the fetch.  Default is 60 seconds.
+-r REGEX	A regular expression that the retrieved content must match.
+-v		Invert the regular expression.  Content must NOT match.
+-z		Supress zero-length check.
+-c		Enable Cookies.
+-f FORMDATA	form data in url-encoded format, e.g. login_name=foo&pwd=bar
+EOF
+	}
+	exit 1;
+}
+
+###
+
+getopts("hszvcp:t:d:r:P:f:") || do_usage();
+do_usage($opt_h) if($opt_h);
+
+&main(@ARGV);
+
+# EOF

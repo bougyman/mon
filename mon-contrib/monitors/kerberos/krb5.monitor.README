@@ -1,0 +1,25 @@
+# This script will attempt to get Kerberos 5 tickets from one or more kerberos
+# KDCs.  Requires Authen::Krb5.
+#
+# The user name, password, and realm can all be specified on the
+# commandline, or they can be read from the monitor-auth.cf file in the mon
+# config base directory.  Matching entries in monitor-auth.cf will look like:
+#
+# *:*:user=username
+# *:*:password=password-string
+# *:*:realm=EXAMPLE.COM
+#
+# (Where *:* can be replaced with group:service, group:* or *:service, which
+# allows you to define different settings for different hostgroups/services.
+#
+# A temporary kerberos config file will need to be written to disk in order
+# to test the servers independently.  The mon state dir will be used, or you
+# can specify a directory on the command line.
+#
+# Arguments:
+# [--directory dir] [--user user] [--password password]
+# [--realm realm] hostname [...]
+#
+# Script Author: Carnegie Mellon University, Computing Services
+# Technical Contact: net-dev@andrew.cmu.edu
+

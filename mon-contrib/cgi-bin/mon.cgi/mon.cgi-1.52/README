@@ -1,0 +1,108 @@
+Introduction to mon.cgi
+--------------------------------------------------------
+This interface, along with mon itself, is available from
+ftp://ftp.kernel.org/pub/software/admin/mon/
+
+Development versions of mon.cgi can be found at
+http://www.nam-shub.com/files/
+--------------------------------------------------------
+mon.cgi is a web-based GUI for mon. Its purpose is twofold:
+ 1) To provide an easy-to-read visual display of all the status items
+ that mon keeps track of, and
+ 2) To provide an easy-to-use web administration interface to allow users to
+ perform all mon administration tasks from any web browser.
+
+This package and the documentation assumes that you have at least a
+basic familiarity with mon.
+
+
+
+Installing mon.cgi
+------------------
+Instructions for installing mon.cgi are located in the header of the
+mon.cgi file itself. Roughly speaking, the order of events is:
+ 1) Install mon and get it working, set up monpasswd and auth.cf
+ files and get them verifiably working if you're using mon.cgi
+ authentication (hint: you should be!).
+ 2) Install a web server, preferably Apache, and preferably with
+ mod_perl built in. Start the web server and verify that it works.
+ 3) Put mon.cgi in your cgi-bin directory and make sure it is
+ executable by the apache user (make it 0755 or 0555).
+ 4) Edit your mon.cgi file to change default values to match your
+ environment (e.g. contact email, your company logo, your company
+ name, etc.). 
+ 5) If you're requiring users to log in (highly recommended), you must
+ change the default app secret variable $app_secret in your copy of
+ mon.cgi, and install the Crypt::TripleDES module from CPAN on the
+ machine which will be running mon.cgi. 
+ 6) If you want to easily customize the look and feel of mon.cgi, as
+ well as various other configuration options, copy the sample
+ mon.cgi.cf file (in the /config directory of this distribution) into
+ a location where your webserver can read it, and edit the line
+ beginning '$moncgi_config_file = ""' to reflect the path to your
+ config file. You can then change the look and feel of mon.cgi, as
+ well as implement access controls, directly from this file.
+
+
+mon.cgi Design Goals
+--------------------
+1) Provide 100% of the functionality of mon in a graphical user
+   interface. Ideally, there will be some things that the GUI is better
+   for, and inevitably, some things that the command line will always win
+   out for. 
+
+2) Maintain 100% compatibility with mon and Mon::Client. If a patch to
+   mon or Mon::Client is required to get a piece of mon.cgi functionality
+   working, we write it, submit it, and get it folded in to the main
+   distribution before making it official in mon.cgi.
+
+3) Expose mon to the largest number of people possible in the most
+   useful way. It is the author's belief that mon is a very useful piece of
+   monitoring software, and it is also my belief that the best way to
+   insure the growth and support of this software is to expose it to a
+   large number of people in your organization in a way that will
+   cause them to reach the same conclusion. A web client is the most
+   universal way to achieve this goal at the present time, as a web
+   client can be run on any network that mon would be.
+
+4) Simplicity and lightness. In other words: Compatibility on a large
+   number of client browser sizes, versions, and resolutions; No
+   frames! ;  Adhering to as many of the standard good usability
+   conventions as possible ; Keeping mon.cgi all one file, with a very
+   short setup time ; No special modules required past those needed
+   to run mon, and optional additional modules kept to a minimum ;
+   100% text browser compatibility ; Performance and speed ; Low
+   resource utilization.
+
+Sometimes these design goals work against one another, but hopefully
+we come out ahead when tradeoffs are made.
+
+
+
+Alternatives to mon.cgi
+-----------------------
+If you don't like mon.cgi but you would still like a web GUI, you have
+2 alternatives. Your first alternative is Jim's monshow, which ships with
+mon in the clients/ subdirectory of the mon distribution. The second
+alternative is Gilles Lamiral's Minotaure, which can be found at
+ftp://ftp.kernel.org/pub/software/admin/mon/contrib/. Both of these
+are fully functional and may suit your needs better than mon.cgi. You
+are encouraged to take a look at them both and decide which is best
+for you.
+
+
+
+Credits
+-------
+The current maintainer is Andrew Ryan <andrewr@nam-shub.com>. Report
+all bugs to him or the mon users mailing list.
++ Originally by: Arthur K. Chan <artchan@althem.com>
++ Based on the Mon program by Jim Trocki <trockij@transmeta.com>. 
+  	http://www.kernel.org/software/mon/
++ Rewritten to support Mon::Client, mod_perl, taint mode,
+  authentication, the strict pragma, and other visual/functional 
+  enhancements by Andrew Ryan <andrewr@nam-shub.com>.
++ Downtime logging contributed by Martha H Greenberg <marthag@mit.edu>
++ Site customization extensions by Ed Ravin <eravin@panix.com>
++ The contributions of members of the mon-users mailing list have been
+  invaluable in many ways.

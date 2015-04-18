@@ -1,0 +1,122 @@
+#!/usr/bin/perl
+#
+# very straightforward dns monitor for use with "mon"
+#
+# arguments:
+#       -t timeout         timeout (defaults to 5 seconds)
+#       -n name[,name]     name to query, defaults to "mailhost"; separate
+#				multiple names with a ',' (comma).
+#	-T		   Use TCP instead of default UDP.
+#
+# $Id: dns-query.monitor,v 1.3 2008/10/23 20:05:42 aschwer Exp $
+#
+#    Copyright (C) 2003, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use strict;
+
+use Getopt::Std;
+use Net::DNS::Resolver;
+
+my %opt;
+getopts ("t:n:T", \%opt);
+
+my $TIMEOUT = defined $opt{"t"} ? $opt{"t"} : 5;
+my $NAME = $opt{"n"} || "mailhost";
+my $USETCP = $opt{'T'};
+
+my @names = split /,/,$NAME;
+
+my $r = Net::DNS::Resolver->new;
+
+if (!defined $r)
+{
+    die "could not create new Net::DNS::Resolver object\n";
+}
+
+if ($USETCP)
+{
+	$r->tcp_timeout ($TIMEOUT);
+	$r->usevc (1);
+}
+else
+{
+	$r->udp_timeout ($TIMEOUT);
+}
+
+my (%good, %bad);
+
+foreach my $server (@ARGV)
+{
+    $r->nameservers ($server);
+
+    foreach my $name (@names)
+    {
+	    my $p = $r->search ($name);
+
+	    if (!defined $p)
+	    {
+		$bad{$server}->{$name}->{"detail"} = $r->errorstring;
+	    }
+
+	    else
+	    {
+		my $n = $p->{"answer"}->[0];
+
+		$good{$server}->{$name}->{"detail"} = "$n->{name} $n->{class} $n->{type} $n->{address}";
+	    }
+    }
+}
+
+if (keys %bad)
+{
+    print join (" ", sort keys %bad), "\n";
+}
+
+else
+{
+    print "\n";
+}
+
+if (keys %bad)
+{
+    print "failures:\n";
+    foreach my $server (keys %bad)
+    {
+	foreach my $name (keys %{ $bad{$server} })
+	{
+    		print "    $server: $bad{$server}->{$name}->{detail} ($name)\n";
+	}
+    }
+
+    print "\n";
+}
+
+if (keys %good)
+{
+    print "successes:\n";
+
+    foreach my $server (keys %good)
+    {
+	foreach my $name (keys %{ $good{$server} })
+	{
+    		print "    $server: successfull lookup for $good{$server}->{detail} ($name)\n";
+	}
+    }
+}
+
+exit 1 if (keys %bad);
+exit 0;

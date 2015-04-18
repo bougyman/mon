@@ -1,0 +1,1107 @@
+#!/usr/local/bin/perl -w
+#
+# NAME
+#  cf2html
+#
+#
+# SYNOPSIS
+#  cf2html [ -vtpmag ] [ -f /path/to/config-file ] 
+#          [ -b 'html body options'] [-T "HTML Document Title"]
+#
+#
+# DESCRIPTION
+#  How many people in your organization really know how everything on
+#  your network is monitored by your mon configuration? How many 
+#  people could find out if they wanted to know, and how many of 
+#  these would be stymied by lack of understanding of mon's 
+#  (admittedly straightforward) config file syntax?
+#
+#  cf2html takes a *valid*, post-m4-processed, mon configuration file 
+#  as input, and produces an HTML-formatted version of the file 
+#  suitable for sharing with an audience of people who are not familiar
+#  with mon's config file format. The HTML format can also be useful 
+#  even if you are familiar with mon's config file format, since
+#  sometimes the improved formatting can cause you to notice problems
+#  or inconsistencies with your configuration that you never 
+#  noticed before.
+#
+#  It is hoped that, as a result of using this script, IT departments
+#  as a whole -- not just you, the mon guru who has set up mon and
+#  keeps it updated -- will be able to have a better understanding 
+#  of the kind of monitoring which is taking place in their networks.
+#
+#  It is also possible to produce ASCII text output with this script,
+#  although the output looks much different and doesn't have the summary
+#  features that the HTML does. There's no reason the ASCII output 
+#  couldn't look better and have the summary features, it's just a 
+#  matter of where development time and effort were spent.
+#
+#
+# OPTIONS
+#  -f /path/to/filename
+#      Feed the mon config file specified in this option to cf2html.
+#      Default is stdin.
+#
+#  -t  Print text-mode output. This is not anthing like an ASCII
+#      equivalent of the HTML output, but a different, more simple
+#      report, used mostly for debugging. One nice thing about the
+#      text report is that it will print out all mon keywords,
+#      whereas the HTML report only prints out the keywords it knows
+#      how to display.
+#
+#  -b 'html BODY options'
+#      tag/value pairs to pass, verbatim, to the BODY tag for the
+#      HTML document that is produced. Be sure to single-quote the
+#      value of this option, if you enclose double quotes 
+#      inside your -b option value.
+#      This option is meaningless if text-mode is selected.
+#
+#  -T "HTML Title String"
+#      Use the text string specified in this option as the title of
+#      the report. The default is something lame like "pretty-printed
+#      mon config file".
+#      This option is currently meaningless if text-mode is selected.
+#
+#  -v  Print verbose, debugging-type output. Don't use this unless
+#      you are adding new features to cf2html or you are experiencing
+#      unanticipated problems.
+#
+#  -p  DO NOT print "Brief Introduction to Time Period Syntax As Used
+#      By mon". Default is print this introduction.
+#      This option is currently meaningless if text-mode is selected.
+#
+#  -a  DO NOT print alert summary. Default is to print alert summary.
+#      This option is currently meaningless if text-mode is selected.
+#
+#  -g  DO NOT print global config variables summary. Default is to 
+#      print global config variables summary.
+#      This option is currently meaningless if text-mode is selected.
+#
+#  -m  DO NOT print monitor summary. Default is to print monitor summary.
+#      This option is currently meaningless if text-mode is selected.
+#
+#
+# EXAMPLES
+#  Assuming your mon config file is in m4,
+#     m4 /etc/mon.cf.m4 | cf2html > /home/www/moncf.html
+#
+#  The above, but setting your own special title and color scheme,
+#  and using a mon config file that has already gone (or never needed 
+#  to go) through m4.
+#     cf2html -f /etc/mon.cf  -T "My Mon Config File" \
+#      -b 'BGCOLOR="black" VLINK="#00FFFF" TEXT="#D8D8BF" LINK="yellow"' \
+#      > /home/www/moncf.html
+#
+#  If your config file is not in m4:
+#     cf2html -f /etc/mon.cf > /home/www/moncf.html
+#
+#
+# NOTES
+#  Not all mon keywords are implemented, although most are. The missing
+#  keywords are mentioned in comments within the source code. 
+#  A 1.0 release of this script will implement all mon keywords 
+#  as of mon-0.38.20.
+#
+#  The config file parsing is mostly taken from the mon source code, 
+#  especially the bits which re-assemble lines continued by backslashes.
+#
+#  Passing cf2html a config file which is not mon-legal will cause
+#  highly unpredictable results (garbage in, garbage out). cf2html 
+#  does NO CHECKING for valid config file syntax, that's mon's job.
+#
+#
+# SEE ALSO
+#  mon, http://www.kernel.org/software/mon/
+#
+#
+# AUTHOR
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  ------------------------------------------------------------------
+#  $Id: cf2html,v 1.1.1.1 2005/02/18 17:52:21 trockij Exp $
+#  ------------------------------------------------------------------
+#
+#
+# COPYRIGHT
+#  Copyright (C) 2000, Andrew Ryan
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use strict;
+use Getopt::Std;
+use HTML::Entities;                # Used to escape HTML in alert/monitor args
+use vars qw /$opt_f $opt_v $opt_t $opt_T $opt_b $opt_a $opt_m $opt_p $opt_g/;
+
+getopts('f:T:b:vtampg');
+
+#
+# Parse command line options
+#
+my $cf_file = $opt_f || "-"; #default config file is STDIN
+# Set title for HTML document
+my $title = $opt_T || "pretty-printed mon config file";
+# Set default HTML document body tags, which the user can override
+my $html_body_tags = $opt_b || 'BGCOLOR="#FFFFFF" TEXT="#333366" LINK="#333366" VLINK="#6666CC" ALINK="#333366"';
+my $PRINT_TIME_PERIOD_INFO = $opt_p ? 0 : 1;
+my $PRINT_MONITOR_SUMMARY = $opt_m ? 0 : 1 ;
+my $PRINT_ALERT_SUMMARY = $opt_a ? 0 : 1;
+my $PRINT_GLOBAL_SUMMARY = $opt_g ? 0 : 1;
+
+
+#
+# Misc variables used in the config file parsing.
+#
+my ($args, $acc_line, $i, $alert_index, $upalert_index);
+
+
+#
+# in_{period,service,watch} and current_{watch,service,period,label} 
+# are state variables used in the config file parser.
+#
+my $in_period = 0;
+my $in_service = 0;
+my $in_watch = 0;
+my $current_watch = "";
+my $current_service = "";
+my $current_period = "";
+my $current_period_label = "";
+
+
+#
+# More state variables used in the config file parser
+#
+my $incomplete_line = 0;
+my $linepart = "";  
+my $line_num = 0; #default line number start is 0
+my $alert_index_default = 1;   # where to start the alert_index for each period
+
+# G,P,S,and H are the Global, Period, Service, and Host hashes 
+#  respectively
+my (%G, %P, %S, %H);
+
+
+my $seconds_in_day = 24 * 60 * 60;
+
+
+#
+# Some defaults used in the HTML formatting.
+# Change these to change the look of your tables.
+#
+my $table_border = 1;
+my $table_cellspacing = 2;
+my $table_cellpadding = 2;
+my $fixed_font_face = "courier";
+my $fixed_font_size = "-1";
+
+
+#
+# Variables used in HTML formatting and document preparation
+#
+my ($watch, $service, $period, $alert, $monitor, $service_entry, $period_entry, $alertafter_text, $misc_text, $exclude_text, $alert_exit_codes, @service_list, $num_watches, $num_services_uniq, %total_services, @total_hosts, %total_monitors, %total_alerts, @uniq_services, @uniq_hosts, @uniq_alerts, $num_hosts_uniq, $num_services,$num_alerts_uniq, $num_monitors, $num_monitors_uniq, $num_hosts, $num_alerts, %saw, %monitor_invocations, %alert_invocations, $num_monitor_invocations);
+
+
+#
+# Set up global config file variable defaults
+#
+$G{'dep_behavior'} = "a";
+
+
+#
+# Loop through the specified config file
+#
+# each config file has one or more watches defined
+#  - each watch has one or more services defined, plus other variables
+#    - each service has one or more periods defined, plus other variables
+#      - each period has lots of potential variables defined
+if ( open (CF, $cf_file) ) {
+    while (<CF>) {
+	$line_num++;
+	next if /^\s*\#/;  #ignore comments
+
+	$linepart= $_;
+        #
+        # accumulate multi-line lines (ones which are \-escaped)
+        #
+        if ($incomplete_line) { $linepart =~ s/^\s*//; }
+
+        if ($linepart =~ /^(.*)\\\s*$/)
+        {
+            $incomplete_line = 1;
+            $acc_line .= $1;
+            next;
+        }
+
+        else
+        {
+            $acc_line .= $linepart;
+        }
+
+	$_ = $acc_line;
+        $incomplete_line = 0;
+        $linepart = "";
+        $acc_line = "";
+	s/^\s+//;  #strip off leading spaces
+	s/\s+$//;  #strip off trailing spaces
+
+	chomp;
+	#print "$_\n";  #SEVERE DEBUG :) (for use in case of emergency)
+
+	#
+	# Record the hosts in this hostgroup, and lowercase the hosts
+	# before doing so.
+	#
+	if ( /hostgroup\s+([a-zA-Z0-9_.-]+)\s+(.*)/ ) {  # we found a hostgroup record
+	    $H{$1} = [split(' ', lc($2))];
+	}
+
+
+	#
+	# Look for watch definitions
+	# 
+	if ( ($in_watch) || (/^watch\s+([a-zA-Z0-9_.-]+)/) ) {    #beginning of a watch record
+	    if ($current_watch eq "") {
+		$current_watch = $1;
+		$in_watch = 1 ;
+		print "Found NEW WATCH $current_watch on line $line_num\n" if $opt_v;
+		next;
+	    }
+	    if ( ($in_service) || (/^service\s+([a-zA-Z0-9_.-]+)/) ) { # we're in a service record
+		if ($current_service eq "") { # beginning of a service record
+		    $in_service = 1;
+		    $current_service = $1 ;
+		    print "Found NEW SERVICE $current_service on line $line_num\n" if $opt_v;
+		    next;
+		}
+		if (/^interval\s+(\w+)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"interval"} = $1;
+		    next;
+		} elsif (/^traptimeout\s+(\w+)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"traptimeout"} = $1;
+		    next;
+		} elsif (/^trapduration\s+(\w+)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"trapduration"} = $1;
+		    next;
+		} elsif (/^traptimeout\s+(\w+)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"traptimeout"} = $1;
+		    next;
+		} elsif (/^randskew\s+(\w+)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"randskew"} = $1;
+		    next;
+		} elsif (/^monitor\s+(.*)/) {
+		    #
+		    # This gets the whole text of the monitor, including 
+		    # arguments passed to the monitor
+		    $S{$current_watch}{$current_service}{"monitor_with_args"} = $1;
+		    # This just gets the name of the monitor, without
+		    # any arguments passed to the monitor
+		    /^monitor\s+([a-zA-Z0-9_.-]+)/;
+		    $S{$current_watch}{$current_service}{"monitor"} = $1;
+		    # 
+		    next;
+		} elsif (/^allow_empty_group/) {
+		    #
+		    $S{$current_watch}{$current_service}{"allow_empty_group"} = 1;
+		    next;
+		} elsif (/^description\s+(.*)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"description"} = $1;
+		    next;
+		} elsif (/^exclude_hosts\s+(.*)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"exclude_hosts"} = $1;
+		    next;
+		} elsif (/^exclude_period\s+(.*)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"exclude_period"} = $1;
+		    next;
+		} elsif (/^depend\s+(.*)/) {
+		    #
+		    $S{$current_watch}{$current_service}{"depend"} = $1;
+		    next;
+		} elsif (/^dep_behavior\s+(\w+)/) {
+		    #
+		    next;
+		}
+		if ( ($in_period) || (/^period\s+(.*)/) ) { #beginning of a period record
+		    if ( /^period\s+(.*)/ ) {
+			$in_period = 1;
+			print "End of period $current_period on line $line_num\n" if $opt_v && $current_period ne "";
+			$current_period = $1;
+			$alert_index = $alert_index_default;
+			$upalert_index = $alert_index_default;
+			print "Found NEW PERIOD $current_period on line $line_num\n" if $opt_v;
+			next;
+		    }
+
+		    if (/^alertevery\s+(\w+)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"alertevery"} = $1;
+			next;
+		    } elsif (/^alertafter\s+(.*)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"alertafter"} = $1;
+			next;
+		    } elsif (/^numalerts\s+(\w+)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"num_alerts"} = $1;
+			next;
+		    } elsif (/^comp_alerts\s+(\w+)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"comp_alerts"} = $1;
+			next;
+		    } elsif (/^alert\s+(.*)/) {
+			#
+			# alerts are a special case bec. there can be any
+			# number of alerts for any given period, so we
+			# index them in a sort of kludgy way, by sticking
+			# an 'alert index' on the end of the variable.
+			#
+			# Also, do a similar thing as for monitors and
+			# grab 2 versions of the variable, one with
+			# the args and one without.
+			$P{$current_watch}{$current_service}{$current_period}{"alert_with_args$alert_index"} = $1;
+			s/^alert\s+exit=[\d-]+\s*/alert /;   #strip off the exit= part, if any
+			/^alert\s+([a-zA-Z0-9_.-]+)/; # rest is name of alert script
+			$P{$current_watch}{$current_service}{$current_period}{"alert$alert_index"} = $1;
+			$P{$current_watch}{$current_service}{$current_period}{"alert_index"} = $alert_index;
+			$alert_index++;
+			next;
+		    } elsif (/^upalert\s+(.*)/) {
+			#
+			# upalerts are a special case identical to alerts,
+			# see above
+			$P{$current_watch}{$current_service}{$current_period}{"upalert$upalert_index"} = $1;
+			$P{$current_watch}{$current_service}{$current_period}{"upalert_index"} = $upalert_index;
+			$upalert_index++;
+			next;
+		    } elsif (/^startupalert\s+(.*)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"startupalert"} = $1;
+			next;
+		    } elsif (/^alertafter\s+(\w+)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"alertafter"} = $1;
+			next;
+		    } elsif (/^upalertafter\s+(\w+)/) {
+			#
+			$P{$current_watch}{$current_service}{$current_period}{"upalertafter"} = $1;
+			next;
+		    }
+
+		    if (/^$/) {  # end of watch record
+			print "End of watch $current_watch at line $line_num\n" if $opt_v;
+			$in_period = 0;
+			$in_service = 0;
+			$in_watch = 0;
+			$current_watch = "";
+			$current_service = "";
+			$current_period = "";
+			next;
+		    } elsif (/^period\s+(.*)/) { # end of period record
+			print "End of period $current_period at line $line_num\n" if $opt_v;
+			# define new period
+			$current_period = $1;
+			$alert_index = $alert_index_default;
+			$upalert_index = $alert_index_default;
+			print "Found NEW PERIOD $current_period on line $line_num\n" if $opt_v;
+			next;
+		    } elsif (/^service\s+([a-zA-Z0-9_.-]+)/) { # end of service record, begin new service
+			print "End of service $current_service at line $line_num\n" if $opt_v;
+			$in_period = 0;
+			$current_service = "";
+			$current_period = "";
+			# define new service
+			$current_service = $1;
+			print "Found NEW SERVICE $current_service on line $line_num\n" if $opt_v;
+			next;
+		    }
+		}
+	    }
+	} else {  #Look for global config options
+	    #
+	    if (/^comp_alerts/) {
+		#
+		$G{'comp_alerts'} = "Set";
+	    } elsif (/^alertdir\s*=\s*(.*)$/) {
+		#
+		$G{'alertdir'} = $1;
+	    } elsif (/^mondir\s*=\s*(.*)$/) {
+		#
+		$G{'mondir'} = $1;
+	    } elsif (/^statedir\s*=\s*(.*)$/) {
+		#
+		$G{'statedir'} = $1;
+	    } elsif (/^statedir\s*=\s*(.*)$/) {
+		#
+		$G{'statedir'} = $1;
+	    } elsif (/^logdir\s*=\s*(.*)$/) {
+		#
+		$G{'logdir'} = $1;
+	    } elsif (/^cfdir\s*=\s*(.*)$/) {
+		#
+		$G{'cfdir'} = $1;
+	    } elsif (/^basedir\s*=\s*(.*)$/) {
+		#
+		$G{'basedir'} = $1;
+	    } elsif (/^authtype\s*=\s*(.*)$/) {
+		#
+		$G{'authtype'} = $1;
+	    } elsif (/^userfile\s*=\s*(.*)$/) {
+		#
+		$G{'userfile'} = $1;
+	    } elsif (/^authfile\s*=\s*(.*)$/) {
+		#
+		$G{'authfile'} = $1;
+	    } elsif (/^dep_behavior\s*=\s*(.*)$/) {
+		#
+		$G{'dep_behavior'} = $1;
+	    } elsif (/^randstart\s*=\s*(.*)$/) {
+		#
+		$G{'randstart'} = $1;
+	    } elsif (/^maxprocs\s*=\s*(.*)$/) {
+		#
+		$G{'maxprocs'} = $1;
+	    } elsif (/^dep_behavior\s*=\s*(.*)$/) {
+		#
+		$G{'dep_behavior'} = $1;
+	    } elsif (/^dep_recur_limit\s*=\s*(.*)$/) {
+		#
+		$G{'dep_recur_limit'} = $1;
+	    } elsif (/^dtlogging\s*=\s*(.*)$/) {
+		#
+		$G{'dtlogging'} = $1;
+	    } elsif (/^dtlogfile\s*=\s*(.*)$/) {
+		#
+		$G{'dtlogfile'} = $1;
+	    } elsif (/^syslog_facility\s*=\s*(.*)$/) {
+		#
+		$G{'syslog_facility'} = $1;
+	    }
+# GLOBALS not implemented:
+# trapbind, serverbind,
+# histlength, historicfile, historictime, serverport, trapport,
+# pidfile, cltimeout, randstart,
+# syslog_facility, startupalerts_on_reset
+	}
+    }
+} else {
+    print STDERR "Unable to open config file '$cf_file': $!\n";
+    exit 1;
+}
+close (CF);
+
+print "Parsed $line_num lines of config file.\n" if $opt_v;
+
+
+
+my (%watch_has_seen_this_monitor, %watch_monitors, $num_watch_monitors);
+my (%watch_has_seen_this_alert, %watch_alerts, $num_watch_alerts);
+
+#
+# Print the HTML document begin, table of contents, and summary information
+#
+# TODO: Change all the arrays to hashes, do this right.
+unless ($opt_t) {
+    #
+    # Get number of watches/hosts/services
+    #
+    foreach $watch ( sort (keys %S) ) {
+	$num_watches++;
+	undef %watch_has_seen_this_monitor;
+	undef %watch_has_seen_this_alert;
+
+	#
+	# Gather stats about the totals hosts in this hostgroup
+	#
+	if ( defined (@{ $H{$watch} }) ) {  #this hostgroup has one or more hosts
+	    push(@service_list, "<li><a href=\"#w_$watch\"><b>$watch</b></a> (" . join(", ", @{ $H{$watch} }) . ")\n");
+	    push(@total_hosts, @{ $H{$watch} });
+	} else {     #This hostgroup has no hosts (unusual but perfectly legal)
+	    push(@service_list, "<li><a href=\"#w_$watch\"><b>$watch</b></a> &lt;no hosts in group&gt;\n");
+	}
+
+	#
+	# Loop through each service to gather per-service statistics
+	#
+	foreach $service ( keys %{ $S{$watch} } ) {
+	    $num_services++;
+	    if ( defined($total_services{$service}) ) { #service has been seen before
+		$total_services{$service}++;
+	    } else {  #service hasn't been seen before
+		$total_services{$service} = 1;
+	    }
+
+	    #
+	    # Gather statistics about the monitor used to perform
+	    # this service
+	    #
+	    # Define the monitor we'll be using
+	    $monitor = $S{$watch}{$service}{'monitor'};
+	    $num_monitors++;
+	    $num_monitor_invocations += $seconds_in_day / &dhmstos($S{$watch}{$service}{'interval'}) if defined($S{$watch}{$service}{'interval'});
+
+	    #
+	    # Determine whether this monitor has ever been used in this
+	    # hostgroup
+	    #
+	    unless ( defined ($watch_has_seen_this_monitor{$monitor}) ) {
+		if ( defined($watch_monitors{$monitor}) ) {
+		    $watch_monitors{$monitor}++;
+		} else {
+		    $watch_monitors{$monitor} = 1;
+		}
+		$num_watch_monitors++;
+	    }
+	    $watch_has_seen_this_monitor{$monitor} = 1;
+
+	    if ( defined($total_monitors{$monitor}) ) { #monitor has been seen before
+		$total_monitors{$monitor}++;
+		
+		$monitor_invocations{$monitor} += $seconds_in_day / &dhmstos($S{$watch}{$service}{'interval'})  if defined($S{$watch}{$service}{'interval'});
+	    } else {  #monitor hasn't been seen before
+		$total_monitors{$monitor} = 1;
+		$monitor_invocations{$monitor} = $seconds_in_day / &dhmstos($S{$watch}{$service}{'interval'})  if defined($S{$watch}{$service}{'interval'});
+	    }
+	    
+	    #
+	    # Loop through each period, grabbing number and
+	    # types of alert scripts
+	    #
+	    foreach $period (keys %{ $P{$watch}{$service} }){
+		if ( defined ($P{$watch}{$service}{$period}{'alert_index'}) ) {
+		    #
+		    # Loop through all alerts for a given period
+		    #
+		    for ($i = $alert_index_default ; $i <= $P{$watch}{$service}{$period}{'alert_index'} ; $i++) {
+			$num_alerts++;
+			# The alert we'll be working with
+			$alert = "$P{$watch}{$service}{$period}{\"alert$i\"}";
+			#
+			# Determine whether this alert has ever been 
+			# used in this hostgroup
+			#
+			unless ( defined ($watch_has_seen_this_alert{$alert}) ) {
+			    if ( defined($watch_alerts{$alert}) ) {
+				$watch_alerts{$alert}++;
+			    } else {
+				$watch_alerts{$alert} = 1;
+			    }
+			    $num_watch_alerts++;
+			}
+			$watch_has_seen_this_alert{$alert} = 1;
+
+			if ( defined($total_alerts{$alert}) ) { #alert has been seen before
+			    $total_alerts{$alert}++;
+			} else { #alert has not been seen before
+			    $total_alerts{$alert} = 1;
+			}
+		    }
+		}
+	    }
+	}
+    }
+
+    #
+    # Find num of uniq hosts/services/alerts from totals
+    #
+
+    # uniq total hosts
+    undef %saw;
+    $num_hosts = scalar(@total_hosts);
+    @saw{@total_hosts} = ();
+    @uniq_hosts = keys(%saw);    
+
+    # grab the unique counts
+    $num_services_uniq = scalar( keys (%total_services) );
+    $num_monitors_uniq = scalar( keys (%total_monitors) );
+    $num_alerts_uniq = scalar( keys (%total_alerts) );
+    $num_hosts_uniq = scalar(@uniq_hosts);
+
+    #
+    # Set up the HTML document and print the title
+    #
+    print "<html><head><title>$title</title></head><body $html_body_tags>";
+    print "<h1>$title</h1><hr>\n";
+
+    #
+    # Print the summary information
+    #
+    print "<a name=\"TOP\"></a>";
+    print "<p>This report was generated at " . localtime(time) . ".\n";
+    $misc_text = $PRINT_GLOBAL_SUMMARY ? "<a href=\"#zzzglobal_summary\">(global settings summary)</a>" : "";
+    print "<p>Summary stats for this mon configuration file $misc_text:<ul>\n";
+    print "<li>Total hostgroups defined: $num_watches";
+    print "<li>Total unique services defined: $num_services_uniq, $num_services services total";
+    $misc_text = $PRINT_ALERT_SUMMARY ? "<a href=\"#zzzalert_summary\">(alert summary)</a>" : "";
+    print "<li>Total alert scripts defined: $num_alerts_uniq, $num_alerts alerts total $misc_text";
+    $misc_text = $PRINT_MONITOR_SUMMARY ? "<a href=\"#zzzmonitor_summary\">(monitor summary)</a>" : "";
+    print "<li>Total monitor scripts defined: $num_monitors_uniq, $num_monitors monitors total $misc_text";
+    print "<li>Total unique hosts monitored: $num_hosts_uniq, $num_hosts hosts total";
+    printf ("<li>Average hosts per hostgroup: %.1f" , $num_hosts / $num_watches);
+    printf ("<li>Average monitored services per hostgroup: %.1f" , $num_services / $num_watches);
+    print "</ul>";
+
+    #
+    # Print time period info, if requested
+    #
+    if ($PRINT_TIME_PERIOD_INFO) {
+	print "<p><a href=\"#zzz_timeperiods\">Brief Introduction to Time Period Syntax As Used By mon</a>";
+    }
+
+
+    #
+    # Print the table of contents
+    #
+    print "<p>Jump directly to hostgroups:<ol>";
+    print @service_list;
+    print "</ol>\n";
+    print "<hr>\n";
+}
+
+
+
+#
+# Print the global config settings in text format
+#
+if ($opt_t) {
+    foreach (sort keys(%G) ) {
+	print "GLOBAL CONFIG SETTING: $_ = $G{$_}\n";
+    }
+}
+
+
+
+#
+# Loop through each watch/service/period and print detail information
+#   about each hostgroup. If we're in HTML mode, print one table per 
+#   hostgroup.
+#
+foreach $watch ( sort (keys %S) ) {
+    unless ($opt_t) {  #print HTML table
+	print "<a name=\"w_$watch\"></a>";
+	print "<table border=$table_border cellspacing=$table_cellspacing cellpadding=$table_cellpadding>";
+	print "<tr><td colspan=4><font size=+2><b><i>$watch</i> Hostgroup</b></font> <a href=\"#TOP\">[back to top]</a></td></tr>\n";
+	print "<tr><td><b>Members:</b></td><td colspan=3>" ;
+	if ( defined(@{ $H{$watch} }) ) {
+	    print join(", ", @{ $H{$watch} }) ;
+	} else {
+	    print "&lt;no hosts in group&gt;";
+	}
+	print "</td></tr>\n";
+	print "<tr><td><b>Monitored Services:</b></td><td colspan=3>";
+	foreach $service ( sort (keys %{ $S{$watch} }) ) {
+	    print "<a href=\"#s_${watch}_$service\">$service</a> ";
+	}
+	print "</td></tr>\n";
+    } else {  #print text info
+	print "WATCH: $watch\n" if $opt_t;
+    }
+    foreach $service ( sort (keys %{ $S{$watch} }) ) {
+	unless ($opt_t) {  #print HTML table
+	    undef $misc_text;
+	    undef $exclude_text;
+
+	    #
+	    # description keyword
+	    #
+	    $misc_text = defined($S{$watch}{$service}{'description'}) ? "$S{$watch}{$service}{'description'}" : "&lt;no description given&gt;" ;
+	    print "<tr><td><a name=\"s_${watch}_$service\"></a><b>Service details for service <i>$service</i>:</b><br><a href=\"#w_$watch\">[back to <i>$watch</i> top]</a></td><td><b>Description:</b></td><td colspan=2>$misc_text</td></tr>\n";
+
+	    #
+	    # exclude_period keyword
+	    #
+	    if ( defined ($S{$watch}{$service}{"exclude_period"}) ) {
+		$exclude_text .= "<br>Note: this service will <b>not</b> be tested during the following time period: <font face=\"$fixed_font_face\" size=$fixed_font_size>$S{$watch}{$service}{'exclude_period'}</font>";
+	    }
+
+	    #
+	    # exclude_hosts keyword
+	    #
+	    if ( defined ($S{$watch}{$service}{"exclude_hosts"}) ) {
+		$exclude_text .= "<br>Note: this service test will <b>not</b> include the following hosts: <font face=\"$fixed_font_face\" size=$fixed_font_size>$S{$watch}{$service}{'exclude_hosts'}</font>";
+	    }
+
+	    #
+	    # Print out the exclusions from exclude_period and exclude_hosts
+	    # as their own (optional) table row
+	    #
+	    if ( defined ($exclude_text) ) {
+		print "<tr><td></td><td><b>Exclusions:</b></td><td colspan=2>$exclude_text</td></tr>\n";
+	    }
+
+	    #
+	    # depend keyword
+	    #
+	    if ( defined($S{$watch}{$service}{'depend'}) ) { #dependency exists
+		$misc_text = $S{$watch}{$service}{'depend'};
+		if ( defined($S{$watch}{$service}{'dep_behavior'} ) ) {
+		    #
+		    $misc_text .= &dep_behavior_to_english($S{$watch}{$service}{'dep_behavior'});
+		} elsif ( defined($G{'dep_behavior'} ) ) {  #dep_behavior is defined globally
+		     $misc_text .= &dep_behavior_to_english($G{'dep_behavior'});
+		}
+	    } else {  #no dependencies exist
+		$misc_text = "&lt;no dependencies&gt;" ;
+	    }
+	    print "<tr><td></td><td><b>Dependencies:</b></td><td colspan=2>$misc_text</td></tr>\n";
+
+	    #
+	    # interval keyword
+	    #
+	    if ( defined($S{$watch}{$service}{'interval'}) ) {
+		$misc_text = &dhms_to_english($S{$watch}{$service}{'interval'});
+	    } else {
+		$misc_text = "&lt;no interval specified&gt;" ;
+	    }
+	    print "<tr><td></td><td><b>Test interval:</b></td><td colspan=2>$misc_text</td></tr>\n";
+
+	    #
+	    # monitor keyword (use monitor_with_args to get full text)
+	    #
+	    if ( defined($S{$watch}{$service}{'monitor_with_args'}) ) {
+		# Escape any strange characters in the 
+		# arguments to the alert script
+		$misc_text = HTML::Entities::encode_entities($S{$watch}{$service}{'monitor_with_args'});
+	    } else {
+		$misc_text = "&lt;no monitor specified&gt;" ;
+	    }
+	    print "<tr><td></td><td><b>Monitor invoked:</b></td><td colspan=2><code>$misc_text</code></td></tr>\n";
+
+
+
+	    #
+	    # NOT IMPLEMENTED: traptimeout trapduration traptimeout randskew allow_empty_group
+	    #
+	} else {  #print text info
+	    print "\tSERVICE: $service\n";
+	    foreach $service_entry (keys %{ $S{$watch}{$service} }) {
+		print "\t\t$service_entry: $S{$watch}{$service}{$service_entry}\n" ; 
+	    }
+	}
+	foreach $period (keys %{ $P{$watch}{$service} }){
+	    unless ($opt_t) {   #print to HTML table
+		undef $alertafter_text;
+		print "<tr><td></td><td><b>Period:</b></td><td colspan=2>$period</td></tr>\n";
+
+		#
+		# alertafter keyword
+		# Determine which form of alertafter was invoked 
+		#  and parse it accordingly
+		#
+		if ( defined($P{$watch}{$service}{$period}{'alertafter'}) ) {
+		    if ( $P{$watch}{$service}{$period}{'alertafter'} =~ /^(\d+)$/) {  #alertafter NUM
+			$alertafter_text = "$1 consecutive failure(s)";
+		    } elsif ($P{$watch}{$service}{$period}{'alertafter'} =~ /^(\d+[hms])$/) {
+			#
+			# alertafter TIMEVAL
+			#
+			$misc_text = &dhms_to_english($1);
+			$alertafter_text = "$misc_text in failure state";
+		    } elsif ($P{$watch}{$service}{$period}{'alertafter'} =~ /(\d+)\s+(\d+[hms])$/) {
+			#
+			# alertafter NUM TIMEVAL
+			#
+			$misc_text = &dhms_to_english($2);
+			$alertafter_text = "$1 or more failures in $misc_text";
+		    }
+		    print "<tr><td></td><td></td><td><b>Alertafter:</b></td><td>$alertafter_text</td></tr>\n";
+		}
+
+		#
+		# alertevery keyword
+		#
+		if ( defined($P{$watch}{$service}{$period}{'alertevery'}) ) {
+		    $misc_text = &dhms_to_english($P{$watch}{$service}{$period}{'alertevery'});
+		    print "<tr><td></td><td></td><td><b>Alertevery:</b></td><td>$misc_text</td></tr>\n" ;
+		}
+
+		#
+		# numalerts keyword
+		#
+		print "<tr><td></td><td></td><td>Max. num. of alerts per failure period:</td><td>$P{$watch}{$service}{$period}{'numalerts'}</td></tr>\n" if defined($P{$watch}{$service}{$period}{'numalerts'});
+
+		#
+		# alert keyword (there can be any number of alerts, so
+		#  we loop through them all)
+		#
+		if ( defined ($P{$watch}{$service}{$period}{'alert_index'}) ) {
+		    for ($i = $alert_index_default ; $i <= $P{$watch}{$service}{$period}{'alert_index'} ; $i++) {
+			$misc_text = "$P{$watch}{$service}{$period}{\"alert_with_args$i\"}";
+			if ($misc_text =~ /^(exit=[\d-]+\s*)/) {
+			    $alert_exit_codes = $1;
+			    $misc_text =~ s/$1//;
+			    $alert_exit_codes =~ s/^exit=//;
+			    # Escape any strange characters in the 
+			    # arguments to the alert script
+			    $misc_text = HTML::Entities::encode_entities($misc_text);
+			    print "<tr><td></td><td></td><td><b>Alert script $i invoked:</b></td><td>When monitor exit code is $alert_exit_codes:<br><font face=\"$fixed_font_face\" size=$fixed_font_size>$misc_text</font></td></tr>\n";
+			} else {
+			    print "<tr><td></td><td></td><td><b>Alert script $i invoked:</b></td><td>When monitor exit code is not equal to 0:<br><font face=\"$fixed_font_face\" size=$fixed_font_size>$P{$watch}{$service}{$period}{\"alert$i\"}</font></td></tr>\n";
+			}
+		    }
+		}
+
+		#
+		# upalertafter keyword
+		#
+		if ( defined($P{$watch}{$service}{$period}{'upalertafter'}) ) {
+		    $misc_text = &dhms_to_english($P{$watch}{$service}{$period}{'upalertafter'});
+		    print "<tr><td></td><td></td><td><b>Upalertafter:</b></td><td>$misc_text</td></tr>\n" ;
+		}
+
+		#
+		# upalert keyword (there can be any number of upalerts, so
+		#  we loop through them all)
+		#
+		if ( defined ($P{$watch}{$service}{$period}{'upalert_index'}) ) {
+		    #
+		    # First check for the comp_alerts directive
+		    #
+		    if ( defined ($P{$watch}{$service}{$period}{'comp_alerts'}) ) {  #comp_alerts defined for this period
+			$misc_text = "<br>(only after corresponding downalert)";
+		    } elsif ( defined ($G{'comp_alerts'}) ) {  #comp_alerts defined globally
+			$misc_text = "<br>(only after corresponding downalert)";
+		    } else {  # comp_alerts not defined at all, 
+			      # upalerts are sent regardless
+			$misc_text = "";
+		    }
+
+		    #
+		    # Loop through each of the upalerts
+		    #
+		    for ($i = $alert_index_default ; $i <= $P{$watch}{$service}{$period}{'upalert_index'} ; $i++) {
+			print "<tr><td></td><td></td><td><b>Upalert script $i called:$misc_text</b></td><td>$P{$watch}{$service}{$period}{\"upalert$i\"}</td></tr>\n";
+		    }
+		}
+
+		#
+		# NOT IMPLEMENTED: startupalert 
+		#
+	    } else {  #we're in text mode
+		print "\t\tPERIOD: $period\n" if $opt_t;
+		# If we're in text mode, print out all additional
+		# key/value pairs for the period
+		foreach $period_entry (keys %{ $P{$watch}{$service}{$period} }) {
+		    print "\t\t\tPERIOD_ENTRY: $period_entry $P{$watch}{$service}{$period}{$period_entry}\n";
+		}
+	    }
+	}
+    }
+    print "</table><br><br><br>\n" unless $opt_t; # end the table for this hostgroup
+}
+
+
+#
+# Print alert summary table, if requested
+#
+if ( ($PRINT_ALERT_SUMMARY) && !($opt_t) ) {
+    print "<hr><p><a name=\"zzzalert_summary\"></a>";
+    print "<h3>Alert Summary</h3><a href=\"#TOP\">[back to top]</a>";
+    print "<p> <table border=$table_border><tr><td><b>Alert</b></td><td><b>Number of times this alert is used</b></td><td><b>Number of hostgroups using this alert</b></td></tr>\n";
+    foreach $alert ( sort ( keys(%total_alerts) ) ) {
+	print "<tr><td>$alert</td><td>$total_alerts{$alert}</td><td>$watch_alerts{$alert}</td></tr>";
+    }
+    print "<tr><td><b>TOTALS</b></td><td><b>$num_alerts</b></td><td><b>$num_watch_alerts</b></td></tr>";
+    print "</table>\n";
+}
+
+
+#
+# Print global settings summary table, if requested
+#
+if ( ($PRINT_GLOBAL_SUMMARY) && !($opt_t) ) {
+    print "<hr><p><a name=\"zzzglobal_summary\"></a>";
+    print "<h3>Global Settings Summary</h3><a href=\"#TOP\">[back to top]</a>";
+    print "<p> <table border=$table_border><tr><td><b>Global Variable</b></td><td><b>Value</b></tr>\n";
+
+    #
+    # Loop through each global setting
+    #
+    foreach $_( sort ( keys(%G) ) ) {
+	print "<tr><td>$_</td><td>$G{$_}</td></tr>";
+    }
+    print "</table>";
+}
+
+
+#
+# Print monitor summary table, if requested
+#
+if ( ($PRINT_MONITOR_SUMMARY) && !($opt_t) ) {
+    print "<hr><p><a name=\"zzzmonitor_summary\"></a>";
+    print "<h3>Monitor Summary</h3><a href=\"#TOP\">[back to top]</a>";
+    print "<p> <table border=$table_border><tr><td><b>Monitor</b></td><td><b>Number of times this monitor is used</b></td><td><b>Number of hostgroups using this monitor</b></td><td><b>Total number of times run per 24-hour period</b><br>(not counting <code>exclude_period</code>s)</td></tr>\n";
+    foreach $monitor ( sort ( keys(%total_monitors) ) ) {
+	print "<tr><td>$monitor</td><td>$total_monitors{$monitor}</td><td>$watch_monitors{$monitor}</td><td>" . int($monitor_invocations{$monitor}) . "</td></tr>";
+    }
+    print "<tr><td><b>TOTALS</b></td><td><b>$num_monitors</b></td><td><b>$num_watch_monitors</b></td><td><b>" . int($num_monitor_invocations) . "</b></td></tr>";
+    print "</table>\n";
+}
+
+
+#
+# Print out a section at the end which explains a little bit about how
+#  mon's time periods are defined.
+#
+if ( ($PRINT_TIME_PERIOD_INFO) && !($opt_t) ) {
+    print "<hr><h3>Brief Introduction to Time Period Syntax As Used By mon</h3>";
+    print "<p><a href=\"#TOP\">[back to top]</a><a name=\"zzz_timeperiods\"></a>";
+    print "<p>mon uses a special syntax to define time periods. Time periods are defined as per the Time::Period perl module. It is a simple and powerful syntax for specifying time periods, but may not be completely intuitive. This brief documentation, an excerpt from the Time::Period documentation, should get you started.";
+    print "<pre>";
+    print <<EOF;
+     The period is specified as a string which adheres to the
+     format
+ 
+             sub-period[, sub-period...]
+ 
+     or the string "none" or whitespace.  The string "none" is
+     not case sensitive.
+ 
+     If the period is blank, then any time period is assumed
+     because the time period has not been restricted.  In that
+     case, inPeriod returns 1.  If the period is "none", then no
+     time period applies and inPeriod returns 0.
+ 
+     A sub-period is of the form
+ 
+             scale {range [range ...]} [scale {range [range ...]}]
+ 
+     Scale must be one of nine different scales (or their
+     equivalent codes):
+ 
+             Scale  | Scale | Valid Range Values
+                    | Code  |
+             *******|*******|************************************************
+             year   |  yr   | n     where n is an integer 0<=n<=99 or n>=1970
+             month  |  mo   | 1-12  or  jan, feb, mar, apr, may, jun, jul,
+                    |       |           aug, sep, oct, nov, dec
+             week   |  wk   | 1-6
+             yday   |  yd   | 1-365
+             mday   |  md   | 1-31
+             wday   |  wd   | 1-7   or  su, mo, tu, we, th, fr, sa
+             hour   |  hr   | 0-23  or  12am 1am-11am 12noon 12pm 1pm-11pm
+             minute |  min  | 0-59
+             second |  sec  | 0-59
+EOF
+    print "</pre>";
+    
+}
+
+print "</body></html>" unless $opt_t; 
+
+
+
+
+
+#
+# This subroutine converts a string in the form of '[0-9]+[dhms]' into
+# its english equivalent. For example, "120m" would be returned as 
+# "120 minutes".
+#
+# The only argument to this function is a single dhms string.
+#
+# On success, returns a string which has the english equiv of the dhms 
+#  string given as input.
+#
+# On failure, which means either you passed the function something
+#  that doesn't like a dhms string or else an other unknown error
+#  occurred, returns undef.
+#
+sub dhms_to_english {
+    my ($dhms) = (@_);
+    # strip any leading or trailing spaces
+    $dhms =~ s/^\s+//;
+    $dhms =~ s/\s+$//;
+    # Check for valid input data 
+    #  (note: mon doesn't take uppercase, we won't either)
+    return undef if $dhms !~ /([0-9]+)([dhms])/;
+    my $quant = $1;
+    my $unit = $2;
+    if ($unit eq "d") {
+	if ($quant == 1) {
+	    return "$quant day";
+	} else {
+	    return "$quant days";
+	}
+    } elsif ($unit eq "h") {
+	if ($quant == 1) {
+	    return "$quant hour";
+	} else {
+	    return "$quant hours";
+	}
+    } elsif ($unit eq "m") {
+	if ($quant == 1) {
+	    return "$quant minute";
+	} else {
+	    return "$quant minutes";
+	}
+    } elsif ($unit eq "s") {
+	if ($quant == 1) {
+	    return "$quant second";
+	} else {
+	    return "$quant seconds";
+	}
+    }
+    # This should never happen, we should have returned by now
+    return undef;
+}
+
+
+
+#
+# This subroutine converts a dependency behavior string (either a or m)
+# into a verbose, english equivalent.
+#
+sub dep_behavior_to_english {
+    my ($b) = (@_);
+    if ($b eq "a") { # suppress alerts 
+	return "&nbsp;(suppress alerts if dependencies fail)";
+    } elsif ($b eq "m") { # suppress monitors
+	return "&nbsp;(suppress monitor if dependencies fail)";
+    } else { # this shouldn't happen unless we were given bad input data
+	return undef;
+    }
+}
+
+
+
+#
+# convert a string like "20m" into seconds
+# Stolen directly from mon.
+#
+sub dhmstos {
+    my ($str) = @_;
+    my ($s);
+
+    if ($str =~ /^\s*(\d+(?:\.\d+)?)([dhms])\s*$/i) {
+        if ($2 eq "m") {
+            $s = $1 * 60;
+        } elsif ($2 eq "h") {
+            $s = $1 * 60 * 60;
+        } elsif ($2 eq "d") {
+            $s = $1 * 60 * 60 * 24;
+        } else {
+            $s = $1;
+        }
+    } else {
+        return undef;
+    }
+    $s;
+}

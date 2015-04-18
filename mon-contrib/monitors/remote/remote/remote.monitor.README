@@ -1,0 +1,100 @@
+# Returns a mon server list that failed services
+# 
+# Usage : remote.monitor [options] [host1 host2 ...]
+#
+# --port    n      : the mon port
+#
+# --timeout n      : the timeout connexion (default 10 seconds)
+#
+# --summary        : flag to extend the summary of this monitor
+#                    return for each failed mon server the list of the
+#                    failed. Like : host1([g1:s1|s3][g4:s5]) ... 
+#
+# --bigsummary     : flag to extend the summary of this monitor
+#                    return for each failed mon server the list of the
+#                    failed. Like : host1([g1:s1{sum}|s3{sum}][g4:s5{sum}]) ... 
+#
+# --debug          : some debug information (do not use this with mon)
+#
+# --restrict  watch[:service]    : restrict test to specified watch
+#                                  [and service]
+#
+# --help           : prints this message.
+#
+# host1 host2      : list of remote MON servers to check
+#
+# Contributors :
+#    Gilles LAMIRAL, lamiral@mail.dotcom.fr
+#    Laurent COMBE, laurent.combe@free.fr
+#    Thomas MORIN, thomas.morin@webmotion.com
+#
+#    Copyright (C) 1999, Gilles LAMIRAL
+#
+#    This program  is free  software;  you can redistribute it  and/or
+# modify it under the terms  of  the GNU  General Public  License.
+
+#CVS history
+=================================================
+[laurent@provence monitor]$ cvs log remote.monitor
+
+RCS file: /apps/cvs/cvsroot/monitor/remote.monitor,v
+Working file: remote.monitor
+head: 1.7
+branch:
+locks: strict
+access list:
+symbolic names:
+        V0: 1.1.1.1
+        Recup: 1.1.1
+keyword substitution: kv
+total revisions: 8;     selected revisions: 8
+description:
+----------------------------
+revision 1.7
+date: 2000/10/09 21:37:53;  author: laurent;  state: Exp;  lines: +24 -6
+
+- add the parameter "--bigsummary"
+  so you can choose between:
+  "--summary"    : h1([g1:s1|s3][g4:s5]) h2(...) ...
+  "--bigsummary" : h1([g1:s1{sum}|s3{sum}][g4:s5{sum}]) h2(...) ...
+- in the bigsummary version wrap the summary between {...} not <...>
+  because of a "special feature ;-)" of gilles' minotor 0.05
+----------------------------
+revision 1.6
+date: 2000/10/08 16:09:13;  author: laurent;  state: Exp;  lines: +18 -9
+
+- Minor modification of the output with the summary option activated:
+   host1([g1:s1<sum>|s3<sum>][g3:s5<sum>]) host(...) ...
+  for each failed service now we've got the summary
+- Also give the summary of each service failed in the detail
+- Delete line "use FileHandle;"
+----------------------------
+revision 1.5
+date: 2000/10/08 15:05:08;  author: laurent;  state: Exp;  lines: +1 -2
+- remove the 'use English' line because of no call to this module
+----------------------------
+revision 1.4
+date: 2000/10/08 15:03:02;  author: laurent;  state: Exp;  lines: +8 -3
+- Merge from Thomas Morin restrict patch
+----------------------------
+revision 1.3
+date: 2000/10/08 14:40:40;  author: laurent;  state: Exp;  lines: +2 -20
+
+- remove detailed history in the monitor
+----------------------------
+revision 1.2
+date: 2000/10/08 14:36:39;  author: laurent;  state: Exp;  lines: +135
+-140
+- Merging with version 1.5 of gilles branch
+- more untabify
+- change variable name: hostservice -> ext_service
+----------------------------
+revision 1.1
+date: 2000/10/08 08:07:44;  author: cvsadm;  state: Exp;
+branches:  1.1.1;
+Initial revision
+----------------------------
+revision 1.1.1.1
+date: 2000/10/08 08:07:44;  author: cvsadm;  state: Exp;  lines: +0 -0
+Mise sous CVS
+=============================================================================

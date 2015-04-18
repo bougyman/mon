@@ -1,0 +1,37 @@
+#!/bin/bash
+#
+# Copyright (C) 2001 Wiktor Wodecki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# $Id: ipsec.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+if [ "$1" == "" ]; then
+	exit 1
+fi
+CONN="`echo $1|sed -e s/[\./]/\\\\\\\\\\\0/g`"
+IPSECRETURN="`ipsec look|awk '/'"$CONN"'/ {print $5}'`"
+if [ "$IPSECRETURN" == "%trap" ]; then
+	echo "Connection Inactive: $1"
+	exit 1
+elif [ "$IPSECRETURN" == "" ]; then
+	echo "Error, no such connection found"
+	exit 2
+elif [ "`echo $IPSECRETURN|awk '/^tun0x/'`" == "$IPSECRETURN" ]; then
+	exit 0
+else
+	echo "Unknown error, check manually"
+	exit 254
+fi

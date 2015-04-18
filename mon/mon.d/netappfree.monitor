@@ -1,0 +1,339 @@
+#!/usr/bin/perl -w
+#
+# Use SNMP to get free disk space or inode status from a Network Appliance
+#
+# exit values:
+#  1 - free space or inodes on any host dropped below the supplied parameter
+#  2 - network or SNMP error (SNMP library error, no response from server)
+#  3 - config error - (filesystem in config file does not exist on filer)
+
+# USAGE
+#  [--community=<SNMP COMMUNITY>] [--timeout=<seconds>]
+#  [--config=/path/to/configfile] [--list]  host1 host2 ...
+
+# EXAMPLES
+# --list option will dump current status from requested hosts:
+#  netappfree.monitor --list filer1 filer2 filer3
+# sample output:
+# filer          ONTAP       filesystem         KB total     KB avail   Inode%
+# ----------------------------------------------------------------------------
+# filer1         6.1.2R3     /vol/vol0/           61092616      6773416    86
+# filer1         6.1.2R3     /vol/vol0/.snaps      2545524      1260240     0
+
+# sample invocation in mon.cf, with local MIB directory for the Netapp MIB
+# NETWORK-APPLIANCE-MIB.txt (copy from /etc/mib/netapp.mib on filer):
+#    service freespace
+#    description test freespace and inodes on Netapp filers
+#    depend SELF:ping
+#    MIBDIRS=/usr/local/share/snmp/mibs
+#    interval 7m
+#    monitor netappfree.monitor
+
+
+# CONFIG FILE FORMAT
+#
+#  Run "netappfree --list host1 host2 ..." first to get list of filesystems
+# and whether inodes are properly reported.  If you don't want to monitor
+# inodes for a particular FS, leave tha column blank.
+#
+#
+# host          filesystem     freespace      [InodeThreshold]
+#                           (in kb, gb, or mb)  (in % or k)
+#
+# filer1        /vol/main/       5gb              90%
+# filer2        /vol/vol0/       5gb              500k
+
+
+#
+# This requires the UCD SNMP library and G.S. Marzot's Perl SNMP
+# module.
+#
+# Originally by Jim Trocki.  Modified by Theo Van Dinter
+# (tvd@colltech.com, felicity@kluge.net) to add verbose error output,
+# more error checking, etc.  Can be used in conjunction with
+# snapdelete.alert to auto-remove snapshots if needed.
+# Modified December 2003 by Ed Ravin (eravin@panix.com) to add inode
+# checking, detect nonexistent filesystem in config file, pass perl -w
+# checks, added more info to error messages for clarity, updated doc comments
+# above.
+
+
+# $Id: netappfree.monitor,v 1.2 2009/06/11 17:28:42 aschwer Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#    Copyright (C) 1999-2001, Theo Van Dinter
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Long;
+
+sub list;
+sub readcf;
+sub toKB;
+
+$ENV{"MIBS"} = 'RFC1213-MIB:NETWORK-APPLIANCE-MIB';
+
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i", "config=s", "list");
+
+die "no host arguments\n" if (@ARGV == 0);
+
+$RET = 0;
+@ERRS = ();
+%HOSTS = ();
+%host_list = ();
+
+$COMM = $opt{"community"} || "public";
+$TIMEOUT = $opt{"timeout"} || 2; $TIMEOUT *= 1000 * 1000;
+$RETRIES = $opt{"retries"} || 5;
+$CONFIG = $opt{"config"} || (-d "/etc/mon" ? "/etc/mon" : "/usr/lib/mon/etc")
+	. "/netappfree.cf";
+
+($dfIndex, $dfFileSys, $dfKBytesTotal, $dfKBytesAvail,
+	$dfInodesFree, $dfPerCentInodeCapacity) = (0..5);
+
+list (@ARGV) if ($opt{"list"});
+
+readcf ($CONFIG) || die "could not read config: $!\n";
+
+# Loop through the arguments before doing anything to make sure our host
+# exists in the config file 
+
+# Load arrays with file contents
+open(FD, "<$CONFIG") || die "Can't open $CONFIG\n";
+@configvals = <FD>;
+close(FD);
+
+# Get all the servers from the config file
+foreach my $line (@configvals) {
+	if ($line =~ /^[a-zA-Z0-9]/) {
+		my $host = (split /\s+/ , $line)[0];
+		$host_list{$host} = 1;
+	}
+}
+# Check to make sure supplied argument exists, if not.. add error
+foreach $host (@ARGV) {
+     unless (exists $host_list{$host}) {
+	# log to screen for debug
+	push (@ERRS, "Error: $host was not found in config file $CONFIG !");
+	$RET = 1
+     }
+}
+
+foreach $host (@ARGV) {
+    next if (!defined $FREE{$host});
+
+    if (!defined($s = new SNMP::Session (DestHost => $host,
+    		Timeout => $TIMEOUT, Community => $COMM,
+		Retries => $RETRIES,
+		Version => 1))) {
+	$RET = ($RET == 1) ? 1 : 2;
+	$HOSTS{$host} ++;
+	push (@ERRS, "could not create session to $host: " . $SNMP::Session::ErrorStr);
+	next;
+    }
+
+    $v = new SNMP::VarList (
+    	['dfIndex'],
+    	['dfFileSys'],
+    	['dfKBytesTotal'],
+    	['dfKBytesAvail'],
+	['dfInodesFree'],
+	['dfPerCentInodeCapacity'],
+    );
+
+    if ( $v->[$dfIndex]->tag !~ /^df/ ) {
+    	push(@ERRS,"OIDs not mapping correctly!  Check that NetApp MIB is available!");
+	$RET = 1;
+	last;
+    }
+
+    while (defined $s->getnext($v)) {
+
+	last if ($v->[$dfIndex]->tag !~ /dfIndex/);
+
+	my $filesys= $v->[$dfFileSys]->val;
+	next unless exists($FREE{$host}{$filesys});
+
+	if ($v->[$dfKBytesAvail]->val < $FREE{$host}{$filesys}{'bytes'}) {
+	    $HOSTS{$host} ++;
+	    push (@ERRS, sprintf ("%1.1fGB free on %s:%s (threshold %1.1fGB, fs size %1.1fGB)",
+	    	$v->[$dfKBytesAvail]->val / 1024 / 1024,
+		$host, $filesys,
+		$FREE{$host}{$filesys}{'bytes'} / 1024 / 1024,
+		$v->[$dfKBytesTotal]->val / 1024 / 1024)
+		);
+	    $RET = 1;
+	}
+
+	# mark filesys entry as seen in filer's MIB
+	$FREE{$host}{$v->[$dfFileSys]->val}{'existsOnFiler'}= 1;
+
+	if (defined($FREE{$host}{$v->[$dfFileSys]->val}{'inode'})) {
+		my $inodefreewanted= $FREE{$host}{$v->[$dfFileSys]->val}{'inode'}; 
+		if (0 < $inodefreewanted and $inodefreewanted < 1) { # percentage?
+			if ($v->[$dfPerCentInodeCapacity]->val > $inodefreewanted * 100) {  # percentage exceeded?
+				$HOSTS{$host} ++;
+				push (@ERRS, sprintf("%d%% inodes used on %s:%s, over threshold of %d%%",
+					$v->[$dfPerCentInodeCapacity]->val,
+					$host,  $v->[$dfFileSys]->val,
+					$inodefreewanted * 100
+					));
+				$RET = 1;
+			}
+
+		}
+		 elsif ($v->[$dfInodesFree]->val < $inodefreewanted) {
+				$HOSTS{$host} ++;
+				push (@ERRS, sprintf("%1.1f inodes free on %s:%s, below threshold of %1.1f",
+					$v->[$dfInodesFree]->val,
+					$host,  $v->[$dfFileSys]->val,
+					$inodefreewanted
+					));
+				$RET = 1;
+				
+			}
+	}
+    }
+
+    if ($s->{ErrorNum}) {
+	$HOSTS{$host} ++;
+	push (@ERRS, "could not get dfIndex for $host: " . $s->{ErrorStr});
+	$RET = ($RET == 1) ? 1 : 2;
+    }
+}
+
+foreach $host (@ARGV)
+{
+	foreach $filesys (keys %{$FREE{$host}})
+	{
+		if (! $FREE{$host}{$filesys}{'existsOnFiler'} ) {
+			$HOSTS{$host} ++;
+			push (@ERRS, "filesystem $filesys does not exist on $host");
+			$RET = ($RET == 1) ? 1 : 3;
+		    }
+	}
+}
+
+
+if ($RET) {
+    print join(" ", sort keys %HOSTS), "\n\n", join("\n", @ERRS), "\n";
+}
+
+exit $RET;
+
+
+#
+# read configuration file
+#
+sub readcf {
+    my ($f) = @_;
+    my ($l, $host, $filesys, $free, $inodefree);
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+	($host, $filesys, $free, $inodefree) = split;
+	if (!defined ($FREE{$host}{$filesys}{'bytes'} = toKB ($free))) {
+	    die "error free specification, config $f, line $.\n";
+	}
+	if (!defined ($FREE{$host}{$filesys}{'inode'} = toIN ($inodefree))) {
+	    # allow this to be optional for compatibility
+	    # die "error inodefree specification, config $f, line $.\n";
+	}
+	$FREE{$host}{$filesys}{'existsOnFiler'}= 0;
+    }
+    close (CF);
+}
+
+
+sub toKB {
+    my ($free) = @_;
+    my ($n, $u);
+
+    if ($free =~ /^(\d+\.\d+)(kb|mb|gb)$/i) {
+        ($n, $u) = ($1, "\L$2");
+    } elsif ($free =~ /^(\d+)(kb|mb|gb)$/i) {
+        ($n, $u) = ($1, "\L$2");
+    } else {
+    	return undef;
+    }
+
+    return (int ($n * 1024)) if ($u eq "mb");
+    return (int ($n * 1024 * 1024)) if ($u eq "gb");
+    int ($n);
+}
+
+sub toIN {
+	my ($infree) =@_;
+
+	return undef unless defined($infree);
+
+	if ($infree =~ /^(\d+\.?\d+)%$/) {  # percentage
+		return $1 / 100;
+	}
+
+	if ($infree =~ /^(\d+\.?\d+)(k|kb)$/) {  # kilos?
+		return $1 * 1024;
+	}
+	if ($infree =~ /^(\d+\.?\d+)$/) {  # bare??
+		return $1;
+	}
+	return undef;
+}
+
+sub list {
+    my (@hosts) = @_;
+
+    foreach $host (@hosts) {
+	if (!defined($s = new SNMP::Session (DestHost => $host,
+		    Timeout => $TIMEOUT,
+		    Community => $COMM,
+		    Retries => $RETRIES,
+		    Version => 1))) {
+	    print STDERR "could not create session to $host: " . $SNMP::Session::ErrorStr, "\n";
+	    next;
+	}
+
+	$ver = $s->get(['sysDescr', 0]);
+	$ver =~ s/^netapp.*release\s*([^:]+):.*$/$1/i;
+
+	$v = new SNMP::VarList (
+	    ['dfIndex'],
+	    ['dfFileSys'],
+	    ['dfKBytesTotal'],
+	    ['dfKBytesAvail'],
+	    ['dfInodesFree'],
+	    ['dfPerCentInodeCapacity'],
+	);
+
+	while (defined $s->getnext($v)) {
+	    last if ($v->[$dfIndex]->tag !~ /dfIndex/);
+	    write;
+	}
+    }
+    exit 0;
+}
+
+format STDOUT_TOP =
+filer            ONTAP       filesystem         KB total     KB avail   Inode%
+------------------------------------------------------------------------------
+.
+
+format STDOUT =
+@<<<<<<<<<<<<<<  @<<<<<<<<<< @<<<<<<<<<<<<<<<  @>>>>>>>>>>  @>>>>>>>>>>   @>>
+$host, $ver, $v->[1]->[2], $v->[2]->[2], $v->[3]->[2], $v->[5]->[2]
+.

@@ -1,0 +1,126 @@
+#!/usr/bin/perl
+#
+# $Id: https.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+# An extremely simple https monitor for mon.
+#
+# Code structure based on Jon Meek & Jim Trocki's http.monitor program.
+#
+# https code taken from the get_page.pl function from the 
+# Net::SSLeay distribution by Sampo Kellomaki <sampo@iki.fi>
+#
+# It makes use of the Net::SSLeay library and the OpenSSL package
+# (www.openssl.org).
+#
+# To get around the problem that Net::SSLeay carps to STDERR 
+# uncontrollably about a number of things (e.g. connection refused),
+# we get around this by running the actual ssl get as an escaped 
+# perl program and dropping the stderr of that instance. Gross, but
+# strangely effective.
+#
+# Use the -v option if you actually want to see the full result and
+# all headers. You'd never use this from mon, since it provides 
+# non-mon-compliant output, but it can be interesting from the command
+# line.
+#
+# 
+#
+#     Distribution and use of this program is under the same terms
+#     as the OpenSSL package itself (i.e. free, but mandatory
+#     attribution; NO WARRANTY). Please consult COPYRIGHT file in
+#     the root of the SSLeay distribution.
+# 
+
+use strict; 
+
+use Socket;
+use Net::SSLeay qw(die_now die_if_ssl_error) ;
+use Getopt::Std;   
+
+#
+use English;
+
+
+#Net::SSLeay::load_error_strings();
+#Net::SSLeay::SSLeay_add_ssl_algorithms();
+
+# Comment this out since on systems without a /dev/[u]random this
+# line causes an unneccesary carp which will confuse mon.
+# If you use Linux or BSD or other OS which supports a random device,
+# feel free to uncomment this line.
+#Net::SSLeay::randomize();
+
+use vars qw($opt_p $opt_t $opt_u $opt_v);
+getopts ("vp:t:u:");
+my $PORT = $opt_p || 443;
+my $TIMEOUT = $opt_t || 30;
+my $URL = $opt_u || "/";
+my $perl = "/usr/bin/perl";      # where you keep perl
+my $field_delim = "<>";          # html field delimiter
+
+my @failures = ();
+my @detail = ();
+
+
+my ($host, $OK, $default_header, $auth_header, $end_header, $request_header, $msg);
+my ($dest_ip, $dest_serv, $sockaddr_template, $dest_serv_params, $ctx, $ssl, $res, $reply, $got, $ServerOK);
+
+foreach $host (@ARGV) {
+
+    $OK = &httpsGET($host, $PORT, $URL);
+
+    if (!defined ($OK) || $OK == 0) {
+        push (@failures, $host);
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n";
+print join(";",@detail);
+
+exit 1;
+
+
+
+#  Main function begins here
+sub httpsGET {
+    my ($site, $port, $path) = (@_);
+    my $total_bytes = 0;       #set total bytes transferred to 0
+    my ($page, $result, %headers);
+
+#    print "attempting to contact site $site on port $port with path $path\n";
+    
+    eval {    
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+        alarm $TIMEOUT;
+
+	$result = `$perl -e'use Net::SSLeay ; Net::SSLeay::SSLeay_add_ssl_algorithms() ; print join("$field_delim",Net::SSLeay::get_https("$site", "$port", "$path"))' 2>/dev/null`;
+	alarm 0; #cancel the alarm
+	
+	($page, $result, %headers) = split ("<>",$result);
+	print "Result was `$result'\n" if $opt_v;
+	foreach my $h (sort keys %headers) {
+	    print "Header `$h'\tvalue `$headers{$h}'\n" if $opt_v;
+	}
+
+	if ($result =~ /^HTTP\/([\d\.]+)\s+200\b/) {
+            $ServerOK = 1;
+        } else {
+            $ServerOK = 0;
+	    push(@detail,"$result");
+        }
+
+    };
+    
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+        print "**** Time Out\n";
+        return 0;
+    }
+    
+    return $ServerOK;
+
+}
+

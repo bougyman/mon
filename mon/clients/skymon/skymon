@@ -1,0 +1,245 @@
+#!/usr/bin/perl
+#
+# handle mon commands send via a 2-way pager
+#
+# see /usr/doc/mon/README.skymon for information
+#
+# skytel pager email address should be supplied as first argument
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: skymon,v 1.2 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+$PASS = "";
+$BUF  = "\n";
+$MONHOST = "monhost";
+
+$ADDR = shift;
+die "no address specified\n" if ($ADDR eq "");
+
+#
+# load command permissions
+#
+&load_allow() || die "could not load allow file:$!\n";
+
+$p = 0;
+
+while (<>) {
+    if (/^\/(\w+):(.*)/) {
+    	$password = $1;
+	$cmd = $2;
+
+	&check_password ($password) || die "pass\n";
+
+	foreach $c (split (/;/, $cmd)) {
+	    if ($BUF ne "\n" && $p) {
+		$BUF .= "----\n";
+	    }
+	    &parse_cmd ($c);
+	    $p = 1;
+	}
+    }
+}
+
+close (OUT);
+
+&mail_cmd() if ($BUF ne "\n");
+
+exit;
+
+
+
+#
+# check password
+#
+sub check_password {
+    my ($pass) = @_;
+    my ($salt);
+
+    &load_password() || return 0;
+    print "$pass [$PASS]\n";
+
+    $salt = substr ($PASS, 0, 2);
+    if (crypt ($pass, $salt) ne $PASS) {
+	return 0;
+    }
+
+    return 1;
+}
+
+sub load_allow {
+    my ($l);
+
+    open (P, "$ENV{HOME}/.skytel/allow") || return 0;
+    while (<P>) {
+    	next if /^\s*$/;
+	next if /^\s*#/;
+	$l = $_;
+	chomp $l;
+
+	$allow{$l} = 1;
+    }
+    close (P);
+}
+
+
+sub load_password {
+    open (P, "$ENV{HOME}/.skytel/password") || return 0;
+    $PASS = <P>;
+    close (P);
+    chomp $PASS;
+    return 1;
+}
+
+
+sub load_address {
+    open (P, "$ENV{HOME}/.skytel/address") || return 0;
+    $ADDR = <P>;
+    close (P);
+    chomp $ADDR;
+    return 1;
+}
+
+
+sub parse_cmd {
+    my ($cmd) = @_;
+    my ($c, @args);
+
+    ($c, @args) = split (/\s+/, $cmd);
+
+    #
+    # list
+    #
+    if ($c eq "lf" && $allow{"lf"}) {
+	&do_list (@args);
+    } elsif ($c eq "ld" && $allow{"ld"}) {
+    	&do_list_disabled(@args);
+
+    #
+    # disable
+    #
+    } elsif ($c eq "dh" && $allow{"dh"}) {
+    	&do_command ("/usr/local/bin/moncmd -s $MONHOST disable host @args");
+    } elsif ($c eq "dw" && $allow{"dw"}) {
+    	&do_command ("/usr/local/bin/moncmd -s $MONHOST disable watch @args");
+    } elsif ($c eq "ds" && $allow{"ds"}) {
+    	&do_command ("/usr/local/bin/moncmd -s $MONHOST disable service @args");
+
+    #
+    # enable
+    #
+    } elsif ($c eq "eh" && $allow{"eh"}) {
+    	&do_command ("/usr/local/bin/moncmd -s $MONHOST enable host @args");
+    } elsif ($c eq "ew" && $allow{"ew"}) {
+    	&do_command ("/usr/local/bin/moncmd -s $MONHOST enable watch @args");
+    } elsif ($c eq "es" && $allow{"es"}) {
+    	&do_command ("/usr/local/bin/moncmd -s $MONHOST enable service @args");
+
+    #
+    # ack (not yet implemented)
+    #
+    } elsif ($c eq "a" && $allow{"a"}) {
+    }
+}
+
+
+
+#
+# list failures
+#
+sub do_list {
+    my (@args) = @_;
+    my ($g, $s, $o, $l, $p);
+
+    open (IN, "/usr/local/bin/moncmd -s monhost list failures|") ||
+    	return;
+    $p = 0;
+    while (<IN>) {
+    	last if (/220.*completed/);
+	$l = $_;
+	chomp $l;
+	($g, $s, $o) = ($l =~ (/^(\S+)\s+(\S+)\s+\d+\s+\d+\s+failed\s+(.*)/));
+	$BUF .= "\n" if ($p);
+	$BUF .= "$g/$s:$o\n";
+	$p = 1;
+    }
+    close (IN);
+}
+
+
+
+#
+# list disabled
+#
+sub do_list_disabled {
+    my (@args) = @_;
+
+    open (IN, "/usr/local/bin/moncmd -s $MONHOST list disabled|") ||
+    	return;
+    $p = 0;
+    while (<IN>) {
+    	last if (/220.*completed/);
+	$l = $_;
+	chomp $l;
+	$BUF .= "\n" if ($p);
+	$BUF .= "$l\n";
+	$p = 1;
+    }
+    close (IN);
+}
+
+
+#
+# do_command
+#
+sub do_command {
+    my ($cmd) = @_;
+    my ($p);
+
+    open (C, "$cmd|") ||
+    	return;
+
+    $p = 0;
+    while (<C>) {
+	$BUF .= "\n" if ($p);
+    	$BUF .= $_;
+	$p = 1;
+    }
+
+    close (C);
+}
+
+
+#
+# mail the buffer back to the pager
+#
+sub mail_cmd {
+#    &load_address() || die "could not load address\n";
+#    print "$BUF";
+
+    open (MAIL, "| /usr/lib/sendmail -oi -t") ||
+	die "could not open pipe to mail: $!\n";
+print MAIL <<EOF;
+To: $ADDR
+Subject: mon
+
+$BUF
+EOF
+    close (MAIL);
+}

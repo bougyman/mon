@@ -1,0 +1,52 @@
+$Id: README.variables,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+THIS FILE IS PROBABLY OUTDATED
+
+
+The following are global variables:
+
+maxkeep
+    The maximum lines of alert or failure history to retain.
+
+For each service, the following variables are maintained by the server,
+and are available from the "status" command:
+
+_failure_count
+    The number of failures since the start of monitoring.
+
+_start_of_monitor
+    The time that the monitoring of this particular service started,
+    as reported by the time(2) system call.
+
+_alert_count
+    The number of alerts triggered since _start_of_monitor, in time(2) format.
+
+_last_failure
+    The time(2) of the last failure that was detected.
+
+_last_success
+    The time(2) of the last success for this service.
+
+_last_output
+    The output of the last monitor command (not the current).
+
+_current_output
+    The output of the current monitor command.
+
+_timer
+    The number of seconds left before the monitor is invoked again.
+
+_last_opstatus
+    The _op_status before the dependency code set it to STAT_DEPEND
+
+_op_status
+    STAT_FAIL		the monitor returned a failure
+    STAT_OK		the monitor returned a success
+    STAT_COLDSTART	a coldstart trap was received
+    STAT_WARMSTART	a warmstart trap was received
+    STAT_LINKDOWN	a linkdown trap was received
+    STAT_UNKOWN		unknown (reserved for stupid things)
+    STAT_TIMEOUT	a trap timeout occurred
+    STAT_UNTESTED	this service has not yet been tested
+    STAT_DEPEND		this service has been marked by the depend routines
+    STAT_WARN		a warning state

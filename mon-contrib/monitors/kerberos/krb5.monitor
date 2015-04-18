@@ -1,0 +1,222 @@
+#!/usr/bin/perl
+#
+# This script will attempt to get Kerberos 5 tickets from one or more kerberos
+# KDCs.  Requires Authen::Krb5.
+#
+# The user name, password, and realm can all be specified on the
+# commandline, or they can be read from the monitor-auth.cf file in the mon
+# config base directory.  Matching entries in monitor-auth.cf will look like:
+#
+# *:*:user=username
+# *:*:password=password-string
+# *:*:realm=EXAMPLE.COM
+#
+# (Where *:* can be replaced with group:service, group:* or *:service, which
+# allows you to define different settings for different hostgroups/services.
+#
+# A temporary kerberos config file will need to be written to disk in order
+# to test the servers independently.  The mon state dir will be used, or you
+# can specify a directory on the command line.
+#
+# Arguments:
+# [--directory dir] [--user user] [--password password]
+# [--realm realm] hostname [...]
+#
+#
+# Script Author: Carnegie Mellon University, Computing Services
+# Technical Contact: net-dev@andrew.cmu.edu
+
+
+# Copyright (c) 2002 Carnegie Mellon University. All rights reserved.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# 3. The name "Carnegie Mellon University" must not be used to endorse or
+#    promote products derived from this software without prior written
+#    permission. For permission or any legal details, please contact:
+#      Office of Technology Transfer
+#      Carnegie Mellon University
+#      5000 Forbes Avenue
+#      Pittsburgh, PA 15213-3890
+#      (412) 268-4387, fax: (412) 268-7395
+#      tech-transfer@andrew.cmu.edu
+#
+# 4. Redistributions of any form whatsoever must retain the following
+#    acknowledgment: "This product includes software developed by Computing
+#    Services at Carnegie Mellon University (http://www.cmu.edu/computing/)."
+#
+# CARNEGIE MELLON UNIVERSITY DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+# SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS,
+# IN NO EVENT SHALL CARNEGIE MELLON UNIVERSITY BE LIABLE FOR ANY SPECIAL,
+# INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+# LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+# OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+# PERFORMANCE OF THIS SOFTWARE.
+
+use IO::File;
+use Authen::Krb5;
+use Getopt::Long;
+use strict 'refs';
+use strict 'subs';
+
+
+$result = GetOptions(\%opt, 'debug', 'dir=s', 'user=s', 'password=s', 'realm=s');
+die "Usage: $0 [--directory dir] [--user user] [--password password]\n            [--realm realm] hostname [...]\n" if (!$result);
+
+@failures = ();
+@report = ();
+$user = $opt{user};
+$password = $opt{password};
+$realm = $opt{realm};
+&parse_cf;
+print STDERR "Using user:$user password:$password realm:$realm\n" if ($opt{debug});
+
+if (!$user || !$password || !$realm) {
+  print "krb5.monitor: user/password/realm were not specified.\n";
+  exit -1;
+}
+
+
+foreach $kdc ( @ARGV ) {
+  &krb5_poll( $kdc );
+}
+
+if (@failures == 0) {
+  exit 0;
+}
+
+print "@failures\n";
+print "@report";
+exit 1 if ($someok);
+exit 255;
+
+sub parse_cf {
+  my (%users, %passwords, %realms);
+  my $g=$ENV{MON_GROUP} || 'kerberos-servers';
+  my $s=$ENV{MON_SERVICE} || 'krb5';
+  my $file = $ENV{MON_CFBASEDIR}."/monitor-auth.cf";
+  print STDERR "Parsing $file\n" if ($opt{debug});
+  if ($cf=new IO::File "<$file") {
+    while (<$cf>) {
+      if (/^(\S+):user\s*=\s*(\S+)$/) {
+	$users{$1}=$2;
+      }
+      if (/^(\S+):password\s*=\s*(\S+)$/) {
+	$passwords{$1}=$2;
+      }
+      if (/^(\S+):realm\s*=\s*(\S+)$/) {
+	$realms{$1}=$2;
+      }
+    }
+    $user ||=   $users{"$g:$s"};
+    $user ||= $users{"$g:*"};
+    $user ||= $users{"*:$s"};
+    $user ||= $users{"*:*"};
+    $password ||=   $passwords{"$g:$s"};
+    $password ||= $passwords{"$g:*"};
+    $password ||= $passwords{"*:$s"};
+    $password ||= $passwords{"*:*"};
+    $realm ||=   $realms{"$g:$s"};
+    $realm ||= $realms{"$g:*"};
+    $realm ||= $realms{"*:$s"};
+    $realm ||= $realms{"*:*"};
+  }
+}
+
+sub krb5_poll {
+  my ($kdc)=@_;
+  my $dir= $opt{'dir'} || $ENV{"MON_STATEDIR"} ||  "/usr/lib/mon/state.d";
+  my $confdir="$dir/krb5";
+  my $conffile="$confdir/$kdc/krb5.conf";
+  my ($cli,$serv,$cc,$ret, $error, $k5c, $constant);
+  mkdir($confdir) unless (-d $confdir);
+  unless (-f $conffile) {
+    $error=1;
+    if ($realm) {
+      mkdir "$confdir/$kdc";
+      $k5c=new IO::File "> $conffile";
+      if ($k5c) {
+        print $k5c <<"_EOC_";
+[libdefaults]
+default_realm=$realm
+default_tgs_enctypes = des-cbc-crc
+default_tkt_enctypes = des-cbc-crc
+default_etypes = des-cbc-crc
+default_etypes_des = des-cbc-crc
+clockskew = 300
+checksum_type = 1
+[realms]
+$realm = {
+     kdc=$kdc
+}
+_EOC_
+	$error=0;
+	close($k5c);
+      } else {
+	print STDERR "Couldn't create $conffile: $!\n" if ($opt{debug});
+      }
+    }
+    if ($error) {
+      push @failures, $kdc;
+      if ($realm) {
+	push @report, "\n$kdc: MONCONFIGURATION: could not initalize new config file\n";
+      } else {
+	push @report, "\n$kdc: MONCONFIGURATION: No config file\n";
+      }
+      return;
+    }
+  }
+  $ENV{KRB5_CONFIG}="$confdir/$kdc/krb5.conf";
+  Authen::Krb5::init_context();
+  Authen::Krb5::init_ets();
+  $cli=Authen::Krb5::parse_name("$user\@$realm");
+  unless ($cli) {
+    push @failures, $kdc;
+    push @report, "\n$kdc: MONCONFIGURATION: ".Authen::Krb5::error()."\n...while parsing $user\n";
+    Authen::Krb5::free_context();
+    return;
+  }
+  $serv=Authen::Krb5::build_principal_ext($cli);
+  unless ($serv) {
+    push @failures, $kdc;
+    push @report, "\n$kdc: MONCONFIGURATION: ".Authen::Krb5::error()."\n...while generating server name\n";
+    Authen::Krb5::free_context();
+    return;
+  }
+  $cc=Authen::Krb5::cc_resolve("MEMORY:");
+  unless ($cc) {
+    push @failures, $kdc;
+    push @report, "\n$kdc: MONCONFIGURATION: ".Authen::Krb5::error()."\n...while getting local credentials cache\n";
+    Authen::Krb5::free_context();
+    return;
+  }
+
+  unless ($cc->initialize($cli)) {
+    push @failures, $kdc;
+    push @report, "\n$kdc: MONCONFIGURATION: " .Authen::Krb5::error() ."\n...while preparing local credentials cache\n";
+    Authen::Krb5::free_context();
+    return;
+  }
+  $ret=Authen::Krb5::get_in_tkt_with_password($cli,$serv,$password,$cc);
+  if ($ret) {
+    $someok=1;
+  } else {
+    push @failures, $kdc;
+    $err= Authen::Krb5::error();
+    if ($err + 0 == Authen::Krb5::KRB5_KDC_UNREACH()) {
+      push @report, "\n$kdc: Timed Out\n";
+    } elsif ($err + 0 == Authen::Krb5::KRB5_REALM_CANT_RESOLVE()) {
+      push @report, "\n$kdc: Cannot resolve hostname\n";
+    } else {
+      push @report, "\n$kdc: $err\n";
+    }
+  }
+  Authen::Krb5::free_context();
+}

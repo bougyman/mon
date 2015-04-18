@@ -1,0 +1,88 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>Le  manuel utilisateur de l'interface web Minotaure: Le tableau &Eacute;tat</TITLE>
+ <LINK HREF="minotaur-user-fr-6.html" REL=next>
+ <LINK HREF="minotaur-user-fr-4.html" REL=previous>
+ <LINK HREF="minotaur-user-fr.html#toc5" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="minotaur-user-fr-6.html">Page suivante</A>
+<A HREF="minotaur-user-fr-4.html">Page précédente</A>
+<A HREF="minotaur-user-fr.html#toc5">Table des matières</A>
+<HR>
+<H2><A NAME="s5">5. Le tableau &Eacute;tat</A>   </H2>
+
+<P>
+<FIGURE>
+<EPS FILE="../images/StatusTable-fr.eps">
+<IMG SRC="../images/StatusTable-fr.png">
+<BR>
+<CAPTION><EM>Le tableau &Eacute;tat</EM></CAPTION>
+</FIGURE>
+<P>
+<DL>
+<P>
+<DT><B>La colonne ``host''.</B><DD><P>Cette colonne contient la liste de
+toutes les ``machines'' test&eacute;es. Les machines dont les tests sont
+en suspend sont s&eacute;lectionn&eacute;es. Vous pouvez selectionner ou
+d&eacute;selectionner certaines machines.
+<P>
+<DT><B>La colonne ``groupe''.</B><DD><P>Cette colonne donne le nom des
+groupes de machines.
+<P>
+<DT><B>La colonne  ``Membres''.</B><DD><P>Cette colonne les listes des
+machines composant chaque groupe, une liste par groupe.
+cell.
+<P>
+<DT><B>La colonne ``Service''.</B><DD><P>Cette colonne nomme les services. Un
+groupe peut poss&eacute;der plusieurs services.  Le bouton <B>HS</B>
+permet de changer l'&eacute;tat du service. Les alertes ne sont plus
+d&eacute;clench&eacute;es lorsque le service est bleu.
+<P>
+<DT><B>Les colonnes  ``Dernier &agrave;'' and ``Prochain dans''.</B><DD><P>La
+cellule  ``Dernier &agrave;'' mentionne l'heure du dernier test
+effectu&eacute;. La colomne  ``Prochain dans'' mentionne le temps
+restsnt avant le prochain test.
+<P>
+<DT><B>La colonne  ``&Eacute;tat''.</B><DD><P>La colonne ``&Eacute;tat'' contient l'&eacute;tat
+du service, une cellule par service. Si le dernier test a reussi 
+alors la cellule est sans couleur (en gris) et le contenu est le 
+r&eacute;sum&eacute; du dernier &eacute;chec. Si le dernier test a &eacute;chou&eacute; la cellule
+a un fond  rouge et contient le mot &eacute;chec suivi par un r&eacute;sum&eacute; de 
+cet &eacute;chec, typiquement le nom des machines qui n'ont pas pass&eacute;
+le test avec succes. 
+<P>
+<DT><B>L&eacute;gende des couleurs.</B><DD><P>
+<UL>
+<LI>Quand Tout va bien, aucune couleur n'apparait.
+        </LI>
+<LI>Quand un service est tomb&eacute;, le service et son groupe
+passent au rouge.  Les services du m&ecirc;me groupe qui
+fonctionnent sont vert afin de bien faire la distinction entre
+ce qui fonctionne et ce qui ne fonctionne pas pour l'ensemble
+des machines du groupe.
+     </LI>
+<LI>Quand un service n'est pas encore test&eacute; la cellule a
+un fond jaune.
+     </LI>
+<LI>Quund un service est inhib&eacute; la cellule a un fond bleu.
+     </LI>
+<LI>Les groupes sont pr&eacute;sent&eacute;s suivant l'ordre suivant:
+rouge, bleu , et alphab&eacute;thique.
+</LI>
+<LI>Pour chaque groupe, les services sont pr&eacute;sent&eacute;s
+suivant l'ordre suivant : rouge, bleu , jaune et
+alphab&eacute;thique.
+       </LI>
+</UL>
+<P>
+</DL>
+<P>
+<HR>
+<A HREF="minotaur-user-fr-6.html">Page suivante</A>
+<A HREF="minotaur-user-fr-4.html">Page précédente</A>
+<A HREF="minotaur-user-fr.html#toc5">Table des matières</A>
+</BODY>
+</HTML>

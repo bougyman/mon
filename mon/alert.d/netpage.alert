@@ -1,0 +1,57 @@
+#!/usr/bin/perl
+#
+# netpage.alert - network page alert for mon
+#
+# The first line from STDIN is summary information, adequate to send
+# to a pager or email subject line. Even though this code is entirely
+# trivial, I wrote it just so that when it's specified in the mon.cf
+# file, it is clear that the paging alert is network-dependent.
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: netpage.alert,v 1.2 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+$RCSID='$Id: netpage.alert,v 1.2 2005/04/17 07:42:26 trockij Exp $';
+use Getopt::Std;
+getopts ("s:g:h:t:l:u");
+
+$summary=<STDIN>;
+chomp $summary;
+
+$pageaddrs = join (',', @ARGV);
+
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+open (MAIL, "| /usr/lib/sendmail -oi -t") ||
+    die "could not open pipe to mail: $!\n";
+
+print MAIL <<EOF;
+To: $pageaddrs
+Subject: $ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)
+X-Mailer: $0
+
+EOF
+
+while (<STDIN>) {
+    print MAIL;
+}
+close (MAIL);

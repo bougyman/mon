@@ -1,0 +1,53 @@
+$Id: README.paging,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+SO YOU WANT MON TO PAGE YOU??
+-----------------------------
+
+SOFTWARE
+
+It's not the job of mon to page you, but it *does* have the
+responsibility of triggering an alert program, which can page
+you.
+
+Paging via modem is probably the best way to handle notification,
+since phone systems usually fail much less than local (and wide)
+area networks. Think of it as "out-of-band" notification.
+
+QuickPage
+    mon ships with a wrapper for QuickPage, which uses a modem
+    to send an alphanumeric page via the IXO/TAP/SNPP (what is
+    it today???) protocol. QuickPage is very simple to configure,
+    supports groups, runs on a number of platforms, and is free.
+
+    The latest version of QuickPage can be found at
+    ftp.it.mtu.edu:/pub/QuickPage.
+
+Tpage
+    Originally maintained by Tom Limoncelli (of INN FAQ fame),
+    tpage was one of the earliest paging progmrams. It doesn't
+    seem to be very well maintained recently, but it's worth
+    having a look at. It supports multiple users and an "on call"
+    schedule (which mon can already do), but its probably
+    worth looking at anyway. It's mostly written in Perl.
+
+    The last time I looked (Tue Sep 16 09:49:18 PDT 1997),
+    I was not able to locate tpage-2.40.tar.gz :(
+
+    Have a look at the IXO FAQ for more information, supposedly
+    available from ftp://ftp.airnote.net/pub/paging-info/ixo.faq
+
+
+EMAIL PAGING
+
+If your paging company allows you to send pages via electronic
+mail, you can use the "netpage.alert" script that comes with
+mon. It just calls sendmail and fires off email to one or more
+addresses with a specially formatted subject line that should
+give maximum information in your pager's tiny alpha LCD.
+
+To format a page nicely on a tiny LCD, you may have to play with end
+of line characters. For example, pagenet pagers seem to ignore any EOL
+sequences other than just a plain \r
+
+A reminder--you might not want to rely on the network to send
+you a message if the network is down :)

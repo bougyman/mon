@@ -1,0 +1,48 @@
+######### Fichier exemple de la configuration multilingue ###########
+
+# @Languages est l'identifiant de langue format alphanumerique :
+# [a-zA-Z0-9_]+ 
+# 
+# mot clef : "default" : langue par défaut
+
+@Languages
+Francais        
+English         
+Deutsch           default   la j'ecris ce que je veux
+Espagnol        
+Italiano        
+
+# @Message est un mot clef signalant la fin du message précédent et le
+# début d'un message et des ces traductions.
+
+# Tous de  qui est après le  premier  deux points  ":"  fait partie du
+# message  (même  les blancs)  jusqu'à le  caractère  fin de ligne non
+# inclu ("\n" pour les intimes).
+
+# L'ordre   des langues  est indifférent  et   peu varier pour  chaque
+# message
+
+# Il n'est pas necessaire de traduire les messages dans chaque langue.
+# Si la traduction n'existe pas le message de  la langue d'origine est
+# utilisé.
+
+
+
+
+@Message
+Francais :Aucun processus actif
+English  :No process running
+Deutsch  :Nicht hinauslehnen
+Espagnol :Oy tu, el processor matador disastrosita
+Italiano :Li proicessechi improbabile, ecco ...
+
+
+@Message
+Francais :Erreur processus systeme irrecuperable
+English  :Unrecoverable system process error
+Deutsch  :Nicht hinauslehnen 
+Espagnol :Oy tu, el processor matador disastrosita 
+Italiano :La Papamobile, li e indisponibile, basta !
+
+
+######### Fichier exemple de la configuration multilingue ###########

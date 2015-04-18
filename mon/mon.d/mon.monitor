@@ -1,0 +1,121 @@
+#!/usr/bin/perl
+#
+# mon.monitor
+#
+# monitor mon server
+#
+# Jim Trocki
+#
+# $Id: mon.monitor,v 1.3 2007/12/03 23:18:05 aschwer Exp $
+use strict;
+
+use English;
+use Mon::Client;
+use Getopt::Std;
+
+my %opt;
+getopts ('u:P:p:t:', \%opt);
+
+my @failures;
+my @details;
+
+my $TIMEOUT = 30;
+
+$TIMEOUT = $opt{"t"} if ($opt{"t"});
+
+foreach my $host (@ARGV)
+{
+    my $c = new Mon::Client (
+    	"host"		=> $host,
+    );
+
+    if ($opt{"p"})
+    {
+    	$c->port ($opt{"p"});
+    }
+
+    eval {
+    	local $SIG{"ALRM"} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+
+	if (!defined $c->connect)
+	{
+	    push @failures, $host;
+	    push @details, "$host: " . $c->error;
+	    undef $c;
+	    next;
+	}
+
+	if ($opt{"u"} && $opt{"P"})
+	{
+	    if (! defined $c->login (
+		    "username"	=> $opt{"u"},
+		    "password"	=> $opt{"P"},
+		))
+	    {
+		push @failures, $host;
+		push @details, "$host: " . $c->error;
+		undef $c;
+		next;
+	    }
+	}
+
+	my @st = $c->list_state;
+	if ($st[0] == 0)
+        {
+                push @failures, $host;
+                push @details, "$host: scheduler stopped since " . localtime ($st[1]) . "\n";
+                undef $c;
+                next;
+        }
+
+	if ($c->error ne "")
+	{
+	    push @failures, $host;
+	    push @details, "$host: " . $c->error;
+	    $c->disconnect;
+	    undef $c;
+	    next;
+	}
+
+	push @details, "$host: @st";
+
+	if (!defined $c->disconnect)
+	{
+	    push @failures, $host;
+	    push @details, "$host: could not disconnect, " . $c->error;
+	    undef $c;
+	    next;
+	}
+
+	undef $c;
+    };
+
+    if ($EVAL_ERROR =~ "Timeout Alarm")
+    {
+    	push @failures, $host;
+	push @details, "$host: timeout";
+    }
+}
+
+if (@failures)
+{
+    print join (" ", sort @failures), "\n";
+}
+
+else
+{
+    print "no failures\n";
+}
+
+if (@details)
+{
+    print join ("\n", @details), "\n";
+}
+
+if (@failures)
+{
+    exit 1;
+}
+
+exit 0;

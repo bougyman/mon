@@ -1,0 +1,30 @@
+#
+# netwarefree.cf - configuration file for netwarefree.monitor
+#
+# Format:
+#
+#   host volname free
+#
+#   host     hostname of the NetWare server, should correspond with
+#            a host defined in the host group
+#
+#   volname  The name of the volume to check, e.g. "SYS"
+#
+#   free     The amount of free space which will trigger a failure,
+#            expressed as "10kb", "10MB", or "10GB"
+#
+
+novserv1   SYS    100MB
+novserv2   SYS    100MB
+novserv3   SYS    100MB
+novserv4   SYS    100MB
+novserv5   SYS    100MB
+novserv6   SYS    100MB
+
+novserv1   DATA   200MB
+novserv2   DATA   200MB
+novserv3   DATA   200MB
+novserv4   DATA   200MB
+novserv5   DATA   200MB
+novserv6   DATA   200MB
+

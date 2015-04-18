@@ -1,0 +1,129 @@
+#!/usr/bin/perl 
+# 
+# Try to connect to an Icecast server. 
+# 
+# Optionally, specify stream mountpoints to make sure they're 
+# currently mounted. 
+# 
+# To accomplish this, just pass the mountpoints after the hostname 
+# using a colon after the hostname and a comma to delimit mountpoints. 
+# 
+# Example:    neptune:/seattletech,/seattletech-56k,/bdean,/drzzzzz 
+# 
+# Outputs hostname:<mountpoint> on failures, or prepends an '*' to the 
+# hostname to indicate an inability to contact the icecast host in 
+# general. 
+# 
+# Example: 
+# 
+#    neptune:/seattletech   (mountpoint is not mounted on server neptune) 
+#    *neptune               (icecast server on neptune is not responding) 
+# 
+# 
+# Written by Mark Rushing - rushing@orbislumen.net 
+# 
+# icecast.monitor 0.2   13-Jun-2001 
+# 
+# Copyright (C) 2001, Mark Rushing 
+# 
+#   This program is free software; you can redistribute it and/or modify 
+#   it under the terms of the GNU General Public License as published by 
+#   the Free Software Foundation; either version 2 of the License, or 
+#   (at your option) any later version. 
+# 
+#   This program is distributed in the hope that it will be useful, 
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of 
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the 
+#   GNU General Public License for more details. 
+# 
+#   You should have received a copy of the GNU General Public License 
+#   along with this program; if not, write to the Free Software 
+#   Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307  USA 
+
+use IO::Socket; 
+use Getopt::Std; 
+
+getopts("p:t:u:P:"); 
+$ICport		= "$opt_p" || 8000; 
+$ICtimeout	= "$opt_t" || 30; 
+$ICadmin	= "$opt_u" || "ADMIN"; 
+$ICpasswd	= "$opt_P"; 
+
+ICHOST: 
+foreach $ICarg (@ARGV) { 
+
+  # Separate hostname from stream mountpoints. 
+  ($IChost, $ICstreams) = split /:/, $ICarg, 2; 
+
+  # Create socket connection to hostname. 
+  ## Don't bother checking streams if failed. 
+  if (!openIcecastSock($IChost)) { 
+    push(@failed, "\*$IChost"); 
+    next; 
+  } 
+
+  # Don't bother checking streams if none given. 
+  if (!$ICstreams) { 
+    close $ICsock; 
+    next; 
+  } 
+
+  eval { 
+    # Check streams on connected host. 
+    ## Log into server. 
+    local $SIG{ALRM} = sub { die "Command Timeout" }; 
+    alarm $ICtimeout; 
+    print $ICsock "$ICadmin $ICpasswd\n\n"; 
+    while ( <$ICsock> ) { 
+      last if /^OK/; 
+      if (/ERROR - Bad Password/) { 
+	push(@failed, "$IChost\:Bad Password"); 
+	next ICHOST; 
+      } 
+    } 
+    ## Get stream data. 
+    @mountedStreams = (); 
+    print $ICsock "sources\n"; 
+    while (<$ICsock>) { 
+      last if /^End of source listing/; 
+      if (s/.*\[Mountpoint: (\S+)\].*\n/$1/) { 
+	push(@mountedStreams, $_); 
+      } 
+    } 
+    print $ICsock "quit Mon signoff\n"; 
+    close $ICsock; 
+    alarm 0; 
+  }; 
+
+  if ($@) { 
+    push(@failed, "$IChost\:$@"); 
+    next; 
+  } 
+
+  # Figure if monitored streams are actually mounted 
+  @checkStream = split /,/, $ICstreams; 
+  foreach $stream (@checkStream) { 
+    push(@failed, "$IChost\:$stream") if (!grep /^$stream/, @mountedStreams) 
+  } 
+
+} 
+
+if (scalar(@failed)) { 
+  print "@failed\n"; 
+  exit 1; 
+} 
+
+exit 0; 
+
+sub openIcecastSock { 
+  my $IChost = $_[0]; 
+  $ICsock = new IO::Socket::INET ( 
+				  PeerAddr => $IChost , 
+				  PeerPort => $ICport , 
+				  Proto    => "tcp" , 
+				  Timeout  => $ICtimeout , 
+				); 
+  ( return 0 ) unless $ICsock; 
+  $ICsock->autoflush(1); 
+  return 1; 
+}

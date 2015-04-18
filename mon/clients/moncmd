@@ -1,0 +1,271 @@
+#!/usr/bin/perl
+#
+# moncmd - send a command to the mon server
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: moncmd,v 1.3 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use Socket;
+use English;
+
+getopts ("ahf:l:s:p:rd");
+
+sub usage;
+sub do_cmd;
+
+$MONSERVER = "localhost";
+$MONSERVER = $ENV{"MONHOST"}
+    if (defined ($ENV{"MONHOST"}));
+$MONSERVER = $opt_s if ($opt_s);
+$MONPORT   = $opt_p || getservbyname ("mon", "tcp") || 2583;
+
+if ($opt_h) {
+    usage;
+}
+
+if (!defined ($MONSERVER)) {
+    die "No host specified or found in MONHOST\n";
+}
+
+$SIG{INT} = \&handle_sig;
+$SIG{TERM} = \&handle_sig;
+
+#
+# does the input come from stdin or a file?
+#
+if ($opt_f) {
+    if ($opt_f eq "-") {
+    	$H = STDIN;
+    } else {
+    	open (IN, $opt_f) ||
+	    die "could not open input file: $!\n";
+	$H = IN;
+    }
+
+} elsif (!@ARGV) {
+    if (-t STDIN) {
+      print <<EOF
+You did not give a command on the command line nor a -f flag and
+the program is running interactively (e.g. reading from terminal).
+This is not supported.  Exiting
+EOF
+    ;
+        exit 1;
+    }
+
+    $H = STDIN;
+}
+
+#
+# get auth info
+#
+if ($opt_a) {
+    if ($opt_l) {
+    	$USER = $opt_l;
+    } else {
+	die "could not determine username\n"
+	    unless defined ($USER = getpwuid($EUID));
+    }
+
+    if (-t STDIN) {
+	system "stty -echo";
+	print "Password: ";
+	chop ($PASS = <STDIN>);
+	print "\n";
+	system "stty echo";
+	die "invalid password\n" if ($PASS =~ /^\s*$/);
+
+    } elsif (!@ARGV) {
+	$cmd = <$H>;
+	while (defined ($cmd) && $cmd =~ /user=|pass=/i) {
+	    chomp $cmd;
+	    if ($cmd =~ /^user=(\S+)$/i) {
+		$USER=$1 if (!defined ($USER));
+	    } elsif ($cmd =~ /^pass=(\S+)$/i) {
+		$PASS=$1;
+	    }
+	    
+	    $cmd = <$H>;
+	}
+
+    }
+
+    die "inadequate authentication information supplied\n"
+    	if ($USER eq "" || $PASS eq "");
+}
+
+#
+# set up TCP socket
+#
+$iaddr = inet_aton ($MONSERVER) ||
+	die "Unable to find server '$MONSERVER'\n";
+
+if ($MONPORT =~ /\D/) { $MONPORT = getservbyname ($MONPORT, 'tcp') }
+$paddr = sockaddr_in ($MONPORT, $iaddr);
+$proto = getprotobyname ('tcp');
+
+socket (MON, PF_INET, SOCK_STREAM, $proto) ||
+    die "could not create socket: $!\n";
+connect (MON, $paddr) ||
+    die "could not connect: $!\n";
+
+select (MON); $| = 1; select (STDOUT);
+
+#if( defined(my $line = <MON>)) {
+#    chomp $line;
+#    unless( $line =~ /^220\s/) {
+#	die "didn't receive expected welcome message\n";
+#    }
+#} else {
+#    die "error communicating with mon server: $!\n";
+#}
+
+#
+# authenticate self to the server if necessary
+#
+if ($opt_a) {
+    ($l, @out) = do_cmd(MON, "login $USER $PASS");
+    die "Could not authenticate\n"
+	if ($l =~ /^530/);
+}
+
+
+if ($opt_f or !@ARGV) {
+    $cmd = <$H> if ($opt_f || !@ARGV);
+    $l = "";
+    while (defined ($cmd) && defined ($l)) {
+	#
+	# send the command
+	#
+	chomp $cmd;
+	($l, @out) = do_cmd (MON, $cmd);
+	last if (!defined ($l));
+	for (@out) {
+	    print "$_\n";
+	}
+	print "$l\n";
+
+	$cmd = <$H>;
+    }
+    close ($H);
+
+} else {
+    ($l, @out) = do_cmd (MON, "@ARGV");
+    for (@out) {
+	print "$_\n";
+    }
+    print "$l\n";
+}
+
+#
+# log out
+#
+do_cmd (MON, "quit");
+
+close(MON);
+
+
+#
+# submit a command to the server, wait for a response
+#
+sub do_cmd {
+    my ($fd, $cmd) = @_;
+    my ($l, @out);
+
+    return ("", undef) if ($cmd =~ /^\s*$/);
+
+    @out = ();
+    print $fd "$cmd\n";
+    while (defined($l = <$fd>)) {
+        chomp $l;
+        if ($l =~ /^(\d{3}\s)/) {
+            last;
+        }
+        push (@out, $l);
+    }
+
+    ($l, @out);
+}
+
+
+#
+# usage
+#
+sub usage {
+    print <<EOF;
+
+usage: moncmd [-a] [-l login] [-s host] [-p port] [-f file] commands
+
+Valid commands are:
+    ack "watch" "service" comment
+    checkauth cmd [args]
+    clear "watch" "service"
+    disable host "host" ["host"...]
+    disable service "group" "service"
+    disable watch "watch"
+    dump
+    enable host "host" ["host"...]
+    enable service "group" "service"
+    enable watch "watch"
+    get "group" "service" "variable"
+    list alerthist
+    list aliases
+    list aliasgroups
+    list deps
+    list descriptions
+    list disabled
+    list dtlog
+    list failurehist
+    list failures
+    list group "groupname"
+    list opstatus
+    list pids
+    list state
+    list successes
+    list warnings
+    list watch
+    loadstate
+    protid
+    quit
+    reload
+    reset [stopped] [keepstate]
+    savestate disabled
+    servertime
+    set "group" "service" "variable" "value"
+    start
+    stop
+    term
+    test config
+    test monitor "watch" "service"
+    test {alert|startupalert|upalert} "watch" "service" "retval" "period"
+    version
+EOF
+    exit 0;
+}
+
+
+#
+# signal handler
+#
+sub handle_sig {
+    system "stty echo";
+    exit;
+}

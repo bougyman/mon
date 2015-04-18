@@ -1,0 +1,263 @@
+#!/usr/bin/perl
+#
+# Use try to connect to a SMTP server, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "http.monitor" by
+# Jim Trocki, trockij@arctic.org
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: smtp.monitor,v 1.2 2005/04/17 07:42:27 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+getopts ("p:t:");
+$PORT = $opt_p || 25;
+$TIMEOUT = $opt_t || 30;
+
+my %good;
+my %bad;
+
+foreach $host (@ARGV)
+{
+    my $result = smtpGET($host, $PORT);
+
+    if ($result->{"ok"})
+    {
+    	$good{$host} = $result;
+    }
+
+    else
+    {
+    	$bad{$host} = $result;
+    }
+}
+
+#
+# summary line
+#
+if (keys %bad == 0)
+{
+    print "\n";
+}
+
+else
+{
+    print join (" ", sort keys %bad), "\n";
+}
+
+#
+# detail
+#
+foreach my $host (keys %bad) {
+    print "$host failed with error " . $bad{$host}->{"error"}, "\n";
+
+    print "detail for $host\n";
+    print "==============================================================================\n";
+
+    if ($bad{$host}->{"detail"} ne "")
+    {
+	print $bad{$host}->{"detail"};
+    }
+    
+    else
+    {
+    	print "no detail\n";
+    }
+
+    print "\n";
+}
+
+print "\n";
+
+foreach my $host (keys %good)
+{
+    print "$host succeeded\n";
+
+    print "detail for $host\n";
+    print "==============================================================================\n";
+
+    if ($good{$host}->{"detail"} ne "")
+    {
+	print $good{$host}->{"detail"};
+    }
+
+    else
+    {
+    	print "no detail\n";
+    }
+
+    print "\n";
+}
+
+if (keys %bad != 0)
+{
+    exit 1;
+}
+
+exit 0;
+
+sub smtpGET
+{
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port) = @_;
+    my($ServerOK, $TheContent);
+    my ($OurHostname);
+
+    my $result = {
+	"ok" => 0,
+	"error" => undef,
+	"detail" => undef,
+    };
+
+    $ServerOK = 0;
+
+    $TheContent = '';
+
+    $Path = '/';
+
+###############################################################
+    eval {
+
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+
+	if (! OpenSocket($Server, $Port))
+	{
+	    $result->{"error"} .= "Unable to create SMTP connection to port $Port";
+	    $result->{"ok"} = 0;
+	    return $result;
+	}
+
+	$in = <S>;
+
+	$result->{"detail"} .= $in;
+
+	while ($in =~ /^220-/)
+	{
+	    $in = <S>;
+	    $result->{"detail"} .= $in;
+	}
+
+	if ($in !~ /^220 /)
+	{
+	    alarm 0;
+	    print S "QUIT\r\n";
+	    close (S);
+
+	    $result->{"error"} = "did not receive 220 greeting";
+	    $result->{"ok"} = 0;
+	    return $result;
+	}
+
+	$OurHostname = &hostname;
+
+	print S "HELO $OurHostname\r\n";
+
+	$in = <S>;
+
+	$result->{"detail"} .= $in;
+
+	while ($in =~ /^250-/)
+	{
+	    $in = <S>;
+	    $result->{"detail"} .= $in;
+	}
+
+	if ($in !~ /^250 /)
+	{
+	    alarm 0;
+	    print S "QUIT\r\n";
+	    close (S);
+
+	    $result->{"error"} = "did not get 250 response to HELO";
+	    $result->{"ok"} = 0;
+	    return $result;
+	}
+
+	print S "quit\r\n";
+
+	$in = <S>;
+	$result->{"detail"} .= $in;
+
+	if ($in !~ /^221 /)
+	{
+	    alarm 0;
+	    print S "QUIT\r\n";
+	    close (S);
+
+	    $result->{"error"} = "did not get 221 response to quit";
+	    $result->{"ok"} = 0;
+	    return $result;
+	}
+
+	$result->{"ok"} = 1;
+
+	print S "QUIT\r\n";
+	close(S);
+
+	alarm 0; # Cancel the alarm
+
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+	$result->{"error"} = "timeout";
+	$result->{"ok"} = 0;
+	return $result;
+    }
+
+    return $result;
+}
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    local($OtherHostname, $Port) = @_;
+    local($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+	  $ThisAddr, $that);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    my $that = sockaddr_in ($Port, $OtherHostAddr);
+
+    $result = socket(S, &PF_INET, &SOCK_STREAM, $proto) || return undef;
+
+    $result = connect(S, $that) || return undef;
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+    return 1;                               # success
+}

@@ -1,0 +1,1015 @@
+
+# This file contains the common rules
+
+
+##################################################
+# To generate the html format in a one only file #
+##################################################
+
+%-en.htm :: ../sgml/%-en.sgml
+	sgml2html \
+		--language=en \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-en.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-de.htm :: ../sgml/%-de.sgml
+	sgml2html \
+		--language=de \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-de.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-nl.htm :: ../sgml/%-nl.sgml
+	sgml2html \
+		--language=nl \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-nl.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-fr.htm :: ../sgml/%-fr.sgml
+	sgml2html \
+		--language=fr \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-fr.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-es.htm :: ../sgml/%-es.sgml
+	sgml2html \
+		--language=es \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-es.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-da.htm :: ../sgml/%-da.sgml
+	sgml2html \
+		--language=da \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-da.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-no.htm :: ../sgml/%-no.sgml
+	sgml2html \
+		--language=no \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-no.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-se.htm :: ../sgml/%-se.sgml
+	sgml2html \
+		--language=se \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-se.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-pt.htm :: ../sgml/%-pt.sgml
+	sgml2html \
+		--language=pt \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-pt.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-ca.htm :: ../sgml/%-ca.sgml
+	sgml2html \
+		--language=ca \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-ca.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-it.htm :: ../sgml/%-it.sgml
+	sgml2html \
+		--language=it \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-it.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-ro.htm :: ../sgml/%-ro.sgml
+	sgml2html \
+		--language=ro \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*-ro.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%.htm :: ../sgml/%.sgml
+	sgml2html \
+		--language=en \
+		--dosnames \
+		--charset=latin \
+		--papersize=a4 \
+		--split=0 \
+		$< 
+	-tidy -m -q $*.htm
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+#######################################################
+# To generate the html format with a table of content #
+#######################################################
+
+%-en.html :: ../sgml/%-en.sgml
+	sgml2html \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-en*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-de.html :: ../sgml/%-de.sgml
+	sgml2html \
+		--language=de \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-de*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-nl.html :: ../sgml/%-nl.sgml
+	sgml2html \
+		--language=nl \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-nl*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-fr.html :: ../sgml/%-fr.sgml
+	sgml2html \
+		--language=fr \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-fr*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-es.html :: ../sgml/%-es.sgml
+	sgml2html \
+		--language=es \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-es*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-da.html :: ../sgml/%-da.sgml
+	sgml2html \
+		--language=da \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-da*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-no.html :: ../sgml/%-no.sgml
+	sgml2html \
+		--language=no \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-no*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-se.html :: ../sgml/%-se.sgml
+	sgml2html \
+		--language=se \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-se*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-pt.html :: ../sgml/%-pt.sgml
+	sgml2html \
+		--language=pt \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-pt*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-ca.html :: ../sgml/%-ca.sgml
+	sgml2html \
+		--language=ca \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-ca*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-it.html :: ../sgml/%-it.sgml
+	sgml2html \
+		--language=it \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-it*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%-ro.html :: ../sgml/%-ro.sgml
+	sgml2html \
+		--language=ro \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $*-ro*.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+%.html :: ../sgml/%.sgml
+	sgml2html \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+	-tidy -m -q $**.html
+	@echo  tidy errors are normal since it is tidy\'s job to correct them.
+
+##########################################################
+# To generate ascii format lynx is better than sgmltools #
+##########################################################
+
+%-en.txt :: ../sgml/%-en.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=en \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-de.txt :: ../sgml/%-de.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=de \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-nl.txt :: ../sgml/%-nl.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=nl \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-fr.txt :: ../sgml/%-fr.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=fr \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-es.txt :: ../sgml/%-es.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=es \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-da.txt :: ../sgml/%-da.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=da \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-no.txt :: ../sgml/%-no.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=no \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-se.txt :: ../sgml/%-se.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=se \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-pt.txt :: ../sgml/%-pt.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=pt \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-ca.txt :: ../sgml/%-ca.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=ca \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-it.txt :: ../sgml/%-it.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=it \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%-ro.txt :: ../sgml/%-ro.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=ro \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+%.txt :: ../sgml/%.sgml
+	cp $< tmp.sgml;\
+	sgml2html \
+		-s 0 \
+		--language=en \
+		--charset=latin \
+		tmp;\
+	tidy -m -q tmp.html;\
+	lynx -dump -nolist tmp.html > $@;\
+	rm -f tmp.html tmp.sgml
+
+######################
+# Device independent #
+######################
+
+%-en.dvi :: ../sgml/%-en.sgml
+	sgml2latex  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-de.dvi :: ../sgml/%-de.sgml
+	sgml2latex  \
+		--language=de \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-nl.dvi :: ../sgml/%-nl.sgml
+	sgml2latex  \
+		--language=nl \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-fr.dvi :: ../sgml/%-fr.sgml
+	sgml2latex  \
+		--language=fr \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-es.dvi :: ../sgml/%-es.sgml
+	sgml2latex  \
+		--language=es \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-da.dvi :: ../sgml/%-da.sgml
+	sgml2latex  \
+		--language=da \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-no.dvi :: ../sgml/%-no.sgml
+	sgml2latex  \
+		--language=no \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-se.dvi :: ../sgml/%-se.sgml
+	sgml2latex  \
+		--language=se \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-pt.dvi :: ../sgml/%-pt.sgml
+	sgml2latex  \
+		--language=pt \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ca.dvi :: ../sgml/%-ca.sgml
+	sgml2latex  \
+		--language=ca \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-it.dvi :: ../sgml/%-it.sgml
+	sgml2latex  \
+		--language=it \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ro.dvi :: ../sgml/%-ro.sgml
+	sgml2latex  \
+		--language=ro \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%.dvi :: ../sgml/%.sgml
+	sgml2latex  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+####################
+# Rich Text Format #
+####################
+
+%-en.rtf :: ../sgml/%-en.sgml
+	sgml2rtf  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-de.rtf :: ../sgml/%-de.sgml
+	sgml2rtf  \
+		--language=de \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-nl.rtf :: ../sgml/%-nl.sgml
+	sgml2rtf  \
+		--language=nl \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-fr.rtf :: ../sgml/%-fr.sgml
+	sgml2rtf  \
+		--language=fr \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-es.rtf :: ../sgml/%-es.sgml
+	sgml2rtf  \
+		--language=es \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-da.rtf :: ../sgml/%-da.sgml
+	sgml2rtf  \
+		--language=da \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-no.rtf :: ../sgml/%-no.sgml
+	sgml2rtf  \
+		--language=no \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-se.rtf :: ../sgml/%-se.sgml
+	sgml2rtf  \
+		--language=se \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-pt.rtf :: ../sgml/%-pt.sgml
+	sgml2rtf  \
+		--language=pt \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ca.rtf :: ../sgml/%-ca.sgml
+	sgml2rtf  \
+		--language=ca \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-it.rtf :: ../sgml/%-it.sgml
+	sgml2rtf  \
+		--language=it \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ro.rtf :: ../sgml/%-ro.sgml
+	sgml2rtf  \
+		--language=ro \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%.rtf :: ../sgml/%.sgml
+	sgml2rtf  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+####################
+# Postscript adobe #
+####################
+
+%-en.ps :: ../sgml/%-en.sgml
+	sgml2latex  \
+		--language=en \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-de.ps :: ../sgml/%-de.sgml
+	sgml2latex  \
+		--language=de \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-nl.ps :: ../sgml/%-nl.sgml
+	sgml2latex  \
+		--language=nl \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-fr.ps :: ../sgml/%-fr.sgml
+	sgml2latex  \
+		--language=fr \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-es.ps :: ../sgml/%-es.sgml
+	sgml2latex  \
+		--language=es \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-da.ps :: ../sgml/%-da.sgml
+	sgml2latex  \
+		--language=da \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-no.ps :: ../sgml/%-no.sgml
+	sgml2latex  \
+		--language=no \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-se.ps :: ../sgml/%-se.sgml
+	sgml2latex  \
+		--language=se \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-pt.ps :: ../sgml/%-pt.sgml
+	sgml2latex  \
+		--language=pt \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ca.ps :: ../sgml/%-ca.sgml
+	sgml2latex  \
+		--language=ca \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-it.ps :: ../sgml/%-it.sgml
+	sgml2latex  \
+		--language=it \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ro.ps :: ../sgml/%-ro.sgml
+	sgml2latex  \
+		--language=ro \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%.ps :: ../sgml/%.sgml
+	sgml2latex  \
+		--language=en \
+		--output=ps \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+##############
+# Tex output #
+##############
+
+%-en.tex :: ../sgml/%-en.sgml
+	sgml2latex  \
+		--language=en \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-de.tex :: ../sgml/%-de.sgml
+	sgml2latex  \
+		--language=de \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-nl.tex :: ../sgml/%-nl.sgml
+	sgml2latex  \
+		--language=nl \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-fr.tex :: ../sgml/%-fr.sgml
+	sgml2latex  \
+		--language=fr \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-es.tex :: ../sgml/%-es.sgml
+	sgml2latex  \
+		--language=es \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-da.tex :: ../sgml/%-da.sgml
+	sgml2latex  \
+		--language=da \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-no.tex :: ../sgml/%-no.sgml
+	sgml2latex  \
+		--language=no \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-se.tex :: ../sgml/%-se.sgml
+	sgml2latex  \
+		--language=se \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-pt.tex :: ../sgml/%-pt.sgml
+	sgml2latex  \
+		--language=pt \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ca.tex :: ../sgml/%-ca.sgml
+	sgml2latex  \
+		--language=ca \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-it.tex :: ../sgml/%-it.sgml
+	sgml2latex  \
+		--language=it \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ro.tex :: ../sgml/%-ro.sgml
+	sgml2latex  \
+		--language=ro \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%.tex :: ../sgml/%.sgml
+	sgml2latex  \
+		--language=en \
+		--output=tex \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+###############
+# Info output #
+###############
+
+%-en.info :: ../sgml/%-en.sgml
+	sgml2info  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-de.info :: ../sgml/%-de.sgml
+	sgml2info  \
+		--language=de \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-nl.info :: ../sgml/%-nl.sgml
+	sgml2info  \
+		--language=nl \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-fr.info :: ../sgml/%-fr.sgml
+	sgml2info  \
+		--language=fr \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-es.info :: ../sgml/%-es.sgml
+	sgml2info  \
+		--language=es \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-da.info :: ../sgml/%-da.sgml
+	sgml2info  \
+		--language=da \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-no.info :: ../sgml/%-no.sgml
+	sgml2info  \
+		--language=no \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-se.info :: ../sgml/%-se.sgml
+	sgml2info  \
+		--language=se \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-pt.info :: ../sgml/%-pt.sgml
+	sgml2info  \
+		--language=pt \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ca.info :: ../sgml/%-ca.sgml
+	sgml2info  \
+		--language=ca \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-it.info :: ../sgml/%-it.sgml
+	sgml2info  \
+		--language=it \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ro.info :: ../sgml/%-ro.sgml
+	sgml2info  \
+		--language=ro \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%.info :: ../sgml/%.sgml
+	sgml2info  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+##############
+# LyX outout #
+##############
+
+%-en.lyx :: ../sgml/%-en.sgml
+	sgml2lyx  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-de.lyx :: ../sgml/%-de.sgml
+	sgml2lyx  \
+		--language=de \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-nl.lyx :: ../sgml/%-nl.sgml
+	sgml2lyx  \
+		--language=nl \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-fr.lyx :: ../sgml/%-fr.sgml
+	sgml2lyx  \
+		--language=fr \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-es.lyx :: ../sgml/%-es.sgml
+	sgml2lyx  \
+		--language=es \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-da.lyx :: ../sgml/%-da.sgml
+	sgml2lyx  \
+		--language=da \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-no.lyx :: ../sgml/%-no.sgml
+	sgml2lyx  \
+		--language=no \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-se.lyx :: ../sgml/%-se.sgml
+	sgml2lyx  \
+		--language=se \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-pt.lyx :: ../sgml/%-pt.sgml
+	sgml2lyx  \
+		--language=pt \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ca.lyx :: ../sgml/%-ca.sgml
+	sgml2lyx  \
+		--language=ca \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-it.lyx :: ../sgml/%-it.sgml
+	sgml2lyx  \
+		--language=it \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%-ro.lyx :: ../sgml/%-ro.sgml
+	sgml2lyx  \
+		--language=ro \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+
+%.lyx :: ../sgml/%.sgml
+	sgml2lyx  \
+		--language=en \
+		--charset=latin \
+		--papersize=a4 \
+		$<
+

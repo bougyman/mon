@@ -1,0 +1,6 @@
+# Monitor snmp processes by reading the full command line.
+# Completely client-side. Do not use prTable but the standard "host" MIB.
+#
+# Arguments are:
+#
+# [-c community] -p regexp-on-the-command-line [-p regexp-on-the-command-line... ] host [host ...]

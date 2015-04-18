@@ -1,0 +1,142 @@
+#!/usr/bin/perl
+#
+# Use: try to connect anonymously to a Samba server, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+## Arguments are " [-d] [-w] [-o] [-v] -t timeout host [host...]"
+#
+#  -d :   NT domain (ex: FT)
+#  -w :   Windows Workgroup (ex: FT)
+#  -o :   OS [NT, Unix]
+#  -v :   Samba Version (ex: 'Samba 1.9.17p4')
+#
+# Adapted from "http.monitor" by
+# Jean Le Moigne <jean.lemoigne@francetelecom.fr>
+#
+# http.monitor originally written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: samba.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+#    Copyright (C) 1998, Jean Le Moigne
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+
+use  Getopt::Std;
+
+
+
+# Definitions
+#
+$SAMBA_DIR     = "/usr/local/samba";
+$SAMBA_BIN_DIR = "$SAMBA_DIR/bin";
+
+
+$uid = `/usr/bin/id`;
+chomp $uid;
+$uid =~ /^uid=\S+\((\S+)\)\s+gid=\S+$/ ;
+if ( defined $1 ) { $uid = "$1"; }
+
+
+getopts ("d:w:o:v:u:");
+
+$Domain         = $opt_d || ".*";
+$Workgroup      = $opt_w || ".*";
+$OS             = $opt_o || ".*";
+$Server_version = $opt_v || ".*";
+
+$UID            = $uid;
+
+
+#$TIMEOUT = $opt_t || 10;
+
+
+
+
+
+@failures = ();
+
+foreach $host (@ARGV) {
+
+    if (! &Samba_test ($host)) {
+        push (@failures, $host);
+    }
+}
+ 
+if (@failures == 0) {
+    exit 0;
+}
+ 
+print "@failures\n";
+ 
+exit 1;
+
+
+
+
+
+sub  Samba_test
+
+  {
+  my ($Server_name) = shift (@_);
+
+  open (SCAN, "$SAMBA_BIN_DIR/smbclient -L $Server_name |") || die ">>> Cannot 
+run find: $!\n";
+
+  ($Server_short_name, $void) = split (/\./, $Server_name);
+  $Samba_server_name = "\U$Server_short_name";
+ 
+  $ligne = <SCAN>;
+  $ligne = <SCAN>;
+  chomp $ligne;
+  if ( !($ligne =~ /^Server time is/) ) { close (SCAN); return (0); }
+
+  $ligne = <SCAN>;
+  chomp $ligne;
+  if ( !($ligne =~ /^Timezone is/) ) { close (SCAN); return (0); }
+
+  $ligne = <SCAN>; 
+  chomp $ligne; 
+  if ( !($ligne =~ 
+/^Domain=\[$Domain\]\s+OS=\[$OS\]\s+Server=\[$Server_version\]/) ) { close 
+(SCAN); return (0); }
+
+  $ligne = <SCAN>;
+  chomp $ligne;
+  if ( !($ligne =~ /^connected as guest security=share/) ) { close (SCAN); 
+return (0); }
+
+  $ligne = <SCAN>;
+  chomp $ligne;
+  if ( $ligne ne "" ) { close (SCAN); return (0); }
+
+  $ligne = <SCAN>;
+  chomp $ligne;
+  if ( !($ligne =~ 
+/^Server=\[$Samba_server_name\]\s+User=\[$UID\]\s+Workgroup=\[$Workgroup\]\s+Domain=\[$Domain\]/) 
+) { close (SCAN); return (0); }
+ 
+  close (SCAN);
+
+  return (1);
+
+  }   # (end  sub Samba_test)

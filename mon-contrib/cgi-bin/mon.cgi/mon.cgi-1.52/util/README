@@ -1,0 +1,25 @@
+This directory contains various utilities for mon.cgi users.
+
+
+moncgi-appsecret.pl
+-------------------
+This script helps you automatically change your application secret key
+if you are using mon.cgi authentication (and if you aren't using
+authentication, why not?). Please see the script for usage guidelines.
+
+Your users' passwords can be trivially decrypted if your application
+secret is compromised and someone can subsequently access their cookie
+file. 
+
+The best way to protect against this is to not allow general access to
+the machine that mon.cgi runs on (i.e., administrators only).
+
+Changing the application secret on a regular basis is one way to guard
+against attacks which could potentially rely on stealing the app
+secret. I would recommend changing the app secret every 1-7 days. More
+often than daily is probably inconvenient for your users (who will be
+logged out when the app secret changes).
+
+It's simple to use from cron:
+# Change the app secret on the mon.cgi CGI at 4am every day
+0 4 * * * /usr/local/adm/bin/moncgi-appsecret.pl /home/www/mon/mon.cgi

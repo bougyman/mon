@@ -1,0 +1,373 @@
+$Id: README.monitors,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+The following monitors are provided with the distribution, to get
+you started. It's simple to add your own monitors. See the man page
+for "mon" to learn how.
+
+fping.monitor
+-------------
+    This pings a list of hosts efficiently using the fping program,
+    from the Satan distribution. fping.monitor is just a simple
+    shell wrapper for fping, and is normally invoked with just the
+    list of hosts to ping. Here's a trick: say you don't want to
+    trigger an alert until a machine has unpingable for some number
+    of minutes. Give fping.monitor the arguments "-r 3 -t 240000".
+
+    arguments:
+
+    	-a		only report failure if all hosts fail
+	-r num		retry "num" times for each host before
+			reporting failure
+	-t num		set timeout between retries to "num"
+			milliseconds
+	-s num		consider hosts whose response time exceed
+			"num" milliseconds as failures
+	-T		for each failed host (no response only),
+			traceroute to the system and report the
+			output
+			
+
+ping.monitor
+------------
+    Similar to fping.monitor, but uses the system's ping program.
+    This serializes the pings, which is normally bad to do. This
+    is simply an alternative to fping.monitor, if you can't get
+    fping to compile. I've only tested it with Linux and Solaris.
+
+freespace.monitor
+-----------------
+    This will monitor disk space usage of a particular NFS server.
+    Arguments are supplied as "path:kBfree [path:kBfree...]". If
+    free space dips below kBfree, then it returns a failure condition,
+    and the output is how much space is left on that server.
+
+    If you use this monitor, use separate mounts for the volumes that
+    you want to test, mounting them with the "-o ro,intr,soft" options,
+    so things don't hang too bad if the server is down.
+
+    You should use the ";;" directive to the monitor line, because
+    freespace.monitor doesn't take a list of hosts. Here's an example:
+
+watch nfsservers
+        service fping
+            interval 5m
+            monitor fping.monitor
+            alert mail.alert mis-alert@company.com
+            alert netpage.alert mis-pager
+            alertevery 60m
+        service freespace
+            interval 10m
+            monitor freespace.monitor /server1:5000000 /server2:5000000 ;;
+            alert mail.alert mis-alert@company.com
+            alert netpage.alert mis-pager
+            alertevery 60m
+
+
+tcp.monitor
+-----------
+    Useful to see if it's possible to connect to a particular port
+    on a particular server. This is over-simplified, and does not yet
+    support parsing of the output from these services. Options are
+    "-p port" to tell which port to check, and a list of hosts.
+
+
+http_t.monitor
+--------------
+    This monitor, contributed by Jon Meek (meekj@pt.cyanamid.com), will
+    use HTTP to connect to a server, get a page, and log the transfer
+    speed of the transaction. It uses the Time::HiRes Perl module,
+    available from CPAN. It can also register a failure if the transfer
+    doesn't complete within a certain number of seconds. See the
+    source code for an explanation of the arguments.
+
+http_tp.monitor
+---------------
+    Used to measure and log http file transfer speed and use a proxy.
+    See the comments in the source code for instructions.
+    Requires Time::HiRes, LWP::UserAgent, and HTTP::Request.
+
+dns.monitor
+-----------
+    dns.monitor will make several DNS queries to verify that a server is
+    providing the correct information for a zone. The zone argument is
+    the zone to check. There can be multiple zone arguments. The master
+    argument is the master server for the zone.  It will be queried for
+    the base information.  Then each server will be queried to verify
+    that it has the correct answers.  It is assumed that each server is
+    supposed to be authoritative for the zone.
+
+ftp.monitor
+-----------
+    Connect to an ftp server, wait for an acceptible prompt, and log
+    out.
+
+hpnp.monitor
+------------
+    Uses SNMP to monitor HP JetDirect-equipped printers. Reports
+    failures as told by the various objects in HP's MIB, and returns
+    the message that is showing on the printer's LCD ("LOW TONER",
+    "LOAD LETTER", etc.).
+
+http.monitor
+------------
+    Connects to an http server, retrieves a URL, and returns true
+    if everything is OK.
+
+imap.monitor
+------------
+    Connects to an IMAP server, checks for a sane response, and
+    then logs out.
+
+ldap.monitor
+------------
+    This script will search an LDAP server for objects that match the
+    -filter option, starting at the DN given by the -basedn option. Each
+    DN found must contain the attribute given by the -attribute option
+    and the attribute's value must match the value given by the -value
+    option.  Servers are given on the command line. At least one server
+    must be specified.
+
+netappfree.monitor
+------------------
+    Use SNMP to get free disk space from a Network Appliance
+    exits with value of 1 if free space on any host drops below
+    the supplied parameter, or exits with the value of 2 if
+    there is a "soft" error (SNMP library error, or could not get a
+    response from the server).
+
+    This requires the UCD SNMP library and G.S. Marzot's Perl SNMP
+    module.
+
+    Supply a configuration file with "--config file" option (see
+    etc/netappfree.cf for an example), or "--list" for a listing
+    of filesystems which are on your filers. Use --list for help in
+    building a configuration file.
+
+nntp.monitor
+------------
+    Tries to connect to a nntp server, and wait for the right output.
+
+ping.monitor
+------------
+    Returns a list of hosts which not reachable via ICMP echo. Uses the
+    system's default ping, rather than fping.
+
+pop3.monitor
+------------
+    Connects to a POP3 server, waits for the OK prompt, then logs out.
+
+process.monitor
+---------------
+    Monitor snmp processes.
+
+    Arguments are:  [-c community] host [host ...]
+
+    This script will exit with value 1 if host:community has
+    processErrorFlag set.  The summary output line will be the host names
+    that failed and the name of the process.  The detail lines are what
+    UCD snmp returns for an ErrorMsg.  ('Too (many|few) (name) running (#
+    = x)').  If there is an SNMP error (either a problem with the SNMP
+    libraries, or a problem communicating via SNMP with the destination
+    host), this script will exit with a warning value of 2.
+
+    There probably should be a better way to specify a given process to
+    watch instead of everything-ucd-snmp-is-watching.
+
+reboot.monitor
+--------------
+    Polls the SNMP agent on hosts, and triggers a failure when a reboot
+    is detected.
+
+smtp.monitor
+------------
+    Connects to an SMTP server, waits for a prompt, and then logs out.
+
+telnet.monitor
+--------------
+    Use tcp_scan to try to connect to the telnet port on a bunch of hosts,
+    and look for a "login" prompt.
+
+msql-mysql.monitor, rpc.monitor
+-------------------------------
+    See the separate README for these monitors.
+
+readdir.monitor
+---------------
+    From: gilles LamiraL <lamiral@mail.dotcom.fr>
+    To: "mon@linux.kernel.org" <mon@linux.kernel.org>
+    Subject: readdir monitor
+
+    Hello,
+
+    I wrote a monitor that reads several directories and tells
+    if the number of files in each directory exceeds a given number.
+    Possible uses are testing /var/spool/mqueue or /var/spool/lp/
+    It is a local monitor. No SNMP here. I think it can be easyly
+    called from an SNMP agent.
+
+    1) The allowed number can be specified for each directory.
+
+    2) You can add a regex filter to match the file names.
+       Only one regex is allowed for all directories.
+       Tell me if you want one for directory.
+
+    3) The return status is interesting. It gives the exceeded values 
+       in a log based 2 way.
+
+    For example: 
+    You want to check if /var/spool/mqueue contains less than 100 messages
+
+    $ ls /var/spool/mqueue | wc -l
+    479
+    $ ./my-readdir.monitor /var/spool/mqueue:100
+    /var/spool/mqueue:479
+    $ echo $?
+    3
+
+      1 means more than 100 messages
+      2 means more than 200 messages
+      3 means more than 400 messages
+      4 means more than 800 messages
+
+    ...
+    255 means more than 5.79 * 10^76 messages (579 + 74 zeros !)
+       
+    Nice ?
+    See more example in the script itself.
+
+
+up_rtt.monitor
+--------------
+    mon monitor to check for circuit up and measure RTT.
+    Jon Meek - 09-May-1998.  Requires Perl Modules "Time::HiRes" and
+    "Statistics::Descriptive".
+
+
+dialin.monitor
+--------------
+    Dials in to a modem and fails if a carrier and a prompt is not
+    detected.  Useful for telling if your modem pool is down or if some
+    spaz modem has quit answering the phone.
+
+    dialin.monitor requires the Perl Expect module, available from
+    CPAN.
+
+    This program performs UUCP-style locking, and needs to run setgid
+    uucp to accomplish this. Provided is dialin.monitor.wrap.c, a simple
+    little C program which is installed as setgid uucp and directly
+    executes the actual dialin.monitor Perl script. This is required
+    because some systems (e.g. Linux) do not allow setuid/setgid scripts.
+
+    To build, edit the Makefile in mon.d, and adjust monpath to your
+    environment. The do:
+
+    make && make install
+
+    dialin.monitor accepts several arguments. The only required argument
+    is "-n", which specifies the phone number to dial.
+
+    -n number	dial in to "number"
+    -t secs	timeout to wait for "CONNECT" from modem (60)
+    -l lockdir	directory to use for UUCP-style locking ("/var/lock")
+    -D device	serial device to use ("/dev/modem")
+
+
+foundry-chassis.monitor
+-----------------------
+    Reports the power supply and fan status of Foundry chassis-based
+    switches, like the BigIron and the FastIron. This uses the
+    "FOUNDRY-SN-AGENT-MIB" and "FOUNDRY-SN-ROOT-MIB". Foundry annoyingly
+    ships their MIBs in one giant file. What I do is separate them into
+    distinct files so that the UCD tools don't need to parse the single
+    giant file.
+
+    I've tested this with staged failures of PSUs and it works fine.
+    It actually caught an actual non-staged failure once.
+
+    Arguments are:
+
+    -c community     SNMP community to use
+
+
+silkworm.monitor
+---------------
+    Reports port, fan, power supply, and temperature failures in Brocade
+    SilkWorm FCAL switches. It requires Brocade's "SW-MIB" MIB.
+
+    Sensor failures are explicitly reported by the agent, read by this
+    monitor, and reported to mon. This monitor identifies port problems
+    by paying attention to only those ports whose administrative status is
+    "online", yet the actual operational status is not "online".
+
+    This monitor has not yet been tested in the case of an actual (or
+    staged) failure. That doesn't mean it doesn't work--it's just that
+    it hasn't been tested :)
+
+    Arguments are:
+
+    -c community     SNMP community to use
+
+
+cpqhealth.monitor
+-----------------
+    Report fan, PSU, and temperature failures from systems running the
+    Compaq "Insight Manager". It requires the "CPQHLTH-MIB" MIB,
+    and the UCD SNMP libs w/the Perl module.
+    
+    We've had this running for a little while now, and both tested it with
+    "staged" failures and actual failures, and it seems to work rather
+    well. The Insight agent is a bit quirky, though. I've seen where
+    it reports that both PSUs are installed, running without error,
+    yet it says it is not in a redundant configuration.
+
+    Arguments are:
+
+    -c community     SNMP community to use
+
+
+mon.monitor
+-----------
+    Report the running status of a mon server.
+
+    Arguments are:
+
+    -p port		port to use, defaults to 2583
+    -t timeout		timeout in seconds, defaults to 30
+    -u username		username (optional)
+    -p password		password (optional)
+
+
+traceroute.monitor
+------------------
+	Monitor routes from monitor machine to a remote system
+	using traceroute. Alarm and log when changes are detected.
+	See embedded POD documentation for details.
+
+
+smtp3.monitor
+-------------
+	smtp monior which performs logging of connect times.
+	See embedded POD documentation for details.
+
+
+http_tpp.monitor
+---------------
+	Parallel query http server monitor for mon. Logs timing
+	and size results, can use a proxy server, and can
+	incorporate a "Smart Alarm" function via a user supplied
+	Perl module.  See embedded POD documentation for details.
+
+
+file_change.monitor
+-------------------
+	file_change.monitor will watch specified files in a
+	directory and trigger an alert when any monitored file
+	changes, or is missing. File changes can optionally be
+	logged using RCS.
+	See embedded POD documentation for details.
+
+
+na_quota.monitor
+----------------
+	report quota limits on network appliance filers.  see the comments
+	in the file for details.

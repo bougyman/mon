@@ -1,0 +1,19 @@
+$Id: README.software,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+Here is some good software to have when building monitors and
+alerts for mon:
+
+QuickPage v3.2
+ftp.it.mtu.edu:/pub/QuickPage
+Software to send a page via modem and the IXO protocol.  It's very simple
+to set up.
+
+Satan 1.1.1
+ftp://coast.cs.purdue.edu/pub/tools/unix/satan/
+The Satan network security scanner has a number of utilites which 
+are useful when adapted to mon.
+
+sock
+http://www.kohala.com/~rstevens/tcpipiv1.tar.Z
+A utility written by Richard Stevens which allows manipulation
+of TCP and UDP connections.

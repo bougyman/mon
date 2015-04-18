@@ -1,0 +1,141 @@
+#!/usr/local/bin/perl5.8.8
+#
+# $Id: sslcert.monitor,v 1.1 2011/03/10 01:37:52 trockij Exp $
+#
+
+my $usage="Usage: sslcert.monitor  --expiry NN --port NNN [--starttls {imap|smtp|pop3|ftp}] hostname [...]";
+
+# check SSL certs of direct SSL-wrapped services or STARTTLS services
+# alarm if certificate expires within "--expiry" days.
+
+# Written by Ed Ravin <eravin@panix.com> January 2011
+# Code made available courtesy of Public Access Networks, http://panix.com
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use Getopt::Long;
+use Date::Parse;
+
+my @details=();
+my @failures=();
+
+GetOptions( \%options, "port=i", "expiry=i", "starttls=s", "debug" )
+	or die $usage;
+
+my $port= $options{port} || die $usage;
+my $expiry= $options{expiry} || die $usage;
+my $starttls= $options{starttls} || "";
+die $usage unless ( $starttls =~ /^(imap|smtp|pop3|ftp)$/ or $starttls eq "");
+$starttls= "-starttls $starttls" unless $starttls eq "";
+my $debug= $options{debug} || 0;
+my $now = time;
+my $expiredeadline= $now + ($expiry * 3600 * 24);
+
+#openssl s_client -connect mail.panix.com:993  2>/dev/null </dev/null | openssl x509 -noout -enddate; echo $?
+# notAfter=Jan 28 20:18:05 2013 GMT
+
+for $host( @ARGV ) {
+
+	my $cmdline= sprintf("openssl s_client -connect %s:%d %s 2>/dev/null < /dev/null | openssl x509 -noout -enddate 2>&1",
+	$host, $port, $starttls);
+
+	print "Command: $cmdline\n" if $debug;
+
+	my $ssloutput= `$cmdline`;
+    my $rc= $? >> 8;
+
+	if( $rc != 0 ) {
+		push( @failures, $host);
+		push( @details, "$host: openssl return code $rc, output: $ssloutput\n");
+		next;
+	}
+
+	chomp $ssloutput;
+	if ( $ssloutput !~ /^\s*notAfter\s*=\s*(.*)/) {
+		push( @failures, $host);
+		push( @details, "$host: unexpected result from openssl command line: $ssloutput\n");
+		next;
+	}
+
+	my $certexpiretime= str2time($1);
+	if (!defined($certexpiretime)) {
+		push( @failures, $host);
+		push( @details, "$host: unable to parse openssl command line output: $ssloutput\n");
+		next;
+	}
+
+	if ($certexpiretime <  $expiredeadline) {
+		push( @failures, $host);
+		push( @details, "$host: certificate expires within $expiry days: $ssloutput is " . int(($certexpiretime - $now) / 3600 / 24) . " days away\n");
+		next;
+	}
+
+	print "$host: $ssloutput - notAfter=$certexpiretime - deadline=$expiredeadline\n" if $debug;
+	
+}
+
+if (@failures == 0) {
+    exit 0;
+	}
+
+print join (" ", sort @failures), "\n";
+print sort @details if (scalar @details > 0);
+
+exit 1;
+
+__END__
+
+=head1 NAME
+
+sslcert.monitor - alarm when SSL certificates approach expiration date
+
+=head1 SYNOPSIS
+
+B<sslcert.monitor>  --expiry I<days> --port I<portnum> [--starttls {imap|smtp|pop3|ftp}] hostname [...]
+
+=head1 DESCRIPTION
+
+B<sslcert.monitor> checks the requested server(s) at the requested
+port number and alarms if the SSL certificate of the server will
+expire within the specified deadline.
+
+=head1 OPTIONS
+
+=item B<--expiry> I<days>
+
+Alarm if the server certificate expires within the specified number of days.
+
+=item B<--portnum> I<port-number>
+
+The numeric port number to test.
+
+=item B<--starttls> I<protocol>
+
+Connect to the specified port number without encryption and issue a
+STARTTLS command to switch to encrypted mode.  The OpenSSL client
+supports the protocals "pop3", "smtp", "imap", and "ftp".
+
+=item B<--debug>
+
+List out debugging information for each server.
+
+=head1 BUGS
+
+B<sslcert.monitor> is a wrapper around the B<openssl s_client> command
+and has the same limitations, including a non-adjustable timeout.
+If the host is not answering it could take 75 seconds or longer for
+B<sslcert.monitor> to detect the error for each host, possibly causing
+long delays for this command when testing multiple hosts.

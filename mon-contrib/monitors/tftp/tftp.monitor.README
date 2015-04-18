@@ -1,0 +1,10 @@
+# This TFTP test script will attempt to fetch a file from a tftp server,
+# and will verify it receives a non-empty file.
+#
+# Requires Net::TFTP
+#
+# Arguments: '-f filename hostname [...]'
+#
+# Author: David Nolan, Carnegie Mellon University, Computing Services
+# Contact: net-dev@andrew.cmu.edu
+

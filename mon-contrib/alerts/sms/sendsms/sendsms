@@ -1,0 +1,312 @@
+#!/usr/bin/perl
+#
+############################################################################
+##                                                                        ##
+##  sendsms                                                Version 1.5.0  ##
+##                                                            2005-02-01  ##
+##  Copyright (C) 1999-2005                                               ##
+##  Peter Holzleitner (peter@holzleitner.com)                             ##
+##                                                                        ##
+############################################################################
+#
+# This script sends an SMS message to a GSM phone using a GSM
+# modem connected to the local host.  This is independent of the
+# GSM provider in question and does not rely on any infrastructure
+# except the GSM network itself and the local host and modem.
+#
+# Arguments:
+#
+#  --number=+436641234567
+#  [--modem=ttyS3]              specify without /dev/ prefix
+#  [--pin=9999]
+#  [--text="message text"]	supply message text as cmdline arg
+#  [--subject]                  extract subject from mail msg on stdin
+#  [--qpage=pagerid@server]     if SMS fails, send message via QPAGE
+#  [--verbose]                  show interaction with modem step by step
+#  [--debug]			set Expect debug level
+#
+# The message text is expected on standard input unless --text is present.
+#
+# Requirements:
+#
+#   Perl modules Expect, IO::Stty and IO::Tty,
+#   available from CPAN (http://www.cpan.org)
+#
+# License:
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software Foundation,
+#    Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+#
+# History:
+#
+#    1.5.0  on error, register on home network (Erik B.)
+#    1.3.0  added fallback to qpage
+#    1.2.3  added delays for compatibility with Siemens modem
+#    1.2.2  locking converted to sysopen(); syslog() added
+#    1.2.1  message corrections
+#    1.2.0  device locking added
+#    1.1.0  addition of --subject option
+#    1.0.0  initial release; tested with FALCOM A2
+#
+
+use English;
+use Getopt::Long;
+use Fcntl qw(:DEFAULT :flock);
+use IO::Handle;
+use Expect;
+use Sys::Syslog qw(:DEFAULT setlogsock);
+
+# ################# user configurable parameters ######################
+$stdpin    = "9999";
+$stddev    = "ttyS0";  # without /dev/
+$ttymodes  = 'raw -echo 9600 cs8 -parenb -cstopb';  # raw, 9600/8N1
+$lockretry = 20;   # number of retries
+$locksleep =  5;   # number of seconds between retries
+$lockrand  =  5;   # max number of seconds added to above randomly
+$qpagebin  = '/usr/bin/qpage';
+# ############## end of user configurable parameters ##################
+
+
+($^O eq "linux" || $^O eq "openbsd") && setlogsock ('unix');
+openlog('sendsms', '', 'user');
+
+GetOptions(\%opt, "modem=s", "number=s", "pin=s", "text=s", "qpage=s",
+                  "debug:i", "subject", "verbose");
+
+$pin     = $opt{"PIN"}   || $stdpin;
+$device  = $opt{"modem"} || $stddev;
+$verbose = $opt{"verbose"};
+
+$qpage   = $opt{"qpage"};
+($qpserver, $qpager) = ($2, $1) if $qpage =~ /(.+)@(.+)/;
+
+$lock   = "/var/lock/LCK.." . $device;
+$device = "/dev/" . $device;
+
+$name = getpwent();
+
+$expectpin = 0;
+
+$Expect::Debug = $opt{"debug"};  # default 0 assigned by getopt ":i"
+$Expect::Manual_Stty = 1;
+$Expect::Log_Stdout = 1;
+
+$number = $opt{"number"} or die "usage: sendsms --number=destination-number [--modem=/dev/modem] [--pin=9999] [--text=\"message\"] [--verbose] < message\n";
+$number = '"' . $number . '"';
+
+if($opt{"text"})
+  {
+  $message = $opt{"text"};
+  }
+elsif($opt{"subject"})
+  {
+  $message = '(no subject)';
+  while(<>)
+    {
+    $message = $1 if /^Subject: (.*)$/i;
+    }
+  print STDERR "MAIL mode: message=$message\n" if $verbose;
+  }
+else
+  {
+  @message = <>;
+  $message = join '', @message;
+  }
+
+syslog('debug', "sending \"$message\" to $number");
+
+eval {
+
+  print STDERR "SENDSMS: sending \"$message\" to $number\n\n" if $verbose;
+
+  print STDERR "Checking for Lock $lock ...\n" if $verbose;
+
+  $retry = $lockretry;
+  while($retry > 0 && -e $lock) {
+    open(LOCK, "<$lock");
+    $line = <LOCK>;
+    close(LOCK);
+
+    $pid = ""; $pid = $1 if $line =~ /([0-9]+)/;
+
+    $ERRNO = 0;
+    $prio = getpriority(PRIO_PROCESS, $pid);
+
+    if(($pid eq "") || ($ERRNO != 0)) {     # process doesn't exist anymore
+      syslog('warning', "Lock $lock by PID $pid is stale, removing");
+      print STDERR "Lock $lock by PID $pid is stale, removing ...\n" if $verbose;
+      unlink($lock);
+      next;
+      }
+
+    # valid lock, wait for removal
+    $secs = $locksleep + int(rand($lockrand));
+    syslog('warning', "Lock $lock held by PID $pid, waiting $secs s ($retry)");
+    print STDERR "Lock $lock held by PID $pid, waiting $secs s ($retry) ...\n" if $verbose;
+    sleep($secs);
+    $retry--;
+    }
+
+  if ( -e $lock ) {
+    syslog('error', "cannot get lock $lock");
+    die "cannot get lock $lock";
+    }
+
+  print STDERR "Obtaining Lock $lock ... " if $verbose;
+  sysopen(LOCK, $lock, O_WRONLY|O_CREAT|O_EXCL) or die "cannot create lock $lock";
+  syswrite(LOCK, "$PID $PROGRAM_NAME $name\n");
+  print STDERR "done\n" if $verbose;
+
+  print STDERR "Opening $device ... " if $verbose;
+  open(DEVICE, "+>$device") || die "Couldn't open $device, $!\n";
+
+  $modem = Expect->exp_init(\*DEVICE);  # 'objectify' device for Expect module
+
+  print STDERR "OK\nSetting device mode ..." if $verbose;
+  $res = $modem->exp_stty($ttymodes) or die "error setting tty mode";
+
+  # throw residual input characters away
+  $modem->expect(0);
+  print $modem "\r";
+  select(undef, undef, undef, 0.2);
+  print $modem "AT\r";
+  select(undef, undef, undef, 0.5);
+
+  print STDERR "OK\n" if $verbose;
+
+
+  print $modem "ATS18=1\r";
+  select(undef, undef, undef, 0.5);
+
+  print STDERR "testing PIN ... " if $verbose;
+
+  print $modem "AT+CPIN?\r";
+  $res = $modem->expect(10, 'CPIN: READY', 'CPIN: SIM') || die "AT+CPIN?: no response!\n";
+  if($res == 2)  # expects SIM PIN
+    {
+    $expectpin = 1;
+    print STDERR "sending PIN ...\n" if $verbose;
+  
+    print $modem "AT+CPIN=$pin\r";
+    ($res, $err, $match, $before, $after) = 
+         $modem->expect(10, 'OK', '+CME ERROR') || die "AT+CPIN=****: no response!\n";
+    die "error sending PIN code: $after" if $res != 1;
+
+    print STDERR "PIN sent, waiting for network ...\n" if $verbose;
+    sleep(30);	# let modem register on SMS network after setting PIN
+    }
+  else  
+    {
+    print STDERR "PIN OK\n" if $verbose;
+    }
+
+  print STDERR "checking network ... " if $verbose;
+
+  print $modem "AT+CREG?\r";
+  $res = $modem->expect(10, '+CREG: 0,1', '+CREG: 0,2', '+CREG: 0,0', '+CME ERROR') || die "AT+CREG?: no response!\n";
+  if($res != 1)
+    {
+    print STDERR "error from AT+CREG" if $verbose;
+
+    if($expectpin == 1) 
+      {
+      print STDERR "re-setting PIN\n" if $verbose;
+      print $modem "AT+CPIN=$pin\r";
+      print STDERR "delaying ...\n" if $verbose;
+      sleep(20);
+      } 
+
+    print STDERR "trying to register on home network\n" if $verbose;
+    print $modem "AT+COPS=0\r";
+    $res = $modem->expect(10, 'OK', '+CME ERROR') || die "AT+COPS=0: no response!\n";
+
+    print STDERR "delaying ...\n" if $verbose;
+    sleep(6);
+
+    print STDERR "re-checking network ... " if $verbose;
+    print $modem "AT+CREG?\r";
+    $res = $modem->expect(10, '+CREG: 0,1', '+CREG: 0,2', '+CREG: 0,0', '+CME ERROR') || die "AT+CREG?: no response!\n";
+
+    die "error from AT+CREG?: $after" if $res == 3 || res == 4;
+    die "GSM modem not registered on network" if $res != 1;
+    }
+
+  print STDERR "OK, online\n" if $verbose;
+
+
+  print STDERR "checking SMS status ... " if $verbose;
+
+  print $modem "AT+CSMS?\r";
+  $res = $modem->expect(10, '+CSMS: 0,1,1', '+CME ERROR') || die "AT+CSMS?: no response!\n";
+  die "error from AT+CSMS?: $after" if $res != 1;
+
+  print STDERR "OK, SMS active\n" if $verbose;
+
+
+  print STDERR "setting SMS text mode ... " if $verbose;
+
+  print $modem "AT+CMGF=1\r";
+  $res = $modem->expect(10, 'OK', 'ERROR') || die "AT+CMGF=1: no response!\n";
+  die "error from AT+CMGF=1: $after" if $res != 1;
+
+  print STDERR "OK\n" if $verbose;
+
+
+  select(undef, undef, undef, 1.0);
+
+  print STDERR "sending message ... " if $verbose;
+
+  #$modem->debug(2);
+  print $modem "AT+CMGS=$number\r";
+  $res = $modem->expect(60, '> ') || die "AT+CMGS=...: no prompt!\n";
+  select(undef, undef, undef, 0.5);
+  print $modem "$message\032";  # \032 = 0x1A = ^Z
+  $res = $modem->expect(60, '-re', '\+CMGS: [0-9]+', 'ERROR') || die "AT+CMGS=...: no response!\n";
+  die "error from AT+CMGS=..." if $res != 1;
+  #$modem->debug(0);
+
+  $match = $modem->exp_match();
+  $match =~ /CMGS: ([0-9]+)/;       # extract sent message number
+
+  print STDERR "OK, Message #$1 sent\n" if $verbose;
+  syslog('info', "Message sent successfully to $number: \"$message\"");
+
+  print STDERR "Closing\n" if $verbose;
+
+  $modem->expect(0);     # throw rest of output away
+  $modem->hard_close();  # bye.
+
+  print STDERR "Removing Lock $lock ... " if $verbose;
+
+  close(LOCK);
+  unlink($lock);
+
+  }; # end eval{}
+
+if($@) {
+  syslog('warning', "SENDSMS to $number failed");
+  
+  if( $qpager ) {
+    syslog('warning', "forwarding message to QPAGE");
+    print STDERR "\nSENDSMS failed, forwarding message to QPAGE\n" if $verbose;
+    system("$qpagebin -s $qpserver -p $qpager '$message'");
+    }
+    
+  }
+
+print STDERR "$@" if $verbose;
+print STDERR "done.\n" if $verbose;
+
+exit 0;
+

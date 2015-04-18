@@ -1,0 +1,25 @@
+
+
+To see what it is :
+
+$ perldoc ./Translation.pm
+
+
+To install it :
+
+$ perl Makefile.PL
+$ make
+$ make test
+$ make install
+
+To read the doc :
+
+$ man Translation
+
+or
+
+$ perldoc Translation
+
+A corpus example:
+
+corpus.example

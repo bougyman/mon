@@ -1,0 +1,21 @@
+Begin3
+Title:          minotaur
+Version:        0.05
+Entered-date:   2000-03-19
+Description:    Minotaur is a web dynamic client interface for MON.
+                MON is a monitoring tool written by Jim Trocki.
+                Minotaur home page :
+		www.linux-france.org/prj/minotaure/
+		MON home page :
+		http://www.kernel.org/software/mon
+Keywords:       monitoring
+Author:         lamiral@mail.dotcom.fr (Gilles Lamiral)
+Maintained-by:  lamiral@mail.dotcom.fr (Gilles Lamiral)
+Primary-site:   ftp.linux-france.org /pub/prj/minotaure/
+                178k minotaur-0.05.tgz
+		  1k minotaur.lsm
+Alternate-site: 
+Original-site:  
+Platforms:      perl
+Copying-policy: GPL
+End

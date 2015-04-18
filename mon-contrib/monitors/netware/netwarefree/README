@@ -1,0 +1,19 @@
+Quick Start:
+
+    Make sure SERVINST.NLM is loaded on Novell server
+    Make sure you have UCD SNMP 3.6.2+ and the Perl SNMP module installed
+    Copy netwarefree.mon to your mon.d directory
+    Copy netwarefree.cf to /etc/mon and edit to match your needs
+    Test from mon.d directory with ./netwarefree.monitor -l host1 host2 ...
+    Add watch/service to mon.cf, using netwarefree.monitor
+
+Common commandline options:
+
+    --config=/path/to/netwarefree.cf if neither /etc/mon nor /usr/lib/mon/etc
+    --community=your_SNMP_read_community if not 'public'
+
+Basic Troubleshooting:
+
+    use netwarefree.monitor --list option to see variable values
+    use snmpwalk your_hostname public .1 | less to verify SNMP agent
+

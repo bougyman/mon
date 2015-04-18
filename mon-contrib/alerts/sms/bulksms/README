@@ -1,0 +1,25 @@
+Date: Thu, 15 Sep 2005 14:41:09 +0100
+From: Aled Treharne <aled.treharne@gmail.com>
+To: mon@linux.kernel.org
+Subject: New alert for sending sms alerts through www.bulksms.co.uk
+
+Hi.
+
+To get around a problem we have here, I've written an alert script
+which uses bulksms.co.uk to send sms messages to preconfigured mobiles
+phones for alerting. It's attached, however a few caveats:
+
+1) I'm a python geek, not a perl geek, so it's written in python. Sorry. :)
+2) It requires the BulkSMS API as found on their site as well as a few
+other python bits.
+3) It uses FreeBSD assumptions for file locations.
+
+Any problems, please let me know.
+
+Thanks,
+Aled.
+
+_______________________________________________
+mon mailing list
+mon@linux.kernel.org
+http://linux.kernel.org/mailman/listinfo/mon

@@ -1,0 +1,76 @@
+------------------------------------------------------------------
+- cf2html 0.1
+------------------------------------------------------------------
+cf2html is a utility program for mon that is meant to generate an
+HTML version of the mon config file. It can also do ASCII, but not
+particularly well. Here's the description, from the README file:
+
+# DESCRIPTION
+#  How many people in your organization really know how everything on
+#  your network is monitored by your mon configuration? How many
+#  people could find out if they wanted to know, and how many of
+#  these would be stymied by lack of understanding of mon's
+#  (admittedly straightforward) config file syntax?
+#
+#  cf2html takes a *valid*, post-m4-processed, mon configuration file
+#  as input, and produces an HTML-formatted version of the file
+#  suitable for sharing with an audience of people who are not familiar
+#  with mon's config file format. The HTML format can also be useful
+#  even if you are familiar with mon's config file format, since
+#  sometimes the improved formatting can cause you to notice problems
+#  or inconsistencies with your configuration that you never
+#  noticed before.
+#
+#  It is hoped that, as a result of using this script, IT departments
+#  as a whole -- not just you, the mon guru who has set up mon and
+#  keeps it updated -- will be able to have a better understanding
+#  of the kind of monitoring which is taking place in their networks.
+#
+#  It is also possible to produce ASCII text output with this script,
+#  although the output looks much different and doesn't have the summary
+#  features that the HTML does. There's no reason the ASCII output
+#  couldn't look better and have the summary features, it's just a
+#  matter of where development time and effort were spent.
+
+A 1.0 release of this script will implement all mon config file
+keywords as of the current version of mon. There's currently only
+a few keywords missing and adding new ones is not difficult.
+
+This script is not mon compliant in one small but significant way:
+it allows use of the "alertafter TIMEVAL" syntax which is not
+supported in mon, and may never be. I submitted it as a patch, we'll
+see if it ever makes it in.
+
+
+Pre-requisites:
+---------------
+cf2html requires HTML::Entities, which is part of HTML-Parser,
+available from CPAN:
+	http://cpan.org/modules/search?dist=HTML-Parser
+
+
+Basic usage:
+------------
+If your mon config file is in m4 format:
+     m4 /etc/mon.cf.m4 | cf2html > /home/www/moncf.html
+
+The above, but setting your own special title and color scheme,
+and using a mon config file that has already gone (or never needed
+to go) through m4.
+   cf2html -f /etc/mon.cf  -T "My Mon Config File" \
+     -b 'BGCOLOR="black" VLINK="#00FFFF" TEXT="#D8D8BF" LINK="yellow"' \
+     > /home/www/moncf.html
+
+If your config file is not in m4:
+   cf2html -f /etc/mon.cf > /home/www/moncf.html                             
+
+Please see the script for more documentation and usage details.
+
+mon is available from:
+	http://www.kernel.org/software/mon/
+
+cf2html should be available from:
+	http://www.nam-shub.com/files/
+
+
+Andrew Ryan <andrewr@nam-shub.com> - 2001-01-19 

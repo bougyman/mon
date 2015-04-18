@@ -1,0 +1,36 @@
+#!/usr/bin/perl
+#
+# ipmi_proc2_temp.monitor
+#
+# Augie Schwer <augie@corp.sonic.net>
+
+use strict;
+use warnings;
+
+use English;
+
+my $TIMEOUT = 5;
+
+my $ipmitool = `which ipmitool 2> /dev/null`;
+chomp $ipmitool;
+my $temp;
+
+eval 
+{
+	local $SIG{ALRM} = sub { die "timeout" };
+	alarm $TIMEOUT;
+	
+	$temp = `$ipmitool sdr type "Temp" | grep 'Processor2' | cut -d"|" -f 5 | awk {'print \$1'}`
+};
+
+alarm(0);
+
+if ($EVAL_ERROR =~ /^timeout/)
+{
+	print "ipmitool timed out.\n";
+	exit 1;
+}
+
+print "Success!\n";
+exit $temp;
+

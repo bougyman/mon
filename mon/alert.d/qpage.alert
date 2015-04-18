@@ -1,0 +1,77 @@
+#!/usr/bin/perl
+#
+# qpage.alert - send an alert via QuickPage
+#
+# This will accept multiple pager IDs in @ARGV and call qpage for
+# each one of them, but you should probably use qpage groups if possible.
+#
+# qpage-specific options:
+#   -c coverage area
+#   -f SNPP CALLerid
+#   -l service level
+#   -q SNPP server, translates to "qpage -s"
+#
+# Jim Trocki, trockij@arctic.org
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+getopts ("s:g:h:t:c:f:l:q:uv");
+
+#
+# the first line is summary information, adequate to send to a pager
+# or email subject line
+#
+#
+# the following lines normally contain more detailed information,
+# but this is monitor-dependent
+#
+@MSG=<STDIN>;
+$summary = shift @MSG;
+chomp $summary;
+
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+foreach $pagedest (@ARGV) {
+    if ($opt_v)
+    {
+    	if (open(QPAGE, "| qpage -p $pagedest 2>/dev/null"))
+	{
+	    print QPAGE "$ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)\n";
+	    print QPAGE @MSG;
+	    close QPAGE;
+	}
+
+	else
+	{
+	    die "could not open pipe to qpage: $!\n";
+	}
+    }
+
+    else
+    {
+	if (system ("qpage -p $pagedest " .
+	    "'$ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)'" .
+	    "2>/dev/null"))
+	{
+	    die "could not open pipe to qpage: $?\n";
+	}
+    }
+}

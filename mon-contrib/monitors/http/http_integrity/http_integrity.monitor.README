@@ -1,0 +1,43 @@
+#
+# NAME
+#  http_integrity.monitor
+#
+#
+# SYNOPSIS
+#  http_integrity.monitor [-u url] [-n num_threads] [-a anchor_tag_types]
+#    [-t link_timeout] [-T page_timeout] host...
+#
+#
+# DESCRIPTION
+#  Use try to connect to a http server and verify the integrity of the
+#  page and objects within that page (e.g. to make sure that there are
+#  no broken images).
+#
+#  For use with "mon".
+#
+#
+# EXAMPLES
+# ./http_integrity.monitor -u "/index.html" host1 host2 host3
+#
+#
+# OPTIONS
+#  -u  URL path to retrieve from each host.
+#
+#  -s  Use SSL to connect to the host.
+#
+#  -n  Max number of requests to issue at one time. Defaults to 8.
+#      Increasing this number may produce faster load times, depending
+#      on the performance of the site and the speed of the link.
+#      Decreasing this number may produce slower load times, again,
+#      depending on the performance of the site and the speed of the link.
+#      Experiment to find what works best for you.
+#
+#  -t  Timeout, in seconds, to wait for data when downloading any given
+#      link. Must be an integer.
+#
+#  -T  Timeout, in seconds, to issue an error for if the time to load
+#      the page, plus any associated images/applets/etc., exceeds this
+#      number. Can be a floating point number.
+#
+#  -a  Types of anchor tag items to retrieve, in a space separated quoted
+#      list. Default is "img applet". Case matters.

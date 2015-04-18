@@ -1,0 +1,263 @@
+#!/usr/bin/perl
+#
+#####################################################################
+##                                                                 ##
+##  netwarefree.monitor                             Version 1.2.0  ##
+##                                                     2001-03-28  ##
+##  Copyright (C) 2000-2001                                        ##
+##  Peter Holzleitner (peter@holzleitner.com)                      ##
+##                                                                 ##
+#####################################################################
+#
+# Synopsis:
+#
+#   Uses SNMP to check available disk space on Novell NetWare servers.
+#
+#   Exits with value of 1 if available space on any host drops below
+#   the configured value, or exits with the value of 2 if there is a 
+#   connection or configuration error.
+#
+# Requirements:
+#
+#   Requires the UCD SNMP library (3.6.2 or higher)
+#   and G.S. Marzot's Perl SNMP module (from CPAN).
+#
+#   The NetWare server needs to have the SERVINST.NLM loaded, which
+#   is the SNMP agent extension implementing the Netware-Server-MIB.
+#   (Version 1.00 of SERVINST.NLM has a 4GB overflow problem; upgrade
+#   to 1.01 dated 2/12/98, contained in Novell patch mwnma4a.exe, or higher.)
+#
+#
+# Arguments:
+#
+#  [--community=cmn] [--timeout=n] [--retries=n] 
+#    [--config=configfile] [--list[=linesperpage]] serverlist
+#
+#   For every host name passed on the command line, netwarefee.monitor
+#   walks the nwFSVolTable MIB subtree and compares the amount of available
+#   space (available := free + freeable) to the values configured in 
+#   netwarefree.cf.
+#
+#   This monitor looks for configuration files in the current directory,
+#   in /etc/mon and /usr/lib/mon/etc.  Command line option --config 
+#   overrides the location of the configuration file.
+#
+#   For the configuration file format, please refer to the sample file.
+#
+#   When invoked with the --list option, the output format is changed
+#   into a more human-readable form used to check and troubleshoot the
+#   configuration.  This option must not be used from within MON as
+#   no status and summary output are provided.
+#
+#
+# Written by Peter Holzleitner
+#   (originally based on netappfree.monitor by Jim Trocki)
+#
+#
+# History:
+#
+#   1.2.0  28 Mar 2001  P.H.  MIB no longer needed; extended error checking
+#   1.1.0  27 Jan 2000	P.H.  initial public release
+#   1.0.0  15 Jan 2000  P.H.  internal test version
+#
+#
+# License:
+#
+#   This program is free software; you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation; either version 2 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software Foundation,
+#   Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+#
+#
+
+use SNMP;
+use English;
+use Getopt::Long;
+
+sub list;
+sub readcf;
+sub toKB;
+
+# no MIB needed, we're using numeric OIDs
+$ENV{"MIBS"} = '';
+
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i", "config=s", 
+                   "list:i", "debug");
+
+die "no host arguments\n" if (@ARGV == 0);
+
+$RET = 0;
+@ERRS = ();
+@HOSTS = ();
+
+$COMM    = $opt{"community"} || "public";
+$TIMEOUT = $opt{"timeout"} * 1000 * 1000 || 5000000;
+$RETRIES = $opt{"retries"} || 8;
+$CONFIG  = $opt{"config"} || (-d "/etc/mon" ? "/etc/mon" : "/usr/lib/mon/etc")
+	   . "/netwarefree.cf";
+# pick up local configuration file for testing
+$CONFIG  = "./netwarefree.cf" if -e "./netwarefree.cf";
+
+$LIST  = defined $opt{"list"};
+$FORMAT_LINES_PER_PAGE = $opt{'list'} || 25;
+$DEBUG = $opt{"debug"};
+
+print STDERR "Using configuration file $CONFIG\n" if $DEBUG;
+
+($nwID, $nwName, $nwSize, $nwFree, $nwFreeable) = (0..4);
+
+$nwVolID           = '.1.3.6.1.4.1.23.2.28.2.14.1.1';
+$nwVolPhysicalName = '.1.3.6.1.4.1.23.2.28.2.14.1.2';
+$nwVolSize         = '.1.3.6.1.4.1.23.2.28.2.14.1.3';
+$nwVolFree         = '.1.3.6.1.4.1.23.2.28.2.14.1.4';
+$nwVolFreeable     = '.1.3.6.1.4.1.23.2.28.2.14.1.5';
+
+readcf ($CONFIG) || die "could not read config: $!\n";
+
+foreach $host (@ARGV) {
+    $size = $free = '---';  $ok = 'ERR'; 
+
+    if (!defined $FREE{$host}) {
+        $RET = 2 unless $RET > 2;
+	push (@HOSTS, $host);
+	push (@ERRS, "$host: Host not configured");
+        $fsname = 'not configured';  write if($LIST);
+	next;
+	}
+
+    if (!defined($s = new SNMP::Session (DestHost => $host,
+    		Timeout => $TIMEOUT, Community => $COMM,
+		Retries => $RETRIES))) {
+	$RET = 2 unless $RET > 2;
+	push (@HOSTS, $host);
+	push (@ERRS, "$host: Could not create session " . $SNMP::Session::ErrorStr);
+	delete $FREE{$host};
+	$fsname = 'session error';  write if($LIST);
+	next;
+	}
+
+    $v = new SNMP::VarList (
+    	    [$nwVolID],
+    	    [$nwVolPhysicalName],
+    	    [$nwVolSize],
+    	    [$nwVolFree],
+    	    [$nwVolFreeable],
+	);
+
+    while (defined $s->getnext($v)) {
+	$tag    = $v->[$nwID]->tag;
+        $sizeK  = $v->[$nwSize]->val;
+	$size   = int($sizeK / 1024);
+        $freeK  = $v->[$nwFree]->val + $v->[$nwFreeable]->val;
+	$free   = int($freeK / 1024);
+	$fsname = $v->[$nwName]->val;
+        $ok     = $freeK < $FREE{$host}{$fsname} ? "LOW" : "OK";
+	$ok     = "n/c" unless defined $FREE{$host}{$fsname};
+	
+        print "DEBUG: HOST=$host TAG=$tag FS=$fsname SIZE=$size FREE=$free\n" if $DEBUG;
+	last if $tag !~ /$nwVolID/;
+
+	write if $LIST;
+	
+	if ( $freeK < $FREE{$host}{$fsname}) {
+	    $RET = 1 unless $RET > 1;
+	    push (@HOSTS, $host);
+	    push (@ERRS, sprintf ("%s/%s: Space LOW (%.0fMB free)", $host, $fsname, $free));
+	    }
+	delete $FREE{$host}{$fsname};
+        }
+
+    if ($s->{ErrorNum}) {
+	$RET = 2 unless $RET > 2;
+	push (@HOSTS, $host);
+	push (@ERRS, "$host: Could not get nwVolID; " . $s->{ErrorStr});
+	}
+	
+    } # foreach $host(@ARGV)
+
+
+# check for leftover configured volumes that haven't been seen yet
+foreach $host (keys %FREE) { 
+    $vols = $FREE{$host};
+    push (@HOSTS, $host) if (scalar keys %$vols) &&
+                           !(scalar grep /^$host$/, @HOSTS);
+    foreach $fsname (keys %$vols) { 
+        $size = $free = 'NOT FOUND'; $ok = 'ERR';
+        write if $LIST;
+	push (@ERRS, "$host/$fsname: Volume not found");
+	}
+    }
+
+exit $RET if $LIST;
+
+if ($RET) {
+    my @H = sort @HOSTS;
+    my $e = join("\n", sort @ERRS);
+    print "@H\n\n$e\n";
+    }
+
+exit $RET;
+
+
+#
+# read configuration file
+#
+sub readcf {
+    my ($f) = @_;
+    my ($l, $host, $filesys, $free);
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+	($host, $filesys, $free) = split;
+
+	# ignore hosts not tested this time
+        next unless (scalar grep /^$host$/, @ARGV);
+	
+	if (!defined ($FREE{$host}{$filesys} = toKB ($free))) {
+	    die "error in free space specification, config $f, line $.\n";
+    	    }
+	}
+    close (CF);
+    }
+
+
+sub toKB {
+    my ($free) = @_;
+    my ($n, $u);
+
+    if ($free =~ /^(\d+\.\d+)(kb|mb|gb)$/i) {
+        ($n, $u) = ($1, "\L$2");
+	}
+    elsif ($free =~ /^(\d+)(kb|mb|gb)$/i) {
+        ($n, $u) = ($1, "\L$2");
+	}
+    else {
+    	return undef;
+	}
+
+    return (int ($n * 1024)) if ($u eq "mb");
+    return (int ($n * 1024 * 1024)) if ($u eq "gb");
+    int ($n);
+    }
+
+
+format STDOUT_TOP =
+Server           Volume                     MB total     MB free   Status
+-------------------------------------------------------------------------
+.
+
+format STDOUT =
+@<<<<<<<<<<<<<<  @<<<<<<<<<<<<<<<<<<<<   @>>>>>>>>>>  @>>>>>>>>>>  @>>>>>
+$host, $fsname, $size, $free, $ok
+.

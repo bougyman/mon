@@ -1,0 +1,78 @@
+Subject: 
+         RELEASE: bugzilla.alert
+   Date: 
+         Wed, 5 Apr 2000 15:00:24 -0700
+   From: 
+         "Michael S. Fischer" <michael@auctionwatch.com>
+     To: 
+         "'mon@linux.kernel.org'" <mon@linux.kernel.org>
+
+
+
+
+Attached is the first release of bugzilla.alert.  As its name suggests, it
+is used to file alerts in bugzilla.  
+
+We've found that using bugzilla is a much better method of dispatching
+outage notices and tracking outage data (and fixes!) than the standard mon
+tools offer.  In conjunction with internal per-service monitoring mechanisms
+(which are proprietary to us, but called by mon) this works wonderfully for
+large scale system administration.
+
+If you have any questions or comments regarding, or patches to this script,
+please send them to me.
+
+# $Id: bugzilla.alert.README,v 1.1.1.1 2005/02/18 17:52:13 trockij Exp $
+#
+# bugzilla.alert - Mon alert to log a bug in Bugzilla database
+#
+# USAGE
+#
+#   bugzilla.alert [--priority=priority] [--severity=severity]
+#                  [--assignee=assignee-email] [--cc=cc-email]
+#                  [--reported-url=reported-url]
+#                  [--http-userid=userid --http-password=password]
+#                  bugzilla-url userid password product-name component-name
+#                    reporter
+#
+#   bugzilla.alert will take the first line of STDIN and use it for the
+#   summary; the remaining lines of STDIN will be used for the long
+#   description.
+#
+# AUTHOR
+#
+#   Michael S. Fischer, <michael@auctionwatch.com>
+#
+#   Copyright (C) 2000 AuctionWatch.com.
+#
+#   This program is free software; you can redistribute it and/or
+#   modify it under the terms of the GNU General Public License
+#   as published by the Free Software Foundation; either version 2
+#   of the License, or (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program; if not, write to the Free Software
+#   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA. #
+# NOTES
+#
+#   URL for posting: bugzilla-url/post_bug.cgi
+#
+#   CGI Parameters:
+#       Name                 Default Value
+#       ==================================================================
+#       reporter             "monitor"
+#       product              product-name (required)
+#       component            component-name (required)
+#       assigned_to          assignee (optional, defaults to "opsalert")
+#       cc                   cc (optional)
+#       bug_file_loc         url (optional)
+#       short_desc           first line of STDIN
+#       comment              1-N lines of STDIN
+#       form_name            "enter_bug"
+#       Bugzilla_login       userid (required)
+#       Bugzilla_password    password (required)

@@ -1,0 +1,322 @@
+#!/usr/bin/perl
+#
+# "mon" monitor to detect chassis-related failures for Foundry switches
+#
+# arguments are "[-c community] host [host...]"
+# 
+#
+# Jim Trocki
+#
+# $Id: foundry-chassis.monitor,v 1.1.1.1 2004/06/09 05:18:05 trockij Exp $
+#
+#    Copyright (C) 2000, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Std;
+use strict;
+
+sub get_status;
+sub get_table;
+sub get_vars;
+
+$ENV{"MIBS"} = "FOUNDRY-SN-AGENT-MIB:RFC1213-MIB";
+
+my %opt;
+getopts ('c:', \%opt);
+
+my $COMM = $opt{"c"} || "public";
+
+my @failures = ();
+my $detail = "";
+my %fans;
+my %PSUs;
+my %modules;
+
+foreach my $host (@ARGV)
+{
+    my %status = get_status ($host, $COMM);
+
+    if ($status{"error"} ne "")
+    {
+    	push (@failures, $host);
+	$detail .= "could not retrieve status from $host: $status{error}\n\n";
+	next;
+    }
+
+    elsif ($status{"failure"})
+    {
+    	push (@failures, $host);
+	$detail .= $status{"failure_summary"};
+    }
+
+    $fans{$host} = $status{"fan_table"};
+    $PSUs{$host} = $status{"psu_table"};
+    $modules{$host} = $status{"mod_table"};
+}
+
+if (@failures != 0)
+{
+    print join (" ", sort @failures), "\n\n$detail\n";
+}
+
+else
+{
+    print "\n$detail";
+}
+
+print <<EOF;
+-------------------------------------------------------------------------------
+FANS
+host       index   opstatus               description
+-------------------------------------------------------------------------------
+EOF
+
+foreach my $host (sort keys %fans)
+{
+    foreach my $r (@{$fans{$host}})
+    {
+    	printf ("%-10s %-7s %-22s %s\n",
+		$host,
+		$r->{"iid"},
+		$r->{"snChasFanOperStatus"},
+		$r->{"snChasFanDescription"});
+    }
+
+    print "\n";
+}
+
+print <<EOF;
+
+-------------------------------------------------------------------------------
+POWER SUPPLIES
+host       index   opstatus               description
+-------------------------------------------------------------------------------
+EOF
+
+foreach my $host (sort keys %PSUs)
+{
+    foreach my $r (@{$PSUs{$host}})
+    {
+    	printf ("%-10s %-7s %-22s %s\n",
+		$host,
+		$r->{"iid"},
+		$r->{"snChasPwrSupplyOperStatus"},
+		$r->{"snChasPwrSupplyDescription"});
+    }
+
+    print "\n";
+}
+
+print <<EOF;
+
+-------------------------------------------------------------------------------
+MODULES
+host       index   opstatus               description
+-------------------------------------------------------------------------------
+EOF
+
+foreach my $host (sort keys %modules)
+{
+    foreach my $r (@{$modules{$host}})
+    {
+    	printf ("%-10s %-7s %-22s %s\n",
+		$host,
+		$r->{"iid"},
+		$r->{"snAgentBrdModuleStatus"},
+		$r->{"snAgentBrdMainBrdDescription"});
+    }
+
+    print "\n";
+}
+
+
+if (@failures != 0)
+{
+    exit 1;
+}
+
+exit 0;
+
+
+
+#
+# params: (hostname, community)
+#
+# returns:
+# (
+#  "error" => "error name, empty string means no error",
+#  "failure" => "nonzero if a failure",
+#  "psu_table" => [],
+#  "fan_table" => [],
+#  "mod_table" => [],
+# )
+#
+sub get_status
+{
+    my ($host, $comm) = @_;
+
+    my $s;
+    if (!defined ($s = new SNMP::Session (
+    	"DestHost" => $host,
+	"Community" => $comm,
+	"Version" => 2,
+	"UseEnums" => 1,
+	)))
+    {
+    	return ("error" => "cannot create session");
+    }
+
+    my $error;
+    my $failure_detected = 0;
+    my $failure_summary = "";
+    my $psu_table;
+    my $fan_table;
+    my $mod_table;
+
+    #
+    # is this really a foundry box?
+    #
+    my $sys_oid = $s->get (["sysObjectID", 0]);
+    
+    return ("error" => $s->{"ErrorStr"}) if ($s->{"ErrorStr"} ne "");
+
+    return ("error" => "not Foundry device")
+    	if ($sys_oid !~ /^\.1\.3\.6\.1\.4\.1\.1991\./);
+
+    #
+    # this is indeed foundry equipment, so
+    # get power supply table
+    #
+    ($error, $psu_table) = get_table ($s,
+    	["snChasPwrSupplyDescription"],
+	["snChasPwrSupplyOperStatus"],
+    );
+
+    return ("error" => $error) if ($error ne "");
+
+    foreach my $r (@{$psu_table})
+    {
+	next if ($r->{"snChasPwrSupplyOperStatus"} eq "normal");
+    	$failure_detected = 1;
+	$failure_summary .= "$host PSU failure: $r->{snChasPwrSupplyDescription}\n";
+	last;
+    }
+
+    #
+    # get fan table
+    #
+    ($error, $fan_table) = get_table ($s,
+    	["snChasFanDescription"],
+	["snChasFanOperStatus"],
+    );
+
+    return ("error" => $error) if ($error ne "");
+
+    foreach my $r (@{$fan_table})
+    {
+	next if ($r->{"snChasFanOperStatus"} eq "normal");
+    	$failure_detected = 1;
+	$failure_summary .= "$host fan failure: $r->{snChasFanDescription}\n";
+	last;
+    }
+
+    #
+    # get module status
+    #
+    ($error, $mod_table) = get_table ($s,
+    	["snAgentBrdMainBrdDescription"],
+	["snAgentBrdModuleStatus"],
+    );
+
+    return ("error" => $error) if ($error ne "");
+
+    foreach my $r (@{$mod_table})
+    {
+	next if ($r->{"snAgentBrdModuleStatus"} eq "moduleRunning");
+    	$failure_detected = 1;
+	$failure_summary .= "$host module failure: $r->{snAgentBrdMainBrdDescription}\n";
+	last;
+    }
+
+    (
+    	"error" 		=> "",
+	"failure"		=> $failure_detected,
+	"failure_summary"	=> $failure_summary,
+	"psu_table"		=> $psu_table,
+	"fan_table"		=> $fan_table,
+	"mod_table"		=> $mod_table,
+    );
+}
+
+
+sub get_table
+{
+    my ($s, @tbl) = @_;
+
+    my $table = [];
+    my $tblid = $tbl[0]->[0];
+    my $i = 0;
+
+    my $row = new SNMP::VarList (@tbl);
+
+    return ("MIB problem") if (!defined $row);
+
+    while (defined ($s->getnext ($row)))
+    {
+    	last if ($s->{"ErrorStr"} ne "");
+
+	my $r = $row->[0]->[0];
+
+ 	last if ($r ne $tblid);
+
+	foreach my $col (@{$row})
+	{
+	    $table->[$i]->{"iid"} = $col->[1];
+	    $table->[$i]->{$col->[0]} = $col->[2];
+	}
+
+	$i++;
+    }
+
+    return ($s->{"ErrorStr"}) if ($s->{"ErrorStr"} ne "");
+
+    (
+    	"",
+	$table,
+    );
+}
+
+
+sub get_vars
+{
+    my ($s, @vars) = @_;
+
+    my $r = new SNMP::VarList ( @vars );
+
+    return ("MIB problem") if (!defined $r);
+
+    return ($s->ErrorStr) if (!defined ($s->get ($r)));
+
+    my $v;
+
+    foreach my $element (@{$r})
+    {
+    	$v->{$element->[0]} = $element->[2];
+    }
+
+    ("", $v);
+}

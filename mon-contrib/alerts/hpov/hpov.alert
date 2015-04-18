@@ -1,0 +1,143 @@
+#!/usr/local/bin/perl
+#
+# hpov.alert - generate event in HP OpenView
+#
+# Arguments:
+#       -c:  severity of condition (Critical, Major, Minor, etc.)
+#            Default is "Major".
+#       -C:  Category of event.  Default is "Error Alarms".
+#       -m:  address of HP OpenView manager.  Default is "localhost".
+#       -o:  Event OID.  REQUIRED.  If event OID does not start with
+#            a ".", default prefix is .1.3.6.1.4.1.11.2.17.1.0 for
+#            event OID and info is passed in the MIB branch
+#            .1.3.6.1.4.1.11.2.17.2.x.0
+#
+# Sends alert with hostgroup name as address of snmp agent that originated the
+# alarm.  This means that hostgroups that use this alert type must be valid
+# IPs or domain names.
+#
+# Upalerts are sent with severity "Normal".  Should be used with rearm event
+# OIDs in HP Open View.
+#
+# See the section "Configuration" below to change defaults.
+#
+# Scott Prater, sprater@servicom2000.com, 2001.  Based on file.alert by
+# Jim Trocki, trockij@transmeta.com
+#
+# $Id: hpov.alert,v 1.1.1.1 2005/02/18 17:52:13 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307 USA
+#
+
+$RCSID='$Id: hpov.alert,v 1.1.1.1 2005/02/18 17:52:13 trockij Exp $' ;
+use strict;
+use vars qw($opt_d $opt_S $opt_s $opt_g $opt_h $opt_t $opt_l $opt_c $opt_C
+$opt_m $opt_o $opt_u $opt_T $opt_O);
+use Getopt::Std;
+
+getopts ("d:S:s:g:h:t:l:c:C:m:o:uOT");
+
+#---------------------------------------------------------#
+# Configuration (edit as needed to suit your environment) #
+#---------------------------------------------------------#
+
+if (!$opt_o)
+{
+    die "Could not generate HPOV event:  no Event OID\n";
+}
+
+my $OV_BIN = "/opt/OV/bin";     # Path to HP OpenView bin directory
+my $OV_EVENT = "ovevent";       # Name of HP OpenView program to generate alarms
+
+my $SEVERITY = $opt_c || "Major";
+my $CATEGORY = $opt_C || "Error Alarms";
+my $MANAGER = $opt_m || "localhost";
+my $OID = $opt_o;
+my $DEFAULT_MIB_BRANCH = ".1.3.6.1.4.1.11.2.17";
+my $DEFAULT_MIB_SUFFIX = ".0";
+my $UPALERT_SEVERITY = "Normal";
+
+#---------------------------------------------------------#
+# End Configuration                                       #
+#---------------------------------------------------------#
+
+my $counter = 1;
+my ($event_oid, $event_oid_branch, $event_oid_suffix);
+
+my $summary=<STDIN>;
+chomp $summary;
+my $summary = $opt_S if ($opt_S);
+
+if ($OID !~ /^\./)
+{
+    $event_oid = $DEFAULT_MIB_BRANCH . ".1.0." . $OID;
+    $event_oid_branch = $DEFAULT_MIB_BRANCH . ".2";
+    $event_oid_suffix = $DEFAULT_MIB_SUFFIX;
+}
+else
+{
+    $event_oid = $OID;
+    $event_oid_branch = $OID;
+    $event_oid_suffix = "";
+}
+
+my $ALERT = $ENV{"MON_ALERTTYPE"} || "UNKNOWN ALERT";
+my $RETVAL = $ENV{"MON_RETVAL"} || 0;
+
+# If this is an upalert, send rearm event OID to HPOV with proper severity
+if ($opt_u)
+{
+   $SEVERITY = $UPALERT_SEVERITY;
+}
+
+my $t = localtime($opt_t);
+my ($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+# MIB tree structure
+# First Var:  integer (for return code)
+# Second var:  summary line
+# Following vars:  detailed output, line by line
+
+my $first_var = "$event_oid_branch.$counter$event_oid_suffix Integer
+$RETVAL";
+$counter++;
+my $second_var = "$event_oid_branch.$counter$event_oid_suffix OctetString
+\'$ALERT $opt_g $opt_s $opt_t --$wday $mon $day $tm-- $summary\'";
+$counter++;
+my $cmd =  "$OV_BIN/$OV_EVENT -s $SEVERITY -c \"$CATEGORY\" -a $opt_g
+\"$MANAGER\" $event_oid $first_var $second_var";
+
+#
+# The remaining lines contain more detailed information:
+# add them to the MIB branch.
+#
+while (<STDIN>) {
+    chomp;
+    $cmd .= " $event_oid_branch.$counter$event_oid_suffix OctetString
+\'$_\'";
+    $counter++;
+}
+
+
+# Send the alarm
+my $exit_status = system($cmd);
+if ($exit_status != 0)
+{
+    die ("Cannot send event to HPOV:  !$\n");
+}
+
+exit;

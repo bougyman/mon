@@ -1,0 +1,20 @@
+# Monitor processes via SNMP
+# (based on process.monitor by Brian Moore)
+#
+# Modified Oct 2001 by Dan Urist <durist@world.std.com>
+# Changes: added usage, SNMP v.3 support, -P processes option
+# unique-ified errors
+#
+# Modified Feb 2002 by Dan Urist <durist@world.std.com>
+# Changes: added -C config file option; cleaned up code
+#
+# This script will exit with value 1 if any prErrorFlag is greater
+# than 0.  The summary output line will be the host names and
+# processes that failed in the format host1:proc1,proc2;host2:proc3...
+# The detail lines are what UCD snmp returns for a prErrMessage.  If
+# there is an SNMP error (either a problem with the SNMP libraries, or
+# a problem communicating via SNMP with the destination host), this
+# script will exit with a warning value of 2. If the -P process list
+# option is used, only the listed processes will be monitored. If a
+# process given with -P is not being monitored, the script will exit
+# with a warning and a value of 2.

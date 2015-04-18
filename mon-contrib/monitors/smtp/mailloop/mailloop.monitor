@@ -1,0 +1,177 @@
+#!/usr/bin/perl 
+
+# 
+# mailloop.monitor - sends email to mailboxes that are expected to send 
+# the mail back to the sender. Probably not hard to do with procmail, etc. 
+# I've only used a reflector agent for Lotus Notes. Instead of "hosts" in 
+# a hostgroup, use email addresses you want to send bounce tests to. The 
+# code still refers to these as hosts. 
+# 
+# You can use as many addresses as you'd like, but you'll need to use a 
+# unique from address for each hostgroup that calls this monitor, because 
+# it eats all the mail this running copy of the monitor didn't send. 
+# Otherwise, previously delayed mail might lay around forever. 
+# 
+# The monitor then polls a POP3 account for the mail it sent. Don't use 
+# that mailbox for anything else, the monitor will delete all your mail! 
+# I'm not kidding, I didn't say "might", it *will*. 
+# 
+# This monitor assumes the local sendmail knows how to get the mail to 
+# the the first relay in the loop you're testing. It also assumes that 
+# the last host knows to deliver mail sent to the configured from 
+# address so that it shows up in the POP server we poll. 
+# 
+# Takes 5 options: 
+# -d Debug Mode. Not really compatible with normal mon scheduling, 
+# because it doesn't log to syslog or anything, just print to STDOUT. 
+# You'll have to call the monitor by hand to use this option. 
+# Mostly helpful to debug your POP/SMTP setup. 
+# 
+# -f Set the from address, this option will also set the POP user to 
+# all the bits before the '@'. So, don't do any wild aliasing... 
+# 
+# -p Set the POP password. Defaults to null password 
+# 
+# -s Set the POP server. Defaults to localhost. 
+# 
+# -t Standard monitor timeout option. 
+# 
+
+# 
+# $Id: mailloop.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $ 
+# 
+# Copyright 2000 Shared Medical Systems, Inc. 
+# Author: Bill Smargiassi 
+# Email: william.smargiassi@smed.com 
+# 
+# This program is free software; you can redistribute it and/or modify 
+# it under the terms of the GNU General Public License as published by 
+# the Free Software Foundation; either version 2 of the License, or 
+# (at your option) any later version. 
+# 
+# This program is distributed in the hope that it will be useful, 
+# but WITHOUT ANY WARRANTY; without even the implied warranty of 
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
+# GNU General Public License for more details. 
+# 
+# You should have received a copy of the GNU General Public License 
+# along with this program; if not, write to the Free Software 
+# Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307 USA 
+# 
+
+use Getopt::Std; 
+use Mail::Sendmail; 
+use POSIX; 
+use Mail::POP3Client; 
+
+sub dbgprint { 
+    my ($str) = @_; 
+
+    print $str, "\n" if $DEBUG; 
+} 
+
+# "check sum of tests left", not to be confused with a checksum :) 
+sub checksum { 
+    my $sum; 
+
+    $sum = 0; 
+    foreach $id (keys %check) { 
+     $sum += $check{$id}; 
+    } 
+    dbgprint "sum is " . $sum; 
+    return $sum; 
+} 
+
+sub diefailures { 
+    my $hosts, @parts; 
+
+    $hosts = ''; 
+    foreach $id (keys %check) { 
+     if ($check{$id}) { 
+         @parts = split(/ /, $id); 
+         $hosts .= $parts[0]; 
+     } 
+    } 
+    dbgprint "hosts is " . $hosts; 
+    print $hosts, "\n"; 
+    exit 1; 
+} 
+
+getopts("df:p:s:t:"); 
+$Timeout = $opt_t || 900; 
+
+$hostname = `hostname`; 
+$fromaddr = "mailloop\@$hostname"; 
+# popname is inferred from fromaddr if set with -f opt 
+$popname = 'mailloop'; 
+if ($opt_f) { 
+    $fromaddr = $opt_f; 
+    @parts = split(/\@/, $opt_f); 
+    $popname = $parts[0]; 
+} 
+$poppass = $opt_p || 'mailloop'; 
+
+$popserv = $opt_s || 'localhost'; 
+
+$DEBUG = $opt_d || 0; 
+
+dbgprint "Timeout = $Timeout"; 
+
+$failures = ""; 
+
+foreach $reflect (@ARGV) { 
+    # Send some mail to the reflector address 
+    $id = "$reflect " . strftime("%Y%m%d%H%M%S", localtime(time)); 
+    dbgprint "Sending mail: $id"; 
+    %mail = ( To => $reflect, 
+           From => $fromaddr, 
+           Message => "REFL: $id" 
+           ); 
+
+    # remember the id for later POP retrieval 
+    $check{$id} = 1; 
+
+    if (sendmail %mail) { } 
+    else { $failures .= "Error sending mail: $Mail::Sendmail::error " } 
+} 
+
+dbgprint "Done sending mail"; 
+
+if ($failures) {die $failures} 
+
+local $SIG{TERM} = \&diefailures; 
+
+$starttime = time; 
+
+# look for replies 
+$pop = new Mail::POP3Client( USER => $popname, 
+                    PASSWORD => $poppass, 
+                    HOST => $popserv, 
+                    DEBUG => $DEBUG); 
+
+while(checksum()) { 
+    if ((time - $starttime) > $Timeout) { 
+     diefailures(); 
+    } 
+    sleep(30); 
+    dbgprint "Logging in..."; 
+    $pop->Connect; 
+    dbgprint "There are " . $pop->Count . " messages"; 
+    for ($i = 1; $i <= $pop->Count; $i++) { 
+     $id = ""; 
+     @lines = split(/\n/, $pop->Body($i)); 
+     foreach $line (@lines) { 
+         dbgprint $line; 
+         if ($line =~ m/REFL: (\S+ \d+)/g) { 
+          $id = $1; 
+          dbgprint "Found: $id"; 
+         } 
+     } 
+     $check{$id} = 0; 
+     $pop->Delete($i); 
+    } 
+    dbgprint "Logging out"; 
+    $pop->Close; 
+} 
+
+exit 0;

@@ -1,0 +1,14 @@
+#!/usr/bin/perl
+
+require "find.pl";
+
+# Traverse desired filesystems
+$counter = 0;
+&find('/var/spool/mqueue/');
+sub wanted {
+    /^qf.*$/ &&
+$counter++;
+}
+chomp $counter;
+
+print "$counter"; 

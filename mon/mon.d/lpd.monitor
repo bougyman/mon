@@ -1,0 +1,378 @@
+#!/usr/bin/perl
+#
+# Try to connect to an lpd server and get status of print queues.
+# For use with "mon".
+#
+# lpd.monitor [-l] [-d] [-s secs] [-p port] [-t secs] -h host queue [queue...]
+#
+#    -l            interpret queue output as lprng (error, status, etc.)
+#    -d            do not show detail
+#    -e            report queues with "error" jobs
+#    -s secs       report jobs stalled longer than "secs" as an error
+#    -h host       host running lpd
+#    -p port       TCP port to connect to (defaults to 515)
+#    -t secs       timeout, defaults to 30
+#
+# "get" routine based on other monitors written by Jon Meek
+#
+# $Id: lpd.monitor,v 1.1.1.1 2004/06/09 05:18:05 trockij Exp $
+#
+#    Copyright (C) 2001, 2002, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+sub lpdGET;
+sub check_lprng;
+sub OpenSocket;
+
+getopts ("deh:s:lp:t:P:");
+$PORT = $opt_p || 515;
+$TIMEOUT = $opt_t || 30;
+$STALLED = $opt_s || 60; # stalled 1 mins
+$HOST = $opt_h || die "no host supplied with -h\n";
+
+my %good;
+my %bad;
+my %details;
+
+exit 0 if (!@ARGV);
+
+foreach my $queue (@ARGV)
+{
+    my $result = lpdGET ($HOST, $PORT, $queue);
+
+    if (!$result->{"ok"})
+    {
+    	$bad{$queue} = $result;
+    }
+
+    #
+    # look in lprng output for bad things
+    #
+    elsif ($opt_l)
+    {
+	my $err = check_lprng ($result->{"header"});
+
+	$details{$queue} = $err->{"fields"};
+
+	if (!$err->{"ok"})
+	{
+	    $bad{$queue} = $result;
+	    $bad{$queue}->{"error"} = $err->{"error"};
+	}
+
+	else
+	{
+	    $good{$queue} = $result;
+	}
+    }
+
+    else
+    {
+    	$good{$queue} = $result;
+    }
+}
+
+my $ret;
+
+if (keys %bad)
+{
+    $ret = 1;
+    print join (" ", sort keys %bad), "\n";
+}
+
+else
+{
+    $ret = 0;
+    print "\n";
+}
+
+#
+# show detail
+#
+if (!$opt_d)
+{
+    #
+    # failure detail
+    #
+    foreach my $q (keys %bad)
+    {
+	print "------------------------------------------------------------------------------\n";
+	print "HOST $HOST QUEUE $q: $bad{$q}->{error}\n";
+	print $details{$q}->{"Printer"}, "\n";
+	print "------------------------------------------------------------------------------\n";
+
+	if ($opt_l)
+	{
+	    # this will probably never be true
+	    if ($details{$q}->{"queuelist"} eq "")
+	    {
+	    	print "queue empty\n";
+	    }
+
+	    else
+	    {
+		print $details{$q}->{"queuelist"};
+	    }
+	}
+
+	elsif ($bad{$q}->{"header"} ne "")
+	{
+	    print $bad{$q}->{"header"}, "\n";
+	}
+
+	print "\n";
+    }
+
+    if (keys %good)
+    {
+    	print <<'EOF';
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%%%%%%                                                                %%%%%%%
+%%%%%%% the following are queues which have no problems at this moment %%%%%%%
+%%%%%%%                                                                %%%%%%%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+EOF
+    }
+
+    #
+    # non-failure detail
+    #
+    foreach my $q (keys %good)
+    {
+	print "------------------------------------------------------------------------------\n";
+	print "HOST $HOST QUEUE $q: ok\n";
+	print $details{$q}->{"Printer"}, "\n";
+	print "------------------------------------------------------------------------------\n";
+
+	if ($opt_l)
+	{
+	    if ($details{$q}->{"queuelist"} eq "")
+	    {
+	    	print "queue empty\n";
+	    }
+
+	    else
+	    {
+		print "$details{$q}->{queuelist}\n";
+	    }
+	}
+
+	else
+	{
+	    print $good{$q}->{"header"}, "\n";
+	}
+
+	print "\n";
+    }
+}
+
+exit $ret;
+
+
+sub lpdGET
+{
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port, $Queue) = @_;
+    my($ServerOK, $TheContent);
+
+    $TheContent = '';
+
+    my $result;
+
+    eval
+    {
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+
+	my $err = &OpenSocket($Server, $Port); # Open a connection to the server
+
+	if ($err ne "") { # Failure to open the socket
+	    $result = {
+	    	"ok" => 0,
+		"error" => $err,
+		"header" => undef,
+	    };
+
+	    return undef;
+	}
+
+	#
+	# lpd queue list
+	# "short" listing command is 0x03
+	# "long" listing command is 0x04
+	#
+	print S "\x04$Queue\x0a";
+
+	$/ = "\x0a";
+
+	while (defined ($in = <S>)) {
+	    $TheContent .= $in;  # Store data for later processing
+	}
+
+	close(S);
+	alarm 0; # Cancel the alarm
+
+	$ServerOK = 1;
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+	return {
+	    "ok" => 0,
+	    "error" => "timeout after $TIMEOUT seconds",
+	    "header" => $TheContent,
+	};
+    }
+
+    if ($result->{"error"} ne "")
+    {
+    	return $result;
+    }
+
+
+
+    return {
+    	"ok" => $ServerOK,
+	"header" => $TheContent,
+	"error" => undef,
+    };
+}
+
+
+#
+# look for badness in lprng output
+#       error
+#       stalled > $opt_n secs
+#
+sub check_lprng
+{
+    my ($buff) = @_;
+
+    my $in_rank = 0;
+    my $fail = 0;
+
+    my $status = {
+    	"ok" => 1,
+	"fields" => {},
+	"error" => "",
+    };
+
+    foreach my $l (split (/\x0d?\x0a/sm, $buff))
+    {
+	#
+	# sort data
+	#
+	if ($l =~ /^\s+([^:]+):\s+(.*)$/)
+	{
+	    $status->{"fields"}->{$1} .= $2;
+	}
+
+	elsif ($l =~ /^Printer:\s+(.*)/)
+	{
+	    $status->{"fields"}->{"Printer"} = $1;
+	}
+
+	if ($l =~ /^\s+Rank.*Owner/)
+	{
+	    $in_rank++;
+	    $status->{"fields"}->{"queuelist"} = "";
+	}
+
+	if ($in_rank)
+	{
+	    $status->{"fields"}->{"queuelist"} .= "$l\n";
+	}
+
+	#
+	# check for errors
+	#
+	if ($in_rank && $opt_e && $l =~ /^error/ && !$fail)
+	{
+	    $status->{"ok"} = 0;
+	    $status->{"error"} = "job error";
+
+	    $fail = 1;
+	}
+
+	elsif ($in_rank && $l =~ /^stalled\((\d+)sec/ && $1 > $STALLED && !$fail)
+	{
+	    $status->{"ok"} = 0;
+	    $status->{"error"} = "job stalled $1 seconds";
+
+	    $fail = 1;
+	}
+
+	elsif ($in_rank && $l =~ /^active\(attempt-(\d+)/ && !$fail)
+	{
+	    $status->{"ok"} = 0;
+	    $status->{"error"} = "multiple attempts, currently $1";
+
+	    $fail = 1;
+	}
+
+    }
+
+    return $status;
+}
+
+
+#
+# Make a Berkeley socket connection between this program and a TCP port
+# on another (or this) host. Port can be a number or a named service
+#
+# returns "" on success, or an error string on failure
+#
+sub OpenSocket {
+    my ($host, $port) = @_;
+
+    my $proto = (getprotobyname('tcp'))[2];
+
+    return ("could not get protocol") if (!defined $proto);
+
+    my $conn_port;
+
+    if ($port =~ /^\d+$/) {
+    	$conn_port = $port;
+
+    } else {
+	$conn_port = (getservbyname($port, 'tcp'))[2];
+	return ("could not getservbyname for $port")
+		if (!defined $conn_port);
+    }
+
+    my $host_addr = (gethostbyname($host))[4];
+
+    return ("gethostbyname failure")
+    		if (!defined $host_addr);
+
+    my $that = sockaddr_in ($conn_port, $host_addr);
+
+    if (!socket (S, &PF_INET, &SOCK_STREAM, $proto)) {
+    	return ("socket: $!");
+    }
+
+    if (!connect (S, $that)) {
+    	return ("connect: $!");
+    }
+
+    select(S); $| = 1; select(STDOUT);
+
+    "";
+}

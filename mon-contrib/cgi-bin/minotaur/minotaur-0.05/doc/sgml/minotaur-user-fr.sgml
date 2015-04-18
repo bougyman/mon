@@ -1,0 +1,286 @@
+<!doctype linuxdoc system>
+
+<!-- Welcome in the SGML world -->
+
+ <article>
+  
+   <title>Le  manuel utilisateur de l'interface web Minotaure
+   <author><url 
+      name="Gilles Lamiral" 
+      url="mailto:lamiral@mail.dotcom.fr">
+   <date>v0.4, 17 mars 2000
+    
+   <abstract>
+    Ce document décrit l'utilisation de l'interface HTML du logiciel
+    Minotaure.
+   </abstract>
+ 
+  <toc>
+  
+  <sect>Liens
+   <p>
+    
+    Le page de garde <bf>Minotaur</bf> et la démonstration en ligne est
+    disponible à l'adresse
+    <url url="http://www.linux-france.org/prj/minotaure/">
+
+    Une instance locale est peut-être disponible à l'adresse <url
+    url="../../cgi-bin/minotaur.cgi">.
+
+    Toute question peut-être posée sur la liste de diffusion de MON.
+    Envoyer simplement votre question à <url
+    url="mailto:mon@linux.kernel.org">
+
+
+    La page de garde de <bf>MON</bf>est <url
+    url="http://www.kernel.org/software/mon">
+    
+
+
+  <sect>Principes
+   <p>
+
+    Minotaure est un logiciel client pour le server MON. MON est un
+    outil de supervision écrit par Jim Trocki.
+
+    Le logiciel MON est un ordonnanceur général qui exécute des tests
+    périodiquement sur un ensemble de services et déclenche des alarmes
+    en cas de détection de problème.
+
+    L'ordonnanceur peut être interrogé suivant un protocole simple (en
+    mode texte) sur un port prédéfini (2583).
+
+    L'interface est basé sur ce protocole. Le script CGI (Common Gateway
+    Interface) interroge l'ordonnanceur et présente les résultat sous le
+    standard HTML. Par souci d'efficacité, de simplicité, de
+    compatibilité et de stabilité, les java, javascript, frame, et autres
+    avatars du web ne sont pas utilisés.
+
+    Pour comprendre l'interface Web, il faut penser à la hiérarchie
+    suivante: 
+    <itemize>
+     <item>L'ordonnanceur surveilles des groupes. 
+
+     <item>Les groupes sont constitués d'items.
+
+      <item>Ces items peuvent être des machines présentées par leur nom 
+      ou leur adresse IP, ou tout autre chose, des répertoires par
+      exemple.
+
+     <item>Sur chaque groupe d'items, l'ordonnanceur surveille un ou
+     plusieurs services. Chaque service est testé par un logiciel appelé
+     un moniteur.
+
+     <item>Pour chaque service, l'ordonnanceur peut déclencher une ou
+     plusieurs alarmes, quand un problème est detecté.
+
+    </itemize>
+    
+   <sect>Présentation générale
+    <p>
+
+    Tout est sur une seule page, composée de cinq partie, séparées par
+    une ligne. Ces parties sont nommées <bf>Infos</bf>, <bf>État</bf>,
+    <bf>Vue croisée</bf>, <bf>Historique</bf> and <bf>Préférences</bf>.
+    
+    Le titre de la page présente le nom du serveur MON contacté, suivi
+    par le port utilisé, la date et l'heure du serveur. Ce titre
+    apparait dans le bandeau supérieur de la fenêtre, au dessus des
+    menus de votre navigateur.
+
+    Le haut de la page présente le nom du serveur MON contacté, la date
+    et l'heure du serveur.
+
+    Une barre de liens au dessus de chaque tableau permet de se déplacer
+    rapidement dans les différentes sections de la page ou d'atteindre
+    la présente documentation.
+
+    La partie <bf>infos</bf> est juste un emplacement où
+    l'administrateur du logiciel renseigne des informations utiles, des
+    liens vers d'autres pages, un logo etc.
+    
+    Le  tableau <bf>État</bf> présente l'état des différents services.
+    
+    Le tableau <bf>Vue Croisée</bf> est utilisée pour présenter les
+    information du tableau <bf>État</bf> sous une forme complétement
+    différente. Cette présentation est choisie par l'administrateur du
+    logiciel.
+    
+    Le tableau <bf>Historique</bf> présente la liste des alertes
+    générées.
+    
+    Le tableau <bf>Préférences</bf> est toujours présent à la fin de la
+    page. Ce tableau vous permet de choisir et conserver les options de
+    présentation ainsi que les information de login.
+    
+    
+   <sect>Le tableau des préférences
+    <p>
+    <figure>
+     <eps file="../images/Preferences-fr.eps">
+     <img src="../images/Preferences-fr.png">
+     <newline>
+     <caption><em>Le tableau des préferences</em></caption>
+    </figure>
+    
+    Avec le menu déroulant <bf>Rafraîchissement</bf>, vous sélectionnez
+    le délai de rafraîchissement de la page. Ce taux de rafraîchissement
+    est complètement indépendant des intervalles de test des services.
+
+    Avec le menu déroulant <bf>langage</bf> vous sélectionnez le
+    langage utilisé dans la page.
+
+    Avec les boutons appelés <bf>Infos</bf>, <bf>État</bf>,
+    <bf>Historique</bf>, <bf>Vue Croisée</bf>, vous sélectionnez les
+    tableaux que vous voulez afficher.
+
+    Les champs <bf>Utilisateur</bf> et <bf>Mot de Passe</bf> vous
+    permettent de réaliser des actions nécessitant une authentification
+    sur le server MON.
+
+
+   
+  <sect>Le tableau État
+   <p>
+    <figure>
+     <eps file="../images/StatusTable-fr.eps">
+     <img src="../images/StatusTable-fr.png">
+     <newline>
+     <caption><em>Le tableau État</em></caption>
+    </figure>
+    
+    <descrip>
+     
+     <tag/La colonne ``host''./ Cette colonne contient la liste de
+     toutes les ``machines'' testées. Les machines dont les tests sont
+     en suspend sont sélectionnées. Vous pouvez selectionner ou
+     déselectionner certaines machines.
+     
+     <tag/La colonne ``groupe''./ Cette colonne donne le nom des
+     groupes de machines.
+
+     <tag/La colonne  ``Membres''./ Cette colonne les listes des
+      machines composant chaque groupe, une liste par groupe.
+     cell.
+     
+     <tag/La colonne ``Service''./ Cette colonne nomme les services. Un
+     groupe peut posséder plusieurs services.  Le bouton <bf>HS</bf>
+     permet de changer l'état du service. Les alertes ne sont plus
+     déclenchées lorsque le service est bleu.
+     
+     <tag/Les colonnes  ``Dernier à'' and ``Prochain dans''./ La
+      cellule  ``Dernier à'' mentionne l'heure du dernier test
+      effectué. La colomne  ``Prochain dans'' mentionne le temps
+      restsnt avant le prochain test.
+
+     <tag/La colonne  ``État''./ La colonne ``État'' contient l'état
+      du service, une cellule par service. Si le dernier test a reussi 
+      alors la cellule est sans couleur (en gris) et le contenu est le 
+      résumé du dernier échec. Si le dernier test a échoué la cellule
+      a un fond  rouge et contient le mot échec suivi par un résumé de 
+      cet échec, typiquement le nom des machines qui n'ont pas passé
+      le test avec succes. 
+      
+     <tag/Légende des couleurs./
+      <itemize>
+
+       <item>Quand Tout va bien, aucune couleur n'apparait.
+	
+	<item>Quand un service est tombé, le service et son groupe
+	passent au rouge.  Les services du même groupe qui
+	fonctionnent sont vert afin de bien faire la distinction entre
+	ce qui fonctionne et ce qui ne fonctionne pas pour l'ensemble
+	des machines du groupe.
+     
+	<item>Quand un service n'est pas encore testé la cellule a
+	un fond jaune.
+     
+	<item>Quund un service est inhibé la cellule a un fond bleu.
+     
+	<item>Les groupes sont présentés suivant l'ordre suivant:
+	rouge, bleu , et alphabéthique.
+
+	<item>Pour chaque groupe, les services sont présentés
+	suivant l'ordre suivant : rouge, bleu , jaune et
+	alphabéthique.
+       
+      </itemize>
+      
+    </descrip>
+
+  <sect>Le tableau des clients
+   <p>
+    
+    
+    <figure>
+     <eps file="../images/CrossViewEmpty-fr.eps">
+     <img src="../images/CrossViewEmpty-fr.png">
+     <newline>
+     <caption><em>Le tableau des clients, sans sélection</em></caption>
+    </figure>
+    
+    
+    Par défaut, la vue croisée liste les alias dans la première colonne
+    mais ne détaille rien.
+    
+    <figure>
+     <eps file="../images/CrossViewDetail-fr.eps">
+     <img src="../images/CrossViewDetail-fr.png">
+     <newline>
+     <caption><em>Le tableau des clients, une sélection</em></caption>
+    </figure>
+    
+    Pour voir le détail d'un alias, sélectionnez-le dans la colonne
+    ``Liste'' et cliquez sur le bouton <bf>Envoyer</bf>. Vous pouvez
+    effectuer une sélection multiple.
+
+    <figure>
+     <eps file="../images/CrossViewFull-fr.eps">
+     <img src="../images/CrossViewFull-fr.png">
+     <newline>
+     <caption><em>Le tableau des alias, tous
+     sélectionnés</em></caption>
+    </figure>
+
+    Pour sélectionner ou déselectionner tous les clients, vous utilisez
+    les boutons radio ``tous'' ou ``aucun'' et cliquez sur le bouton
+    <bf>envoyer</bf>.
+    
+
+  <sect>Le tableau historique
+   <p>
+    
+    <figure>
+     <eps file="../images/Historic-fr.eps">
+     <img src="../images/Historic-fr.png">
+     <newline>
+     <caption><em>Le tableau historique</em></caption>
+    </figure>
+
+    En rouge, les alertes. En vert, les alerts.
+
+    Vous choisissez le nombre de lignes à afficher dans le champs
+    <bf>Nb lignes</bf>. Pour mettre en évidence les dernieres alertes,
+    utilisez le menu déroulant <bf>Filtre</bf>. Les dernières alertes
+    intervenues dans l'intervale choisi sont affichées sur un fond
+    blanc cassé.
+
+  <sect>Licence<label id="LICENCE">
+    <p>
+
+     Ce document est placé sous la licence <url
+     url="http://www.opencontent.org/opl.shtml">. Ceci signifie que ce
+     document vous est livré sans garantie, que vous pouvez l'utiliser,
+     le distribuer, le modifier à votre guise en respectant les
+     conditions suivantes: vous devez clairement spécifier la nature et
+     le contenu des modifications, leur date et conserver la licence
+     OpenContent<!-- en cas de redistribution -->. Si vous le vendez,
+     vous vendez le contenant, pas le contenu. Ceci est un résumé. Lisez
+     complètement la licence (en anglais) pour obtenir plus de détails.
+     Une adaptation française existe <url
+     url="http://www.linux-france.org/article/these/licence/OPL_FR.txt">.
+
+
+</article>
+
+<!-- Local IspellDict: francais -->

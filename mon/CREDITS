@@ -1,0 +1,109 @@
+$Id: CREDITS,v 1.2 2004/11/15 14:45:16 vitroth Exp $
+
+This is a list of people who have contributed code and/or ideas to mon
+itself or its other components.
+
+Jon Meek
+meekj@pt.cyanamid.com
+    Lots of ideas, inital testing under Solaris, and http.monitor code.
+
+David Nolan
+vitroth+@cmu.edu
+    Many bug fixes and feature additions. David probably runs the largest
+    mon installation in existence.
+
+Ed Ravin
+eravin@panix.com
+    Bug fixes, many enhancements to monitors, feature additions, and fixes
+    for BSD-isms.
+
+Martin J. Laubach
+mjl@emsi.priv.at
+    Bug fixes, scheduler enhancements.
+
+Gilles Lamiral
+lamiral@mail.dotcom.fr
+    Minotaur CGI interface, lots of bug fixes and enhancements.
+
+Arthur K. Chan
+artchan@althem.com
+    Initial version of interactive WWW interface (mon.cgi).
+
+Ulrich Pfeifer
+pfeifer@wait.de
+    Lots of code cleanups, and removal of the Open2 mess.
+
+Alan Cox
+alan@cymru.net
+    Initial suggestion for "alertafter" parameter.
+
+David Eckelkamp
+davide@tradewave.com
+    Supplied "monstatus" command-line utility, and LDAP and DNS monitor.
+
+Eric Saxe
+eric@Zcompany.com
+    Found CR/LF bug in smtp.monitor
+
+Peter Gervai
+grin@tolna.net
+    Found bug in config parser, suggested process throttle option.
+
+Michael Griffith
+grif@cadence.com
+    Added some sanity checking to the config parser.
+
+Brian Moore
+bem@cmc.net
+    'summary' option for alerts.
+
+Michael Alan Dorman
+mdorman@@debian.org
+    Contributed Perl SNPP alert.
+
+Alan Robertson
+alanr@bell-labs.com
+    Maintains the RedHat RPM.
+
+Roderick Schertler
+roderick@argon.org
+    Maintains the Debian package.
+
+Tiago Severina
+ts@uevora.pt
+    Reported some bugs with FTP.monitor, and is currently working on the
+    dependency code. Tiago has been actively contributing his patches
+    that include inherited dependency support, and once this code
+    stabilizes and is thoroughly tested in a production environment,
+    it will be released. It is some really great stuff--thanks, Tiago!
+
+Jing Tan
+jing@walrus.com
+    Jing has contributed the dependency code which is included in
+    the distribution as of 0.38.
+
+James FitzGibbon
+james@ican.net
+    Contributed msql/mysql monitor.
+
+Mark D. Nagel
+nagel@intelenet.net
+    Submitted version command for Mon::Client module.
+
+Lars Marowsky-Bree
+lmb@teuto.net
+    Added trap code to Mon::Client, contributed syslog.monitor,
+    and fixed some bugs.
+
+Mark Wagner
+markw@horvitznewspapers.net
+    Bug fixes and other contributions.
+
+Andrew Ryan
+andrewr@mycfo.com
+    mon.cgi v1.32 and later, bug reports and fixes.
+
+Eric Sorenson
+eric@transmeta.com
+    Documentation and RPM spec updates
+

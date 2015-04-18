@@ -1,0 +1,20 @@
+Date: Thu, 21 Jun 2001 05:46:47 +0900
+From: SATOH Fumiyasu <fumiya@samba.gr.jp>
+To: trockij@transmeta.com
+Subject: freespace-snmp.monitor
+
+Hi, ``mon'' developper.
+
+I wrote freespace-snmp.monitor based on process.monitor for mon.
+This monitors disk space via SNMP (NET-SNMP, aka UCD-SNMP).
+
+I want to commit this monitor to mon archive. Any comments?
+If you think that ``freespace-snmp'' is not suitable name,
+please name this monitor as you wish :-).
+
+-- 
+SATOH Fumiyasu - fumiya @net-thrust.com, @samba.gr.jp, @namazu.org or ...
+THRUST Co., Ltd. @ Fujisawa, Kanagawa, Japan - http://www.net-thrust.com
+Samba-JP, aka `Samba Users Group Japan'      - http://www.samba.gr.jp
+Apache-JP(?), aka `Japan Apache Users Group' - http://www.apache.or.jp
+Namazu, a full-text search engine            - http://www.namazu.org

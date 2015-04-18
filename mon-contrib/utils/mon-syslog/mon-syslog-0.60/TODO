@@ -1,0 +1,46 @@
+$Id: TODO,v 1.1.1.1 2005/02/18 17:52:19 trockij Exp $
+
+Somewhat ordered by perceived importance:
+
+- Fix remaining bugs and remove redundant code
+  Especially, fix the select/signal thingy.
+  
+- There should be a way for the patterns to match part of the syslog message
+  and send it to the mon server with the trap - it should be possible to
+  send the IP address of the remote host etc.
+  (This should also be available later for matching again: Only alert if more
+  than 100 http connects/second have been comeing in from the same host for
+  example.)
+  Partly implemented: The trap includes the syslog message as part of the
+  detailed information.
+  
+- Find some good idea on how to deal with "Last message repeated xx times"
+  statements.
+  Maybe assume even distribution since the last message was received?
+  
+  The same question applies to Cisco routers, which inform you that "1000
+  packets have been denied", which might be somewhat more serious than "1
+  packet has been denied" ... Patching a Cisco is not an option though ;-)
+  
+- Provide further examples for patterns
+
+- Write documentation which does not insult the reader
+
+- It might be neat to have the option to specify how many matches are OK in
+  relation to the time of day:
+  if our mailserver started to process 1000 mails per hour at 3 o'clock,
+  this is definetely different than 1000 mails per hour during day time...
+
+- Find a way to gather statistical data into a database at the same time.
+  Lots of cool numbers inside syslog messages.
+  
+- syslog.monitor should drop root privs after the syslog port has been
+  successfully bound.
+
+- Deal properly with syslog packets which contain the time at which it was 
+  send (ie Ciscos do this)
+
+- Reduce memory & CPU usage
+  Precompiled patterns are already quite fast. Maybe this is a nonissue.
+
+- Fix remaining bugs and remove redundant code

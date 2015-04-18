@@ -1,0 +1,153 @@
+#!/usr/bin/perl
+#
+# Try to connect to a mon server.
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "http.monitor" by
+# Steven F. Siirila, University of Minnesota, sfs@umn.edu
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: umn_mon.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+getopts ("p:t:");
+$PORT = $opt_p || getservbyname ("mon", "tcp") || 2583;
+$TIMEOUT = $opt_t || 30;
+
+@failures = ();
+
+foreach $host (@ARGV) {
+    system("fping -q -r 3 -t 2000 $host 2>/dev/null");
+    $status = $? / 256;
+    next if $status;            # ignore hosts which are not pingable
+
+    if (! &monGET($host, $PORT)) {
+        push (@failures, $host);
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n";
+foreach $msg (@details) {
+    print "$msg\n";
+}
+
+exit 1;
+
+
+sub monGET {
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port) = @_;
+    my($ServerOK, $TheContent);
+
+    $ServerOK = 0;
+
+    $TheContent = '';
+
+###############################################################
+    eval {
+
+        local $SIG{ALRM} = sub { die "Timeout Alarm" };
+        alarm $TIMEOUT;
+        $result = &OpenSocket($Server, $Port); # Open a connection to the server
+        if ($result == 0) { # Failure to open the socket
+            push(@details, "${Server}: Unable to create MON connection to port $Port");
+            return '';
+        }
+
+        print S "list state\r\n";
+
+        $in = <S>;
+        if ($in !~ /^scheduler running$/) {
+            alarm 0;
+            push(@details, "${Server}: $in");
+            return 0;
+        }
+
+        $in = <S>;
+        if ($in !~ /^220 /) {
+            alarm 0;
+            push(@details, "${Server}: $in");
+            return 0;
+        }
+
+        print S "quit\r\n";
+
+        $in = <S>;
+        if ($in !~ /^220 /) {
+            alarm 0;
+            push(@details, "${Server}: $in");
+            return 0;
+        }
+
+        $ServerOK = 1;
+
+        close(S);
+        alarm 0; # Cancel the alarm
+
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+        push(@details, "${Server}: Connection timed out");
+        return 0;
+    }
+    return $ServerOK;
+
+}
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    local($OtherHostname, $Port) = @_;
+    local($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+          $ThisAddr, $that);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    $sockaddr = 'S n a4 x8';    # Format for packed network address
+    $that = pack($sockaddr, &AF_INET, $Port, $OtherHostAddr);
+
+    $result = socket(S, &PF_INET, &SOCK_STREAM, $proto) || return undef;
+
+    $result = connect(S, $that) || return undef;
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+    return 1;                               # success
+}

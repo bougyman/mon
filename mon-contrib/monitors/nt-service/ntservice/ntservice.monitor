@@ -1,0 +1,264 @@
+#!/usr/local/bin/perl
+#
+# NAME
+#  ntservice.monitor - monitor NT service status with the Empire 
+#  SystemEdge SNMP agent
+#
+#
+# SYNOPSIS
+#  ntservice.monitor [-vn] [-c community ] [-t timeout ] 
+#      [-s "service string"] -u {automatic|manual|disabled} host...
+#
+#
+# ARGUMENTS
+#  -v  Runs in verbose mode, shows all SNMP output collected.
+#      Unsuitable for presentation to Mon but possibly useful
+#      for development/debugging.
+#
+#  -c  SNMP community string. Default is "public".
+#
+#  -t  SNMP timeout, in seconds.
+#
+#  -n  Negate option. Instead of testing if the service is running,
+#      instead test to make sure that the service is NOT running and/or
+#      not installed.
+# 
+#  -s  Service string name. Case insensitive name of service to look for.
+#      This is the string that appears in the "Service" column of 
+#      the WinNT "Services" control panel.
+#
+#  -u  Service startup type. Will be either "manual", "automatic", or 
+#      "disabled." This is the string that appears in the "Startup" column
+#      of the WinNT "Services" control panel. If this option is not set,
+#      the service startup type is ignored.
+#
+#  host...
+#      Space separated list of hosts to monitor.
+#
+#
+#
+# EXAMPLE
+#  Check the MS SQL Server service on the hosts "ntdb1", "ntdb2" `.
+#  Report an error if the service is not running or if its restart
+#  status is not set to "automatic".
+#
+#      ntservice.monitor -c secret -S "MSSQLService" -u automatic ntdb1 ntdb2
+#
+#
+# DESCRIPTION
+#  ntservice.monitor monitors WinNT service status via the Empire 
+#  SystemEdge SNMP agent. It is designed to be used as a monitor 
+#  for the Mon package.
+#
+#  As such if any monitoring condition is not met, the script will report
+#  a non-zero error code and output 2+ lines of text. The first line of
+#  text will be a space-separated list of hosts which are in error, 
+#  second and subsequent lines are detail output about exactly what
+#  went wrong (one error per line).
+#
+#  This script relies on several things:
+#   1) You must have the Empire SNMP set up and running on every machine that
+#   you want this script to run, and have that agent configured to
+#   be monitoring NT processes.
+#   2) You must have the Empire MIB placed in your mibs directory
+#   for your UCD implementation (by default this directory is 
+#   /usr/local/share/snmp/mibs/). The dedicated could rewrite with 
+#   numeric OID's, but far easier just to get the MIB, it is included
+#   with every package of Empire SystemEdge.
+#
+#
+# EXIT STATUS
+#  0   The command completed successfully.
+#  1   At least one hard failure (e.g. service is definitely in error)
+#       was detected.
+#  2   At least one soft failure (e.g., timeout, OID not found) was detected.
+#
+#
+# SEE ALSO
+#  http://www.kernel.org/pub/software/admin/mon/html/
+#  http://www.empire.com/
+#
+#
+# AUTHORS
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  $Id: ntservice.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+#
+
+use strict;
+use SNMP;
+use Getopt::Std;
+use vars qw ($opt_v $opt_n $opt_c $opt_t $opt_s $opt_u);
+
+getopts('vnc:t:s:u:');
+my $community = $opt_c || 'public';   #default SNMP community string
+my $timeout = $opt_t * 1000 * 1000 || 5000000; #default timeout is 5 secs.
+my $service_string = $opt_s ; #default is null
+my $service_startup_type_string = $opt_u ;   #default is null
+if ( $opt_u && !( ($service_startup_type_string =~ /^automatic$/i) ||
+		  ($service_startup_type_string =~ /^manual$/i) ||
+		  ($service_startup_type_string =~ /^disabled$/i) )
+     ) {
+    print "\n$0: Usage error. Invalid service startup type \"$service_startup_type_string\"\n";
+    print "Service startup type string must be either automatic, manual, or disabled";
+    exit 1;
+}
+
+my %service_startups = (1 => "automatic",
+		        2 => "manual",
+		        3 => "disabled",
+			);
+if ($opt_u) {
+    # Set service_startups to its proper numeric value.
+    # (this translation would be better done by the MIB, but we won't
+    # rely on having that around)
+    foreach (keys %service_startups) {
+	$service_startup_type_string = $_ if $service_startups{$_} eq $service_startup_type_string ;
+    }
+}
+
+my $exit_status = 0;      # Default exit status is 0
+#$ENV{"MIBS"} = 'ALL';
+$ENV{"MIBS"} = '';
+$SNMP::use_long_names = 1;
+$SNMP::use_sprint_value = 1;
+# This is the textual representation of the OID we are looking for 
+# (.iso(1).org(3).dod(6).internet(1).private(4).enterprises(1).empire(546).nt(5).ntServices(4).ntServiceTable(1))
+my $ntservice_string = ".iso.org.dod.internet.private.enterprises.empire.nt.ntServices.ntServiceTable";
+# This is the string we test on to make sure that we are still in the table
+# while we are doing our walk.
+my $test_string = "ntServiceTable";
+
+my $ntServiceName = "ntServiceName";
+my $ntServiceState = "ntServiceState";
+my $ntServiceStartType = "ntServiceStartType";
+
+#my $ntservice_name_var =    new SNMP::Varbind([".1.3.6.1.4.1.546.5.4.1.1.2",1]);
+#my $ntservice_startup_var = new SNMP::Varbind([".1.3.6.1.4.1.546.5.4.1.1.4",1]);
+#my $ntservice_status_var =  new SNMP::Varbind([".1.3.6.1.4.1.546.5.4.1.1.6",1]);
+my $ntservice_name_var =    ".1.3.6.1.4.1.546.5.4.1.1.2";
+my $ntservice_startup_var = ".1.3.6.1.4.1.546.5.4.1.1.4";
+my $ntservice_status_var =  ".1.3.6.1.4.1.546.5.4.1.1.6";
+
+
+#my $service_running_string = $opt_n ? "running" : "notRunning";
+my $service_running_string = $opt_n ? "1" : "2";
+
+my $ntservice_var ;
+
+my ($host, $session, $got_data, $found_service, @failures, @details, $index, $tag, %ntservices, $ntServiceEntryType, $val, @oidname, $exit_var, $service_descr, $service_status, $service_startup);
+foreach $host (@ARGV) {
+    undef $session;
+    undef %ntservices;
+    undef $exit_var;
+    # It is important that the $ntservice_var variable be redefined within each
+    # iteration of the loop, otherwise multihosts don't work
+    #$ntservice_var = new SNMP::Varbind([$ntservice_string, 1]);
+    #$ntservice_var = new SNMP::Varbind(["$ntservice_string.$ntServiceName", 0]);
+    $ntservice_var = new SNMP::Varbind(["$ntservice_name_var",1]);
+#    $test_string = ".1.3.6.1.4.1.546.5.4.1.1.2"; # DEBUG
+    $test_string = $ntservice_name_var; # DEBUG
+#    $ntservice_var = new SNMP::Varbind(["$ntservice_string.$ntServiceName",1]);  #this crashes things badly
+    #$ntservice_var = new SNMP::Varbind(["$ntservice_string.$ntServiceName",1]);
+
+    $got_data = 0;  # this boolean is set to 1 if we get SNMP data back
+    $found_service = 0;  #this boolean is set to 1 if we find info about the requested service
+    print "performing query on $host\n" if $opt_v;
+    $session = new SNMP::Session(DestHost => $host,
+				 Timeout => $timeout,
+				 RetryNoSuch => 1,
+				 Retries => 3,
+				 Community => $community,
+				 );
+    print "SNMP timeout for host $host is $timeout\n" if $opt_v;
+    
+    do {
+	$val = $session->getnext($ntservice_var);
+	#print "$ntservice_var->[$SNMP::Varbind::tag_f].$ntservice_var->[$SNMP::Varbind::iid_f] = ",
+	#"$ntservice_var->[$SNMP::Varbind::val_f]\n"; #DEBUG
+	$got_data = 1;
+	@oidname = split(/\./, $ntservice_var->[$SNMP::Varbind::tag_f]);
+	$tag = $ntservice_var->[$SNMP::Varbind::iid_f];
+	$ntServiceEntryType = $oidname[-1];
+	$ntservices{$ntServiceEntryType} = $val ; # This contains the english name of the service, e.g.  "Net Logon"
+	$found_service = 1 if ($val =~ m/\"$service_string\"/i);
+	#print "tag is $tag, val is $val, ntServiceEntryType is $ntServiceEntryType\n";
+    } until ( ($ntservice_var->[$SNMP::Varbind::tag_f] !~ /$test_string/) || ($session->{ErrorStr}) || ($found_service == 1) ) ;
+    
+    # Now do the specific gets on the svc we're interested in
+    if ($found_service == 1 ) {  # this is the service we are interested at looking at!
+	$service_descr = $val;
+	$service_status = $session->get([["$ntservice_status_var.$ntServiceEntryType"]]);
+	print "index $ntServiceEntryType ($service_descr) has status $service_status\n" if $opt_v;
+	$service_startup = $session->get([["$ntservice_startup_var.$ntServiceEntryType"]]);
+	print "index $ntServiceEntryType ($service_descr) has startup param $service_startup ($service_startups{$service_startup})\n" if $opt_v;
+	if ( !($opt_n) && ($service_status eq $service_running_string) )  {   #service is not running and it should be
+	    push(@failures, $host);
+	    push (@details,"$host: service $service_descr is not running (should be)");
+	    $exit_status = 1;
+	} elsif ( ($opt_n) && ($service_status eq $service_running_string) )  {   #service is running and it shouldn't be
+	    push(@failures, $host);
+	    push (@details,"$host: service $service_descr is running (shouldn't be)");
+	    $exit_status = 1;
+	}
+	if ( ($opt_u) && ($service_startup != $service_startup_type_string) )  {   #service has the wrong start type
+	    push(@failures, $host);
+	    push (@details,"$host: service $service_descr startType is $service_startups{$service_startup}, should be $service_startups{$service_startup_type_string}");
+	    $exit_status = 1;
+	}
+    }
+
+# After checking the MIB, we have the following possible cases: 
+#  1) error in SNMP session (special case for Timeout)
+#  2) Service isn't running, should be
+#  3) Service is running, shouldn't be
+#  4) Service has wrong startup parameters
+#  5) Service not found in table (not installed?) and should be 
+#  6) OID not found in SNMP request (host responded to SNMP request but 
+#     doesn't answer to this OID. Perhaps agent is not installed/licensed?
+#  7) Unknown error getting SNMP session (we never got any data for the host)
+    if ( (defined($session->{ErrorStr})) && ($session->{ErrorStr} eq "Timeout" ) ) { #timeout error
+	push(@failures,"$host");
+	push(@details,"$host: $session->{ErrorStr}");
+	$exit_status = $exit_status == 1 ? 1 : 2;
+    } elsif ( $session->{ErrorNum} ) { # Some other kind of SNMP error
+	push(@failures,"$host");
+	push(@details,"$host: '$session->{ErrorStr}'");
+	$exit_status = 1;
+    } elsif ( $got_data == 1 ) {
+	if ( !($opt_n) && ($found_service == 0) ) {  # The service we asked about doesn't appear to be installed on this machine
+	    push(@failures, $host);
+	    push (@details,"$host: A service matching string \"$service_string\" not found in table (service not installed?)");
+	    $exit_status = 1;
+	}
+    } elsif ($got_data == 0) {
+        #The OID was not found in the table
+        # ucd-snmpd 4.0.1 reports this behavior when an OID is not found in table
+        push(@failures, "$host");
+        push(@details, "$host: OID for exit value is null (OID doesn't exist?)");
+	$exit_status = $exit_status == 1 ? 1 : 2;
+    } else {
+	push(@failures,"$host");
+	push(@details, "$host: unknown error trying to retrieve SNMP data ($got_data)");
+	$exit_status = $exit_status == 1 ? 1 : 2;
+    }
+}
+
+
+# Uniq the array of failures, so multiple failures on a single host
+# are reported in the details section (lines #2-infinity) but not 
+# in the summary (line #1).
+# Then print out the failures, if any.
+my %saw;
+undef %saw;
+@saw{@failures} = ();
+@failures = keys %saw;
+print "failures: " if $opt_v;
+print join(", ", @failures);
+print "\n" if scalar(@failures) > 0 ;
+print "\ndetails: " if $opt_v;
+print join("\n", @details);
+
+
+exit $exit_status if scalar(@failures) > 0 ;
+exit 0;

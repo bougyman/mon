@@ -1,0 +1,41 @@
+Subject: 
+         hpov.alert: Alert script to generate events in HP Open View
+   Date: 
+         Wed, 14 Feb 2001 10:36:25 +0100
+   From: 
+         "Scott Prater" <scott.prater@servicom2000.com>
+     To: 
+         <mon@linux.kernel.org>
+
+
+
+
+Below is a perl script I wrote to send alarms to HP OpenView, our network
+management system.
+
+Mon and this script solved the problem we faced of integrating
+monitorization of services and systems without SNMP support into our overall
+monitor structure (which is built around HP Open View, an SNMP-based network
+management system).
+
+I imagine that the alert script could be easily adapted to other such
+SNMP-based management systems, such as Tivoli.
+
+A brief description of the alert script (parameters, defaults, etc.) is
+included in comments at the head of the script.  I assume knowledge of HP
+OpenView, MIBs, OIDs, events, etc..
+
+One caveat:  the script sends the alarm with the hostgroup as the
+originating pseudo snmp agent.
+This means that the hostgroup must be a single valid IP or domain name in
+your network, in order for HP OpenView to correctly associate it with the
+appropriate node.
+
+I'm not familiar enough with mon to know if there's a way to extract the
+specific machine that raised an alarm from the hostgroup list passed to the
+alert scripts.  This would be a good thing.
+
+As always, comments, suggestions, constructive criticisms gratefully
+accepted.
+
+Scott Prater

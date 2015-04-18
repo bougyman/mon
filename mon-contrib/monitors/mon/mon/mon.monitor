@@ -1,0 +1,110 @@
+#!/usr/bin/perl
+#
+# Use Net::Telnet to monitor a list of mon hosts
+#
+# -p port        connect to 'port' (defaults to 2583)
+# -t secs        set timeout to 'secs' (defaults to 10)
+#
+# Arguments are "host [host...]"
+#
+# This script assumes you don't need to log in to have list access.
+#
+#
+# Andrew Ryan <andrewr@nam-shub.com>
+#   based on Jim Trocki's telnet.monitor
+#
+# $Id: mon.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+#    Copyright (C) 2000, Andrew Ryan
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use strict;
+use Net::Telnet;
+use Getopt::Std;
+
+use vars qw /$opt_t $opt_p/;
+getopts ("p:t:");
+
+my $TIMEOUT  = $opt_t || 10;
+my $PORT     = $opt_p || 2583;
+my $CMD    = "list state";
+
+my @failures = ();
+my (@l, $host, $t, $line, @date);
+
+foreach $host (@ARGV) {
+    $t = new Net::Telnet (   Telnetmode => 0,
+			     Timeout => $TIMEOUT,
+			     Port => $PORT,
+			     );
+    
+    if (!defined $t) {
+    	push @failures, [$host, "could not create new Net::Telnet object"];
+	next;
+    }
+
+    $t->errmode ("return");
+
+    if (!defined $t->open ($host)) {
+    	push @failures, [$host, $t->errmsg];
+	next;
+    }
+
+    ## Send command
+    $t->print("$CMD");
+    $line = $t->getline;
+
+
+    # There are 3 failure cases:
+    #  1) No response received
+    #  2) Scheduler is stopped (say when it was stopped)
+    #  3) Some other service is running on this port or some other
+    #     response to the command is received.
+    if (! defined $line) {
+	push @failures, [$host, "scheduler on mon server not running!: ". $t->errmsg];
+    } elsif ($line =~ /^scheduler stopped/ ) {
+	chomp($line);
+	@date = split(' ' , $line);
+	$date[-1] = localtime($date[-1]);
+	# Print the "scheduler stopped since " message
+	push @failures, [$host, "@date"];
+    } elsif ($line !~ /^scheduler running/ ) {
+	chomp($line);
+	@date = split(' ' , $line);
+	$date[0] = localtime($date[-1]);
+	push @failures, [$host, "scheduler on mon server not running!: $line"];
+    }
+
+
+    $t->close;
+}
+
+
+if (@failures == 0) {
+    exit 0;
+}
+
+for (@failures) {
+    push @l, $_->[0];
+}
+
+print "@l\n";
+
+for (@failures) {
+    print "$_->[0]: $_->[1]\n";
+}
+
+exit 1;

@@ -1,0 +1,209 @@
+#!/usr/bin/perl
+#
+# Monitor external programs via SNMP (v. 1-3)
+# (based on netsnmp-freespace.monitor)
+#
+# Usage: 
+#       [-h]                # Usage
+#       [-t Timeout]        # Timeout in ms (default: 1000000)
+#       [-r Retries]        # Retries before failure (default: 5)
+#       [-v SNMPversion]    # 1,2,2c or 3 (default: 1)
+#       [-c Community]      # For SNMP v.1,2,2c (default: public)
+#       [-u snmpuser]       # For SNMP v.3 (default: initial)
+#       [-l seclevel]       # For SNMP v.3 (default: noAuthNoPriv)
+#       [-A authpassphrase] # For SNMP v.3 
+#       [-n num[,num...]]   # Zero-indexed external program number(s); programs
+#                           # are numbered by the order they appear in the
+#	                    # remote snmpd.conf. If monitoring specific programs
+#	                    # on multiple hosts, they must be consistent!
+#	                    # Default is to monitor all.
+#       host [host ...]
+#
+# This script monitors one or more external programs run by the UCD
+# SNMP agent. Specific programs to monitor can be specified with the
+# "-n" option; these are zero-indexed in the order they appear in the
+# monitored host's snmpd.conf file. Default is to monitor all.
+#
+# The summary output line will be of the form "host:name[,host:name]"
+# where "name" is the name of the failing program (the "extNames"
+# field as defined in snmpd.conf; not the path to the program). The
+# detail lines will contain full error text from the failing program
+# and the error value it returned.
+#
+# The script will exit with 0 value 1 for an extNames program failure
+# and 2 for an SNMP error.
+#
+# BUGS AND LIMITATIONS: This is designed to handle programs that only
+# return one line of output via snmpd; that is, with simple programs
+# run via the "sh" or "exec" directives in the snmpd.conf file and NOT
+# with programs run by "exec" and returning data in their own MIB
+# tables. Actually, I've only gotten the "sh" directive to work with
+# ucd-snmp-4.2.1 under Solaris. Also note that when given an external
+# program number that doesn't exist on the monitored host, the script
+# will return the output for program number 0 and will not report an
+# error (see note below). In some situations (e.g. sending v. 1 request
+# to a host configured only to respond to v. 3) the script will fail 
+# silently, because the SNMP module doesn't report an error.
+#
+#
+#    Copyright (C) 2001 Daniel J. Urist <durist@world.std.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Std;
+
+$ENV{'MIBS'} = "UCD-SNMP-MIB";
+
+getopts("ht:r:v:c:u:l:A:n:");
+my $VERSION = "0.2";
+if($opt_h){
+  print <<"USAGE";
+$0 Version $VERSION by Daniel J. Urist <durist\@world.std.com>
+
+Usage: 
+       [-h]                # Usage
+       [-t Timeout]        # Timeout in ms (default: 1000000)
+       [-r Retries]        # Retries before failure (default: 5)
+       [-v SNMPversion]    # 1,2,2c or 3 (default: 1)
+       [-c Community]      # For SNMP v.1,2,2c (default: public)
+       [-u snmpuser]       # For SNMP v.3 (default: initial)
+       [-l seclevel]       # For SNMP v.3 (default: noAuthNoPriv)
+       [-A authpassphrase] # For SNMP v.3 
+       [-n num[,num...]]   # Zero-indexed external program number(s); programs
+                           # are numbered by the order they appear in the
+	                   # remote snmpd.conf. If monitoring specific programs
+	                   # on multiple hosts, they must be consistent!
+	                   # Default is to monitor all.
+       host [host ...]
+
+USAGE
+  exit;
+}
+
+# FIXME we should probably offer all the v3 options that the SNMP module does
+my $Timeout = $opt_t || 1000000;
+my $Retries = $opt_r || 5;
+my $SNMPVersion = $opt_v || 1;
+my $Community = $opt_c || 'public';
+my $SecName = $opt_u || 'initial'; 
+my $SecLevel = $opt_l || 'noAuthNoPriv';
+my $Authpass = $opt_A || '';
+
+my %SNMPARGS = (
+		Timeout => $Timeout,
+		Version => $SNMPVersion,
+	       );
+
+if ($SNMPVersion eq "3"){
+  $SNMPARGS{SecName} = $SecName;
+  $SNMPARGS{SecLevel} = $SecLevel;
+  $SNMPARGS{AuthPass} = $Authpass;
+}
+else{
+  $SNMPARGS{Community} = $Community;
+}
+
+my @Extprognums = split(",", $opt_n);
+my $RETVAL = 0;
+my %Failures;
+my %Longerr;
+my $Session;
+
+foreach $host (@ARGV) {
+  $Session = new SNMP::Session(
+			       DestHost => $host,
+			       %SNMPARGS,
+			      );
+  unless( defined($Session) ) {
+    $RETVAL = ($RETVAL == 1) ? 1 : 2;
+    $Failures{"$host session error"} = "";
+    $Longerr{"$host could not get SNMP session"} = "";
+    next;
+  }
+
+  my $ext;
+  my $v;
+  my @q;
+  # We are monitoring specific programs
+
+  # FIXME If $ext is out of range, i.e. for example, if $ext is 2 and
+  # there are only programs numbered 0 and 1, the returned value is
+  # for program number 0. It seems to me we should get an SNMP error
+  # back, but we don't; I suspect this is a bug in the SNMP module
+  # since passing a bogus index to snmpwalk gives a "No Such Instance"
+  # error. Unfortunately I also can't find a way to retrieve the index
+  # number from the returned data, so I have nothing with which to
+  # compare it and flag the error.
+
+  if( defined(@Extprognums) ){
+    foreach $ext (@Extprognums){
+      $v = new SNMP::Varbind (["extIndex", $ext]);
+      $Session->getnext($v);
+      @q = $Session->get ([
+			      ["extNames", $v->iid],	# 0
+			      ["extCommand", $v->iid],  # 1
+			      ["extResult", $v->iid],	# 2
+			      ["extOutput", $v->iid],	# 3
+			      ["extErrFix", $v->iid],	# 4
+			     ]);
+
+      if($q[2] != 0){
+	$RETVAL = 1;
+	$Failures{$host .":" . $q[0]} = "";
+	$Longerr{$host .":" . $q[0] . " exited with code: " . $q[2] . ", error: \"" . $q[3] . "\""} = "";
+      }
+      if ($Session->{"ErrorStr"}) {
+	$RETVAL = ($RETVAL == 1) ? 1 : 2;
+	$Failures{$host} = "";
+	$Longerr{"$host returned an SNMP error: " . $Session->{"ErrorStr"}} = "";
+	last;
+      }
+    }
+  }
+  # We are monitoring all programs
+  else{
+    $v = new SNMP::Varbind (["extIndex"]);
+    $Session->getnext($v);
+    while (!$Session->{"ErrorStr"} && $v->tag eq "extIndex") {
+      @q = $Session->get ([
+			      ["extNames", $v->iid],	# 0
+			      ["extCommand", $v->iid],  # 1
+			      ["extResult", $v->iid],	# 2
+			      ["extOutput", $v->iid],	# 3
+			      ["extErrFix", $v->iid],	# 4
+			     ]);
+      if($q[2] != 0){
+	$RETVAL = 1;
+	$Failures{$host .":" . $q[0]} = "";
+	$Longerr{$host .":" . $q[0] . " exited with code: " . $q[2] . ", error: \"" . $q[3] . "\""} = "";
+      }
+      if ($Session->{"ErrorStr"}) {
+	$RETVAL = ($RETVAL == 1) ? 1 : 2;
+	$Failures{$host} = "";
+	$Longerr{"$host returned an SNMP error: " . $Session->{"ErrorStr"}} = "";
+	last;
+      }
+      $Session->getnext($v);
+    }
+  }
+}
+
+if (scalar keys %Failures) {
+    print join (", ", sort keys %Failures), "\n", "\n";
+    print join ("\n", sort keys %Longerr), "\n";
+}
+
+exit $RETVAL;

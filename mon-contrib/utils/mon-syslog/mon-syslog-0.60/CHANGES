@@ -1,0 +1,22 @@
+$Id: CHANGES,v 1.1.1.1 2005/02/18 17:52:19 trockij Exp $
+
+= New in version 0.60 (from 0.55):
+
+Started a CHANGES file.
+
+Duh, it appears I forgot to include part of the received syslog packet for
+matching. $$r{'source'} is now available.
+
+Added "surpress_ok" attribute to checks. Now you can prevent syslog.monitor
+from messaging you about the fact that the counter for the check went back
+to normal.
+
+Reconfiguration on the fly is supposed to work: Send syslog.monitor a -HUP,
+and it reloads the configuration. Unfortunately, this does not work if the
+-HUP is received during the select() call (where syslog.monitor spends most
+of it's time) - then the select never times out and hangs. This appears to
+be a Perl bug though.
+
+The configuration file now contains actual examples of code we run. This is
+expected to grow as I think of more cool stuff.
+

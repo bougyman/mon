@@ -1,0 +1,104 @@
+#!/usr/bin/perl
+#
+# Use try to connect to a FTP/SSL server, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+# Arguments are "[-p port] [-u user] [-s password] [-e I|E] [-t timeout] host [host...]"
+#
+#    -p port       TCP port to connect to (defaults to 21)
+#    -u user       user to login (defaults to ftp)
+#    -s password   password to login (defaults to ftpssl@mon.invalid)
+#    -e I|E        is for Implicit or Explicit encryption
+#    -t secs       timeout, defaults to 30
+#
+# Adapted from "ftp.monitor" by Pierre-Emmanuel Andre
+#
+#    Copyright (C) 2008, Pierre-Emmanuel Andre
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# $Id: ftps.monitor,v 1.1 2008/08/01 17:02:19 aschwer Exp $
+
+use Getopt::Std;
+use Net::FTPSSL;
+
+#Get arguments
+getopts ("p:u:s:e:t:");
+$PORT = $opt_p || 21;
+$USER = $opt_u || 'ftp' ;
+$PASSWORD = $opt_s || 'ftpssl@mon.invalid' ;
+$ENCRYPTION = $opt_e || 'E' ;
+$TIMEOUT = $opt_t || 30;
+
+my %good;
+my %bad;
+
+# Start loop
+foreach my $host (@ARGV) {
+    my $result = ftpGET ($host, $PORT);
+
+    if (!$result->{"ok"}) {
+    	$bad{$host} = $result;
+    } else {
+    	$good{$host} = $result;
+    }
+}
+
+# No bad -> exit with success
+if (keys %bad == 0) {
+    exit 0;
+}
+
+# Else print errors
+print join (" ", sort keys %bad), "\n";
+foreach my $h (keys %bad) {
+    print "HOST $h: " . $bad{$h}->{"error"}, "\n";
+}
+exit 1;
+
+
+# Function to connect on FTP/SSL server
+sub ftpGET {
+    my ($server,$port) = @_ ;
+
+    #Open connexion
+    my $ftps = Net::FTPSSL->new($server,
+				Port => $port,
+				Encryption => $ENCRYPTION,
+				Timeout => $TIMEOUT,
+				Debug => 0 ) 
+	or return {
+	    "ok" => 0,
+	    "error" => $ftps->last_message,
+	};
+    
+    #Login
+    $ftps->login($USER,$PASSWORD) 
+	or return {
+	    "ok" => 0,
+	    "error" => $ftps->last_message,
+	};
+    
+    #Quit
+    $ftps->quit() ;
+ 
+   #No error
+    return {
+	"ok" => 1,
+	"error" => undef,
+    };
+}

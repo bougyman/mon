@@ -1,0 +1,150 @@
+#!/usr/bin/perl
+#
+# An anal-retentive check of radius. We check to make sure that
+# we get an expected list of specially cooked items in the reply
+# that matches a predefined list and we alert if we don't see all
+# the items, or if any don't match, or if we get unexpected avpairs
+# in the reply. 
+#
+# To use this:
+#
+# You first need to set up your radius servers to accept requests from 
+# your mon host and test and verify that you can peform simple radius
+# authorizations using radclient before your proceed. See your radius 
+# server documentation for details.
+#
+# 1) Create a special radius test user. I have 'mon' here, 
+# but it's user configurable. Set the below vars to this name and
+# password.
+#
+# 2) Assign different attributes to return for this this user. The 
+# minimum reccomended list is:
+#
+#	Framed-IP-Address
+#	Framed-IP-Netmask
+#	Framed-Route
+#	Framed-MTU
+#	Filter-Id
+# 
+#	**You should set these all to some weird nonsensical values that
+#	would not be in use in your network. The purpose is to make sure
+#	that these values are being passed thru your radius unaltered.**
+#
+# 3) Insert the attributes and values you selected above into
+# the %refvars hash. This has to match what radius hands back, otherwise,
+# it will generate an alert.
+#
+# 4) Test by running this command and checking the output:
+#
+#	./radius.monitor.detailcheck serversecret serverhost1 serverhost2 ..
+#
+# You made need to adjust the path to radclient as well as where your local
+# radius dictionaries are kept.
+#
+# Mike Ireton
+# mike@willitsonline.com
+#
+BEGIN { 
+$TEMPFILE=`mktemp /tmp/radius.detailcheck.XXXXXX`;
+chomp($TEMPFILE);
+}
+END { unlink ($TEMPFILE);  };
+
+$RADCLIENT="/usr/bin/radclient";
+$DICTIONARY="/etc/freeradius";
+$USER="mon";
+$PASS="yourpasswordhere";
+
+$SECRET=shift;
+$ok=0;
+
+while ($SERVER = shift) {
+
+%refvars = (
+        'Framed-IP-Address' => "192.168.255.1",
+        'Framed-MTU' => "1638",
+        'Service-Type' => "Framed-User",
+        'Framed-Protocol' => "PPP",
+        'Framed-Compression' => "Van-Jacobson-TCP-IP",
+        'Framed-IP-Netmask' => "255.248.240.224",
+        'Filter-Id' => "\"radiusdebug\"",
+        'Framed-Route' => "\"192.168.255.252/30\"",
+);
+
+%skipvars = (
+    'User-Name' => "any",
+    'CHAP-Password' => "any",
+    'Framed-Protocol' => "any",
+);
+
+
+# First, test Access-Accept and returned variables        
+open(FP,"|$RADCLIENT -d $DICTIONARY -r 2 -x $SERVER auth $SECRET > $TEMPFILE 2>&1");
+
+
+print FP "User-Name = \"$USER\"\n";
+print FP "Chap-Password = \"$PASS\"\n";
+print FP "Framed-Protocol = PPP\n";
+close(FP);
+open(RESULTS,"<$TEMPFILE");
+do {
+$line=<RESULTS>;
+
+if($line =~ /radclient: no response from server/) {
+$ok=1;
+print "Server failed to respond: $SERVER\n";
+next;
+}
+
+if($line =~ /rad_recv: Access-Reject/) {
+$ok=1;
+print "Server rejected test credentials: $SERVER\n";
+next;
+}
+
+if($line =~ /Shared secret is incorrect/) {
+$ok=1;
+print "Server test failed on $SERVER: shared secret incorrect?\n";
+next;
+}
+
+} until  $line  =~ /^rad_recv/;
+
+while ($line=<RESULTS>) {
+if ($line =~ /^\s+([-a-zA-Z]+)\s?=\s(.+)/ ) {
+$var=$1; 
+$value=$2;
+
+if ( defined $refvars{$var} ) {
+    if (  $refvars{$var} ne $value ) { 
+    push @mismatched,"got $var = $value, expected $var = " . $refvars{$var}; }
+    delete $refvars{$var};
+} else { push @unexpected,"$var = $value"; }
+
+
+}
+}
+close(RESULTS);
+
+if(( keys( %refvars ) != 0) || ( @mismatched !=0 ) || (@unexpected != 0)) {
+print "A server failed avresponse check: $SERVER\n";
+$ok=1;
+};
+
+
+foreach ( keys %refvars ) {
+print "\tFailed to receive avpair: " . " " . "$_ = " . $refvars{$_} . "\n";
+}
+
+foreach ( @mismatched ) {
+print "\tFailed to match avpair: $_ \n";
+}
+
+foreach ( @unexpected ) {
+print "\tUnexpected avpair: $_ \n";
+}
+
+undef @mismatched;
+undef @unxepected;
+}
+exit $ok;

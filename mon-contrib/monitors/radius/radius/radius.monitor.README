@@ -1,0 +1,31 @@
+radius.monitor README
+=====================
+
+See the monitor script itself for most of the pertinent usage information.
+
+This is radius.monitor, a monitor for mon based upon Brian Moore's
+radius.monitor posted to the mon mailing list.
+
+Changes from the original release:
+
+- Checks for an actual good authentication instead of that the server
+  rejects a known bogus request.  This ensures not only that the server is
+  up but that it's authentication database contains at least the entry for
+  the dummy user you create.
+- Allows command line override of username, password, RADIUS auth port,
+  RADIUS secret, dictionary file, and maximum auth attempts.
+- Tries to reach the RADIUS server multiple times (configurable), and only
+  reports a failure to mon after failing to receive a response multiple
+  times.  RADIUS is, after all, a UDP service, and failing to receive one
+  packet doesn't necessarily mean that the server is down.  This is an
+  attempt to mimic a terminal server's behaviour.
+- Inserts the "NAS-IP-Address" attribute in the RADIUS request packet.  Some
+  RADIUS servers (notably Ascend Access Control -- possibly any server based
+  upon the Merit v3 source) require that this attribute be present.  If it
+  is missing, the entire packet is rejected as Non-RFC compliant.
+
+-- 
+j.
+
+James FitzGibbon                                                james@ican.net
+System Engineer, ACC Global Net                   Voice/Fax (416)207-7171/7610

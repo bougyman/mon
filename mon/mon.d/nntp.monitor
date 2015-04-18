@@ -1,0 +1,266 @@
+#!/usr/bin/perl
+#
+# nntp.monitor
+# example: monitor nntp.monitor -g groupname -u user -a password
+#
+# Connect to an nntp server which possibly requires authentication, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+# Arguments are "[-m] -p port -t timeout [-g group] [-f] host [host...] -u username -a password"
+#
+# This monitor connects to the NNTP server(s), checks for a greeting, logs in,
+# then performs a "mode reader" and a "group (groupname)", and then disconnects.
+# If the group is not specified by the -g option, then "control" is assumed.
+#
+# if "-f" is supplied, then it is assumed that a feeder is being tested,
+# and the "mode reader" and "group (groupname)" commands are not executed.
+#
+# Adapted from "http.monitor" by
+# Jim Trocki, trockij@arctic.org
+# authentication support added by
+# Kai Schaetzl/conactive.com
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: nntp.monitor,v 1.4 2008/01/09 22:47:49 aschwer Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+use Socket;
+use Sys::Hostname;
+use strict;
+
+getopts ("fg:p:t:d:u:a:m");
+our ($opt_g,$opt_p,$opt_t,$opt_f,$opt_u,$opt_a,$opt_m);
+my $GROUP = $opt_g || 'control';
+my $PORT = $opt_p || 119;
+my $TIMEOUT = $opt_t || 30;
+my $FEEDER = $opt_f;
+my $USER = $opt_u || '';
+my $PASS = $opt_a || '';
+my $MAINT = $opt_m;
+
+my @failures = ();
+my @details  = ();
+
+foreach my $host (@ARGV) {
+
+    my $TheContent = '';
+
+    my $Path = '/';
+
+###############################################################
+    eval {
+
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+	my $result = &OpenSocket($host, $PORT); # Open a connection to the server
+	if ($result == 0) { # Failure to open the socket
+print "Host: $host\n";
+print "Port: $PORT\n";
+	    push @failures , $host;
+	    push @details  , "$host: Unable to open socket.";
+	    alarm 0;
+	    next;
+	}
+
+	if ($FEEDER)
+	{
+		# welcome message
+		my $in = <S>;
+		if ($in !~ /^2\d\d/) {
+		    alarm 0;
+		    push @failures , $host;
+		    push @details  , "$host: No welcome message.";
+		    next;
+		}
+
+		print S "quit\r\n";
+
+		$in = <S>;
+		if ($in !~ /^2\d\d/) {
+		    alarm 0;
+		    push @failures , $host;
+		    push @details  , "$host: No response on 'quit' command.";
+		    next;
+		}
+
+		close(S);
+		alarm 0; # Cancel the alarm
+	}
+	elsif ($MAINT)
+	{
+		# Is the server currently in a maintenance mode?
+		my $in = <S>;
+		if ( $in =~ /^502 .+ System currently paused.*/ )
+		{
+			close(S);
+			alarm 0; # Cancel the alarm
+		}
+		elsif ( $in =~ /^2\d\d/ ) # Server not in maintenance mode, but is accepting connections.
+		{
+			print S "quit\r\n";
+
+			$in = <S>;
+			if ($in !~ /^2\d\d/) {
+			    alarm 0;
+		    	    push @failures , $host;
+			    push @details  , "$host: No response on 'quit' command.";
+			    next;
+			}
+
+			close(S);
+			alarm 0; # Cancel the alarm
+		}
+		else # Server is not OK.
+		{
+		    alarm 0;
+		    push @failures , $host;
+		    push @details  , "$host: Server is not accepting connections.";
+		    next;
+		}
+	}
+	else {
+		# welcome message
+		my $in = <S>;
+		if ($in !~ /^2\d\d/) {
+		    alarm 0;
+		    push @failures , $host;
+		    push @details  ,  "$host: No welcome message.";
+		    next;
+		}
+
+		if ($USER ne "")
+		{
+		    # user
+		    print S "authinfo user $USER\r\n";
+		    $in = <S>;
+		    if ($in !~ /^381/) {
+			alarm 0;
+		    	push @failures , $host;
+		    	push @details  ,  "$host: No reaction to authinfo user.";
+		    	next;
+		    }
+		    # password
+		    print S "authinfo pass $PASS\r\n";
+		    $in = <S>;
+		    if ($in !~ /^281/) {
+		    	alarm 0;
+			push @failures , $host;
+		    	push @details  , "$host: No reaction to authinfo pass or wrong password.";
+			next;
+		    }
+		}
+	    #
+	    # mode reader, wait for OK response
+	    #
+	    print S "mode reader\r\n";
+
+	    $in = <S>;
+	    if ($in !~ /^2\d\d/) {
+		alarm 0;
+		push @failures , $host;
+		push @details  , "$host: Unable to perform 'mode reader'.";
+		next;
+	    }
+
+	    #
+	    # select $GROUP group, wait for OK response
+	    #
+	    print S "group $GROUP\r\n";
+
+	    $in = <S>;
+	    if ($in !~ /^2\d\d/) {
+		alarm 0;
+		push @failures , $host;
+		push @details  , "$host: Unable to select group '$GROUP'.";
+		next;
+	    }
+	    #
+	    # log out
+	    #
+	    print S "quit\r\n";
+	    $in = <S>;
+	    if ($in !~ /^2\d\d/) {
+	    	alarm 0;
+		push @failures , $host;
+	    	push @details  , "$host: No response on 'quit' command.";
+	    	next;
+	    }
+
+	    close(S);
+	    alarm 0; # Cancel the alarm
+	}
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+	push @failures , $host;
+	push @details  ,  "$host: Time Out.";
+	next;
+    }
+}
+
+if (@failures)
+{
+    print join (" ", sort @failures), "\n";
+
+    if (@details)
+    {
+    	print join ("\n", @details), "\n";
+    }
+
+    exit 1;
+}
+else
+{
+    print "no failures\n";
+    exit 0;
+}
+
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    my ($OtherHostname, $Port) = @_;
+    my ($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+	  $ThisAddr, $that, $OtherHostAddr);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    $that = sockaddr_in ($Port, $OtherHostAddr);
+
+    my $result = socket(S, &PF_INET, &SOCK_STREAM, $proto) || return undef;
+
+    $result = connect(S, $that) || return undef;
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+    return 1;                               # success
+}

@@ -1,0 +1,25 @@
+#
+# netappfree.cf- configuration file for netappfree.monitor
+#
+# format:
+#
+# host filesys free
+#
+# host     hostname of the netapp, should correspond with a host
+#          defined in the netapp host group
+#
+# filesys  The filesystem to check, as represented in netapp.mib.
+#          For ONTAP 5.*, resembles "/vol/vol0/" or "/vol/vol0/.snapshot"
+#          For ONTAP 4.3.4, resembles "active" or "snapshot"
+#          For ONTAP 4.3.1, resembles "/" or "/.snapshot"
+#
+# free     The amount of free space which will trigger a failure,
+#          expressed as "10kb", "10MB", or "10GB"
+#
+# $Id: netappfree.cf,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+#
+f330	/		4GB
+f540	active		4GB
+f630	/vol/vol0/	4GB
+pu	/		4gb
+np	active		25gb

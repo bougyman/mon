@@ -1,0 +1,41 @@
+$Id: README.rpc.monitor,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+README for rpc.monitor
+-----------------------
+
+This program is a monitor for RPC-based services such as the NFS
+protocol, NIS, and anything else that is based on the RPC protocol.
+Some general examples of RPC failures that this program can detect
+are:
+
+  - missing and malfunctioning RPC daemons (such as mountd and nfsd)
+  - systems that are mostly down (responding to ping and maybe
+    accepting TCP connections, but not much else is working)
+  - systems that are extremely overloaded (and start timing out simple
+    RPC requests)
+
+To test services, the monitor queries the portmapper for a listing of
+RPC programs and then optionally tests programs using the RPC null
+procedure.
+
+At Transmeta, we use:
+
+  "rpc.monitor -a" to monitor Network Appliance filers
+  "rpc.monitor -r mountd -r nfs" to monitor Linux and Sun systems
+
+Some notes:
+
+  - The "-a" option only tests registered RPC programs, if you want to
+    test specific RPC programs, use "-r" options along with "-a".
+  - The "-a" option may not be feasible for use on many Unix systems.
+    Some provide more services than you want to test, include RPC
+    programs that don't provide the RPC null procedure, reject calls
+    from unprivileged ports, or have other problems.
+  - If you get an unexpected "unknown RPC program" error, you may
+    want to check the rpc line in /etc/nsswitch.conf.
+
+Let me know if you have any comments, improvements, or suggestions.
+
+-- 
+Daniel Quinlan (at work)
+quinlan@transmeta.com           http://www.pathname.com/~quinlan/

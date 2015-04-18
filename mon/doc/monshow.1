@@ -1,0 +1,306 @@
+.\" $Id: monshow.1,v 1.2 2005/04/17 07:42:27 trockij Exp $
+.TH monshow 1 "$Date: 2005/04/17 07:42:27 $" Linux "monshow"
+.SH NAME
+monshow \- show operational status of mon server.
+.SH SYNOPSIS
+.B monshow
+.RB [ \-\-help ]
+.RB [ \-\-showall ]
+.RB [ \-\-full ]
+.RB [ \-\-disabled ]
+.RB [ \-\-detail
+.IR group,service ]
+.RB [ \-\-view
+.IR name ]
+.RB [ \-\-auth ]
+.RB [ \-\-login
+.IR user ]
+.RB [ \-\-old ]
+.RB [ \-\-server
+.IR hostname ]
+.RB [ \-\-port
+.IR portnum ]
+.RB [ \-\-prot
+.IR protocol ]
+.RB [ \-\-rcfile
+.IR file ]
+.SH DESCRIPTION
+.B monshow
+show the operational status of the
+.B mon
+server. Both command-line and CGI interfaces are available.
+.SH OPTIONS
+.TP
+.B \-\-help
+show help
+.\"
+.\"
+.\"
+.TP
+.B \-\-showall
+Do not read configuration file, and show operational status of all groups
+and services.
+.\"
+.\"
+.\"
+.TP
+.B \-\-full
+Instead of showing only failed services, show all services no matter the
+state.
+.\"
+.TP
+.BI \-\-detail\  group,service
+Display detailed information for
+.I group
+and
+.IR service .
+This includes description, detailed output of the monitor,
+dependency information, and more. When invoked via CGI,
+append "detail=group,service" to get detail for a service.
+.\"
+.TP
+.BI "--view " name
+Display a pre-configured view. When invoked via CGI, supply
+the arguments "view=name" in the URL, or by using this technique:
+"http://monhost/monshow.cgi/name". For security reasons,
+leading forward slashes and imbedded ".."s are removed from the
+view name.
+.\"
+.TP
+.B \-\-auth
+Authenticate client to the mon server.
+.\"
+.\"
+.\"
+.TP
+.B \-\-disabled
+Show disabled groups, services, and hosts. The default is to not show
+anything which is disabled, but this may be overridden by the config file.
+.\"
+.\"
+.\"
+.TP
+.BI "--server " hostname
+Connect to the mon server on host
+.IR hostname .
+.I hostname
+can be either the name of a host or an IP address.
+If this name is not supplied by this argument, then the environment variable
+.I MONHOST
+is used, if it exists. Otherwise,
+.I monshow
+will fail.
+.\"
+.\"
+.\"
+.TP
+.BI \-\-login \ username
+When authenticating, use
+.IR username .
+.\"
+.\"
+.\"
+.TP
+.BI \-\-port \ portnum
+Connect to the server on
+.BR portnum .
+.\"
+.\"
+.\"
+.TP
+.BI \-\-prot \ protocol
+Sets the protocol to
+.IR protocol .
+The protocol must match the format "1.2.3". If unset, the default
+supplied by the Mon::Client module is used. Do not use this parameter
+unless you really know what you are doing.
+.\"
+.\"
+.\"
+.TP
+.B \-\-old
+Use the old 0.37 protocol and port number (32777).
+.\"
+.\"
+.\"
+.TP
+.BI \-\-rcfile \ file
+Use configuration file
+.I file
+instead of ~/.monshowrc.
+
+.SH CGI INVOCATION
+If
+.B monshow
+is invoked with the "REQUEST_METHOD" environment variable
+set, then CGI invocation is assumed. In that case,
+.B monshow
+gathers variables and commands submitted via the
+POST method and QUERY_STRING. Command-line options
+are ignored for security reasons.
+
+All reports which are produced via the web interface have a text mode
+equivalent.
+
+.SH VIEWS
+
+A view is a pre-defined configuration supplied to
+.BR monshow .
+Views can be used to generate different reports of the status
+of certain services for different audiences. They are especially useful
+if you are monitoring hundreds of things with mon, and you need to
+see only a subset of the overall operational status.
+For example, the web server admins can see a report which
+has only the web server statuses, and the file server admins can
+have their own report which shows only the servers. Users can customize
+their own views by editing their own configurations.
+
+Views are stored as files in a system-wide directory, typically
+.IR /etc/mon/monshow ,
+where each file specifies one view. If this path is not suitable
+for any reason, it can be changed by modifying the
+.B $VIEWPATH
+variable in the
+.B monshow
+script.
+
+When invoking
+.B monshow
+from the command line, the view to display is specified by the
+.BI "--view=" name
+argument. 
+
+In the case of CGI invocation, views can be specified by
+appending either
+.I "?view=name"
+or
+.I "/name"
+to the URL. For example, the following are equivalent:
+
+.I "http://monhost/monshow.cgi?view=test"
+.br
+.I "http://monhost/monshow.cgi/test"
+
+If a view is not specified, then a default configuration will be
+loaded from
+.I "$HOME/.monshowrc"
+(command-line invocation) or
+.I "cgi-path/.monshowrc"
+(CGI invocation).
+
+.SH VIEW CONFIGURATION FILE
+
+The view file contains a list of which services
+to display, how to display them, and a number of other parameters.
+Blank lines and lines beginning with a # (pound) are ignored.
+
+.TP
+.BI "watch" " group"
+Include the status of all the services for "group".
+.\"
+.TP
+.BI "service" " group service"
+Include the status of the service specified by
+.I group
+and
+.IR service .
+.\"
+.P
+If no
+.B watch
+or
+.B service
+configuration lines are present, then the status of all groups
+and services are displayed.
+.\"
+.TP
+.B "set show-disabled"
+This has the same effect as using
+the
+.B \-\-disabled
+option.
+.\"
+.TP
+.BI "set host" " hostname"
+Query the mon server
+.IR hostname .
+.\"
+.TP
+.BI "set port" " number"
+The TCP port which the mon server is listening on.
+.\"
+.TP
+.BI "set prot" " protocol"
+Set the protocol. This probably should not be used unless
+you really know what you're doing.
+.\"
+.TP
+.B "set full"
+Show everything disabled, all failures, all successes, and all
+untested services.
+.\"
+.TP
+.BI "set bg" " color"
+Background color for the CGI report. The value of this
+parameter should resemble "d5d5d5" (without the quotes).
+.\"
+.TP
+.BI "set bg-ok" " color"
+Background color for services which are in an "ok" state.
+.\"
+.TP
+.BI "set bg-fail" " color"
+Background color for services which are failing.
+.\"
+.TP
+.BI "set bg-untested" " color"
+Background color for services which have yet to be tested.
+.\"
+.TP
+.BI "set refresh" " seconds"
+For CGI output, set the frequency that the report reloads.
+The default is to not reload.
+.\"
+.TP
+.BI "summary-len" " len"
+For CGI output, set the maximum length of the summary output
+to display. Summary text which exceeds
+.I len
+will be truncated and replaced with ellipses.
+.\"
+.TP
+.BI "link" " group service URL"
+For the CGI report, make a link to
+.I URL
+at the bottom of the detail report for
+.I "group/service"
+for more information.
+.\"
+.TP
+.BI "link-text" " group service"
+Insert all HTML up until a line beginning with "END"
+after the link specified
+with the
+.B "link"
+setting.
+.\"
+.TP
+.B "set html-header"
+Lines after this statement, continuing up until a line beginning
+with the word "END" will be displayed after the "</head>" tag
+in the CGI output. Use this to display custom headers, including
+images and other fancy things.
+
+.SH "ENVIRONMENT VARIABLES"
+
+.IP MONHOST
+The hostname of the server which runs the
+.B mon
+process.
+
+.SH SEE ALSO
+mon(8)
+.SH BUGS
+Report bugs to the email address below.
+.SH AUTHOR
+Jim Trocki <trockij@arctic.org>

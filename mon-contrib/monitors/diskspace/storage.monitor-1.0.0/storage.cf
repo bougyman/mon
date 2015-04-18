@@ -1,0 +1,42 @@
+#
+# storage.cf - configuration file for storage.monitor
+#
+# format:
+#
+# host fsname free
+#
+# host     hostname to be queried, should correspond with
+#          a host defined in the host group
+#
+# fsname   The name of the file system to check, e.g. "/var"
+#          Use + instead of space (e.g. Swap+Space)
+#
+# free     The amount of free space which will trigger a failure,
+#          expressed as "10kb", "10MB", or "10GB"
+#
+
+hermes		/			50MB
+hermes		/boot			5MB
+hermes		/usr			100MB
+hermes		/home			200MB
+hermes		/opt			100MB
+hermes		/var			200MB
+hermes		/var/opt/openmail/data	200MB
+hermes		Swap+Space		10MB
+
+xns1		/			50MB
+xns1		/home			100MB
+xns1		/usr			100MB
+xns1		/var			100MB
+xns1		/var/spool		200MB
+xns1		Swap+Space		10MB
+
+ns01		/			50MB
+ns01		/home			100MB
+ns01		/var			100MB
+ns01		Swap+Space		10MB
+
+ns02		/			50MB
+ns02		/home			100MB
+ns02		/var			100MB
+ns02		Swap+Space		10MB

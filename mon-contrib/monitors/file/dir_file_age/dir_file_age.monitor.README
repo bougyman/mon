@@ -1,0 +1,25 @@
+Date: Wed, 17 Oct 2001 12:40:37 -0400 (EDT)
+From: Jon Meek <meekj@pt.ahp.com>
+To: xxxxxxxxx
+cc: <mon@linux.kernel.org>
+Subject: Re: Monitoring file changes at certain times of the day
+
+Well, this is still not exactly what you want, but I can send it if you
+wish. I think that I did not release it yet due to the sparse
+documentation.
+
+dir_file_age.monitor
+
+# mon monitor to watch for "old" files in one or more directories
+# original use was to monitor DNS zone transfers,
+#  but there is nothing DNS specific here except that the directory
+#  is removed from the failure list leaving only the file (zone) name
+
+
+	   "d" => \$opt_d,    # Debug/test flag
+	   "T=f" => \$MaxAge, # Maximum age in days, default is one day
+                              # Fractional days ok
+
+What the heck, it's small, so I am attaching it.
+
+Jon

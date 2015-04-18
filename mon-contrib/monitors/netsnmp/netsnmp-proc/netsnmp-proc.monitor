@@ -1,0 +1,236 @@
+#!/usr/bin/perl
+#
+# Monitor processes via SNMP
+# (based on process.monitor by Brian Moore)
+#
+# Modified Oct 2001 by Dan Urist <durist@world.std.com>
+# Changes: added usage, SNMP v.3 support, -P processes option
+# unique-ified errors
+#
+# Modified Feb 2002 by Dan Urist <durist@world.std.com>
+# Changes: added -C config file option; cleaned up code
+#
+# This script will exit with value 1 if any prErrorFlag is greater
+# than 0.  The summary output line will be the host names and
+# processes that failed in the format host1:proc1,proc2;host2:proc3...
+# The detail lines are what UCD snmp returns for a prErrMessage.  If
+# there is an SNMP error (either a problem with the SNMP libraries, or
+# a problem communicating via SNMP with the destination host), this
+# script will exit with a warning value of 2. If the -P process list
+# option is used, only the listed processes will be monitored. If a
+# process given with -P is not being monitored, the script will exit
+# with a warning and a value of 2.
+#
+#
+#    Copyright (C) 2001 Daniel J. Urist <durist@world.std.com>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use SNMP;
+use Getopt::Std;
+
+$ENV{'MIBS'} = "UCD-SNMP-MIB";
+
+getopts("hP:" . &SNMPconfig("getopts"));
+
+my $VERSION = "0.3";
+if( $opt_h || (scalar @ARGV == 0) ){
+  print join("\n",
+	     "$0 Version $VERSION; original version by Brian Moore,",
+	     "SNMP v.3 support by Daniel J. Urist <durist\@world.std.com>.",
+	     "\n",
+	     );
+  print "Usage: $0 OPTIONS host [host ...]\n";
+  print "Options:\n";
+
+  print join("\n\t",
+	     "\t-h                    # Usage",
+	     "[-P proc[,proc...]]]  # Processes to look for",
+	     &SNMPconfig("usage"), "\n");
+  exit 2;
+}
+
+# Get SNMP options
+my %SNMPARGS = &SNMPconfig;
+
+# Get process list
+my @Processes = split(',', $opt_P) if defined $opt_P;
+
+my $RETVAL = 0;
+my %Failures;
+my %Longerr;
+my $Session;
+
+foreach $host (@ARGV) {
+  $Session = new SNMP::Session(
+			       DestHost => $host,
+			       %SNMPARGS,
+			      );
+  unless( defined($Session) ) {
+    $RETVAL = 2 if $RETVAL == 0; # Other errors take precedence over SNMP error
+    push @{$Failures{$host}}, "session error";
+    $Longerr{"$host could not get SNMP session"} = "";
+    next;
+  }
+
+  my $v = new SNMP::Varbind (["prIndex"]);
+  $Session->getnext ($v);
+
+  my @Found;
+  while (!$Session->{"ErrorStr"} && $v->tag eq "prIndex") {
+    my @q = $Session->get ([
+			    ["prNames", $v->iid],	# 0
+			    ["prMin", $v->iid],	        # 1
+			    ["prMax", $v->iid],	        # 2
+			    ["prCount", $v->iid],	# 3
+			    ["prErrorFlag", $v->iid],	# 4
+			    ["prErrMessage", $v->iid],  # 5
+			    ["prErrFix", $v->iid],      # 6
+			   ]);
+    last if ($Session->{"ErrorStr"});
+
+    if(@Processes){
+      if( grep(/^$q[0]$/, @Processes) ){
+	# Keep track of which processes from the list we actually found
+	push(@Found, $q[0]);
+      }
+      else{
+	$Session->getnext ($v);
+	next;
+      }
+    }
+
+    if ($q[4] > 0) {
+      $RETVAL = 1;
+      push @{$Failures{$host}}, $q[0];
+      $Longerr{"$host:$q[0] Count=$q[3] Min=$q[1] Max=$q[2]"} = "";
+    }
+
+    $Session->getnext ($v);
+  }
+
+  if ($Session->{"ErrorStr"}) {
+    $RETVAL = 2 if $RETVAL == 0; # Other errors take precedence over SNMP error
+    push @{$Failures{$host}}, "SNMP error";
+    $Longerr{"$host returned an SNMP error: " . $Session->{"ErrorStr"}} = "";
+  }
+
+  if(@Processes){
+    my $p;
+    foreach $p (@Processes){
+      if( !grep(/^$p$/, @Found)){
+	$RETVAL = 2 if $RETVAL == 0;
+	push @{$Failures{$host}}, "process \"$p\" not monitored";
+	$Longerr{"process \"$p\" not monitored on host $host"} = "";
+      }
+    }
+  }
+}
+
+if (scalar keys %Failures) {
+  my $f;
+  my @m;
+  foreach $f (keys %Failures){
+    push(@m, $f . ":" .join(",", @{$Failures{$f}}));
+  }
+  print join(";", @m), "\n\n";
+
+  print join ("\n", sort keys %Longerr), "\n";
+}
+
+exit $RETVAL;
+
+
+#
+# Manage the standard SNMP options
+# Arguments are same as netsnmp utils
+#
+# If called with "getopts", returns a string for "getopts"
+# If called with "usage", returns an array of usage information
+# Otherwise, returns a hash of SNMP config vars
+#
+# Overloading this sub like this is kinda hoakey,
+# but keeps everything in one place
+sub SNMPconfig {
+  my($action) = @_;
+
+  if($action eq "getopts"){
+    return "C:t:r:p:v:u:l:A:e:E:n:a:x:X:";
+  }
+  elsif($action eq "usage"){
+    return(
+	   "[-C configfile]       # SNMP vars config file",
+	   "[-t Timeout]          # Timeout in ms (default: 1000000)",
+	   "[-r Retries]          # Retries before failure (default: 5)",
+	   "[-p RemotePort]       # Remote UDP port (default 161)",
+	   "[-v Version]          # 1,2,2c or 3 (default: 1)",
+	   "[-c Community]        # v.1,2,2c Community Name (default: public)",
+	   "[-u SecName]          # v.3 Security Name (default: initial)",
+	   "[-l SecLevel]         # v.3 Security Level (default: noAuthNoPriv)",
+	   "[-A AuthPass]         # v.3 Authentication Passphrase (default: none)",
+	   "[-e SecEngineId]      # v.3 security engineID (default: none)",
+	   "[-E ContextEngineId]  # v.3 context engineID (default: none)",
+	   "[-n Context]          # v.3 context name (default: none)",
+	   "[-a AuthProto]        # authentication protocol (MD5|SHA; default MD5)",
+	   "[-x PrivProto]        # privacy protocol (DES)",
+	   "[-X PrivPass]         # privacy passphrase (default: none)",
+	  );
+  }
+
+  # Read config file
+  my %Conf;
+  if($opt_C){
+    unless( open(CONF, $opt_C) ){
+      print "$0: Could not open config file $opt_C\n";
+      exit 2;
+    }
+    my $line;
+    my @fields;
+    foreach $line (<CONF>){
+      chomp $line;
+      @fields = split(/=/, $line);
+      $Conf{ lc $fields[0] } = $fields[1];
+    }
+    close CONF;
+  }
+
+  my %SNMPARGS;
+
+  # Common options
+  $SNMPARGS{Timeout} = $opt_t || $Conf{timeout} || 1000000;
+  $SNMPARGS{Retries} = $opt_r || $Conf{retries} || 5;
+  $SNMPARGS{RemotePort} = $opt_p || $Conf{remoteport} || 161;
+  $SNMPARGS{Version} = $opt_v || $Conf{version} || 1;
+
+  # v. 3 options
+  if ($SNMPARGS{Version} eq "3"){
+    $SNMPARGS{SecName} = $opt_u || $Conf{secname} || 'initial';
+    $SNMPARGS{SecLevel} = $opt_l || $Conf{seclevel} || 'noAuthNoPriv';
+    $SNMPARGS{AuthPass} = $opt_A || $Conf{authpass} || '';
+    $SNMPARGS{SecEngineId} = $opt_e || $Conf{secengineid} || '';
+    $SNMPARGS{ContextEngineId} = $opt_E || $Conf{contextengineid} || '';
+    $SNMPARGS{Context} = $opt_n || $Conf{context} || '';
+    $SNMPARGS{AuthProto} = $opt_a || $Conf{authproto} || '';
+    $SNMPARGS{PrivProto} = $opt_x || $Conf{privproto} || '';
+    $SNMPARGS{PrivPass} = $opt_X || $Conf{privpass} || '';
+  }
+  # v. 1,2 options
+  else{
+    $SNMPARGS{Community} = $opt_c || $Conf{community} || 'public';
+  }
+
+  return %SNMPARGS;
+}

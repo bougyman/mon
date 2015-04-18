@@ -1,0 +1,794 @@
+#!/usr/bin/perl -w
+# 
+# syslog.monitor - monitors incoming syslog packets and reports to mon
+#
+# Author: Lars Marowsky-Brée, lars@marowsky-bree.de
+#
+# Copyright (C) 1999 Lars Marowsky-Brée
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#
+### Nothing to see below this line.
+### Abandon hope all ye who enter here
+### Here be dragons!
+#############################################################################
+# Me, use modules? no, me never use modules
+package main;
+use strict;
+use Socket;
+use Net::hostent;
+use Time::HiRes qw (time alarm sleep gettimeofday);
+use Mon::Client;
+use POSIX qw(setsid strftime);
+
+# automagically inserted by CVS
+my $VERSION = '$Id: syslog.monitor,v 1.1.1.1 2005/02/18 17:52:19 trockij Exp $';
+
+#############################################################################
+# Global variables
+# Map syslog facility numbers to names
+my %Num2Facility = ( 0 => 'kern', 1 => 'user', 2 => 'mail', 3 => 'daemon', 4
+   => 'auth', 5 => 'syslog', 6 => 'lpr', 7 => 'news', 8 => 'uucp', 9 =>
+   'cron', 10 => 'authpriv', 11 => 'ftp', 12 => 'reserved-12', 13 =>
+   'reserved-13', 14 => 'reserved-14', 15 => 'reserved-15', 16 => 'local0',
+   17 => 'local1', 18 => 'local2', 19 => 'local3', 20 => 'local4', 21 =>
+   'local5', 22 => 'local6', 23 => 'local7', );
+# Map syslog level numbers to names
+my %Num2Level = ( 0 => 'emerg', 1 => 'alert', 2 => 'crit', 3 => 'err', 4 =>
+   'warn', 5 => 'notice', 6 => 'info', 7 => 'debug' );
+
+# Contains a list of LogEntry object init params
+my %Checks = ();
+# Hash of hostgroup members hostnames, indexed by hostgroup name
+my %GROUP_MEMBERS;
+# IP -> hostname resolving
+my %IP2Host;
+# IP -> hostgroup resolving
+my %IP2Group;
+# array of references to LogEntry objects, indexed by hostname
+my %ChecksPerHost;
+# array of references to LogEntry objects per hostgroup
+my %ChecksPerGroup;
+# Global Mon::Client object
+my $mon;
+# The configuration is read into this hash
+my %CONF;
+# At which time we did the last full walk of the chains
+my $last_full_walk;
+# Msg - contains the currently processed message
+# LastMsg - contains the last Msg hash, per host 
+my (%LastMsg,%Msg);
+# Is set when we receive a -HUP and cleared by the mainloop
+my $DO_RELOAD = 0;
+my $HAS_FORKED = 0;
+
+#############################################################################
+# Setup
+my ($conf_file) = @ARGV;
+
+if (!defined($conf_file) || $conf_file eq "") 
+   { die "No configuration file given"; }
+
+# Perform the init stuff
+&Init;
+
+# BUG: select vs signals, Perl loses!
+# $SIG{HUP} = \&Trigger_Reload;
+
+# Open listener port
+my $proto = getprotobyname('udp');
+socket(SOCKET, Socket::PF_INET, Socket::SOCK_DGRAM, $proto)
+  || die "Could not create listening socket: $!";
+bind(SOCKET, scalar Socket::sockaddr_in($CONF{'bind_port'},  
+             Socket::inet_aton($CONF{'bind_ip'})))
+  || die "Could not bind authentication socket: $!";
+
+# prepare to select
+my ($whence,$line,$rin,$rout);
+$rin = ''; 
+vec($rin, fileno(SOCKET), 1) = 1;
+	   
+
+#############################################################################
+
+LOOP: while (1) {
+  if (!select($rout = $rin, undef, undef, $CONF{'select_timeout'})) {
+     &Log(7,"select timeout");
+     next LOOP;
+  }
+  
+  # Read the incoming UDP packet
+  if (!($whence = recv(SOCKET, $line, 8192, 0) )) {
+     &Log(3,"recv error: $!");
+     next LOOP;
+  }
+  
+  # Parse the incoming UDP packet envelope
+  my ($src_port,$src_ip) = sockaddr_in($whence);
+  $src_ip = inet_ntoa($src_ip);
+  chomp($line);
+  
+  &Log(7,"Received syslog message from $src_ip");
+  
+  # If this IP does not resolve to a hostname, it is bogus
+  if (!defined($IP2Host{$src_ip})) {
+     &Log(3,"Received unauthorized message from $src_ip, ignoring");
+	 next LOOP;
+  }
+  
+  my ($level,$facility,$msg);
+  if ($line =~ /^\<(\d+)\>([^:]+): (.*)$/o) {
+     # Decode the message
+     %Msg = ();
+     $Msg{'src_port'} = $src_port;
+	 $Msg{'src_ip'} = $src_ip;
+	 $Msg{'host'} = $IP2Host{$src_ip};
+	 $Msg{'level'} = $1 & 7; 
+	 $Msg{'Level'} = $Num2Level{$1 & 7}; 
+	 $Msg{'facility'} = $Num2Facility{$1 >> 3}; 
+	 $Msg{'msg'} = $3;
+ 	 $Msg{'time'} = time;
+	 $Msg{'source'} = $2;
+	 $Msg{'group'} = $IP2Group{$src_ip};
+     
+	 # Log the message if necessary
+	 &OwnLog(\%Msg);
+
+     # Walk through the processing hooks here...
+	 my $check;
+PER_HOST: foreach $check (@{$ChecksPerHost{ $Msg{'host'} }}) {
+	    if ($check->check(\%Msg) == 1) {
+		   last PER_HOST;
+		}
+	 }
+	 
+PER_GROUP: foreach $check (@{$ChecksPerGroup{ $Msg{'group'}}}) {
+	    if ($check->check(\%Msg) == 1) {
+		   last PER_GROUP;
+		}
+	 }
+     # Store message for further reference
+	 %{$LastMsg{$src_ip}} = %Msg;
+	 	 
+  } elsif ($line =~ /^\<(\d+)\>last message repeated (\d+) times$/o) {
+     my $count = $2;
+	 my $facility = $1;
+	 # Handle repetition - last msg from the host is still available
+	 # in %LastMsg{$src_ip}
+	 
+	 &Log(7,"Last message repeated $count times");
+  } else {
+     &Log(2,"Unknown input ignored: $line");
+  }
+  
+} continue {
+  # Before continuing, always check if the checks need to be run,
+  # so that the low threshold can be triggered
+  
+  if ($last_full_walk - time > $CONF{'full_walk_timeout'}) {
+     &Log(7,"Full walk triggered after $CONF{'full_walk_timeout'} seconds");
+	 
+     my ($check_ary);
+	 foreach $check_ary (@ChecksPerHost{keys %ChecksPerHost},
+	                     @ChecksPerGroup{keys %ChecksPerGroup}
+	                    ) {
+	    my ($check);
+		foreach $check (@$check_ary) {
+		  &Log(7,"Running for ".$check->{'group'}."/".$check->{'host'});
+		       $check->check({'level' => 7, 'Level' => $Num2Level{7}, 
+			   'msg' => 'SYSLOG.MONITOR: SELECT TIMEOUT',
+			   'time' => time,
+			 });
+	    } # foreach $check
+	 } # foreach $check_ary
+  }
+  
+  # Do we need to reload the configuration?
+  if ($DO_RELOAD == 1) {
+     &Log(4,"Reloading configuration");
+     &Init;
+	 $DO_RELOAD = 0;
+  }
+} # continue
+
+#############################################################################
+
+sub BuildChecks {
+	&Log(6,"Building check cache, precompiling objects");
+	
+	# First, build the per-host cache
+	my ($group);
+	foreach $group (keys %{$CONF{'checks-per-host'}}) {
+	
+	   if (defined($GROUP_MEMBERS{$group})) {
+		  # Build the "per-host" checks
+		  my ($host);
+		  foreach $host (@{$GROUP_MEMBERS{$group}}) {
+	        &Log(6,"Building per host checks for $group/$host");
+			
+			my ($check);
+CHECK:		foreach $check (@{$CONF{'on-host'}{$group}{$host}},@{$CONF{'checks-per-host'}{$group}}) {
+			   if (!defined($Checks{$check})) {
+			     &Log(3,"Undefined check $check for $host, ignoring");
+			     next CHECK;
+			   }
+			   push @{$ChecksPerHost{$host}},LogEntry->new($Checks{$check},$group,$host);
+		    }
+		  }
+	   } else {
+	     &Log(3,"Unknown hostgroup $group referenced in config file");
+	   }
+	}
+	
+	# Second, build the per-group cache
+	foreach $group (keys %{$CONF{'checks-per-group'}}) {
+	   if (defined($GROUP_MEMBERS{$group})) {
+	       &Log(6,"Building per group checks for $group");
+		   my $check;
+CHECK:	   foreach $check (@{$CONF{'checks-per-group'}{$group}}) {
+             if (!defined($Checks{$check})) {
+			    &Log(3,"Undefined check $check for group $group, ignoring");
+				next CHECK;
+			 }
+			 push @{$ChecksPerGroup{$group}},LogEntry->new($Checks{$check},$group,'ALL');
+		   }
+	   } else {
+	     &Log(3,"undefined group $group, ignoring");
+		 next GROUP;
+	   }
+	}
+	&Log(6,"Finished building check cache");
+}
+
+sub FormatTime {
+    # Prints the time like a proper Cisco
+    my ($time) = @_;
+	return strftime("%b %e %H:%M:%S", localtime($time))
+	       .sprintf(".%03d",($time - int($time)) * 1000 );
+}
+
+# Log a message if the priority is high enough
+sub Log {
+    my ($prio,$msg) = @_;
+	
+	if ($prio <= $CONF{'loglevel'}) {
+	   my $line = &FormatTime(time).
+	            sprintf(": %- 6.6s: %s\n",
+	              $Num2Level{$prio},$msg);
+	   if ($CONF{'logfile'} ne "") {
+	      open(LOG,">>$CONF{'logfile'}") || die "Could not open logfile!";
+	      print LOG $line;
+		  close(LOG);
+	   } else {
+	      print $line;
+	   }
+	}
+}
+
+sub OwnLog {
+    # Log the message to the file specified in syslog.conf
+    my ($r) = @_;
+
+    return if ($CONF{'syslogfile'} eq "");
+    
+	my $f = $CONF{'syslogfile'};
+	
+	# Ok, logfile is defined. do the substitutions
+	
+	my ($sec,$min,$hour,$mday,$mon,$year,$wday,$yday,$isdst) = localtime($$r{'time'});
+	$year += 1900;
+	
+	print $f."\n";
+	
+	$f =~ s/\%H/$$r{host}/;
+	$f =~ s/\%L/$$r{Level}/;
+	$f =~ s/\%l/$$r{level}/;
+	$f =~ s/\%F/$$r{facility}/;
+	$f =~ s/\%G/$$r{group}/;
+	$f =~ s/\%D/sprintf "%04d-%02d-%02d",$year,$mon,$mday/e;
+    
+	# Make sure everything is still okay
+	$f =~ s/[^A-Za-z0-9\.\-\/]//og;
+	
+	open(F,">>$f");
+	
+	print F &FormatTime($$r{'time'}).sprintf(" %s %s.%s - %s: %s\n", $$r{'host'},
+	                        $$r{'facility'},$$r{'Level'},$$r{'source'},$$r{'msg'});
+	
+	close(F);
+}
+
+
+sub ChatMonServer {
+    # Setup the mon connection
+    $mon = Mon::Client->new(
+	     host => $CONF{'mon_host'},
+		 username => $CONF{'mon_user'},
+		 password => $CONF{'mon_pass'});
+	&Log(6,"Connecting to mon host $CONF{'mon_host'}");
+	
+	# Retrieve information from the mon server about hostgroups
+	if (!defined ($mon->connect)) {
+   	   &Log(2,"Could not connect to server: " . $mon->error);
+	   die;
+	}
+	
+	my %opstatus;
+	if (!defined (%opstatus = $mon->list_opstatus)) {
+       &Log(2,"could not get opstatus: " . $mon->error);
+	   $mon->disconnect;
+	   die;
+	}
+	
+	# We are only interested in hostgroups which have the "syslog" service
+	# defined, and thus are able to process our traps
+	my ($group);
+	foreach $group (keys %opstatus) {
+	   if (defined($opstatus{$group}{'syslog'})) {
+	      my (@hosts) = $mon->list_group($group);
+		  @{$GROUP_MEMBERS{$group}} = @hosts;
+	   }
+	}
+	
+	# We don't need the TCP connection anymore from here on.
+	# This might change in the future if Mon::Client ever sends
+	# traps via tcp
+	$mon->disconnect;
+}
+
+# Parse the hostnames, and fill in the %IP2Host / %IP2Group
+sub ParseHosts {
+    my ($group,$host);
+	
+	&Log(6,"Resolving hostnames and building cache");
+	foreach $group (keys %GROUP_MEMBERS) {
+HOST:	   foreach $host (@{$GROUP_MEMBERS{$group}}) {
+	     my $h = gethostbyname($host);
+		 if (!defined($h)) {
+		    &Log(3,"Failed to resolve $host, ignoring");
+		    next HOST;
+		 }
+		 
+		 if (@{$h->addr_list} > 1 ) {
+		    my $addr;
+		    for $addr ( @{$h->addr_list} ) {
+		        $IP2Host{inet_ntoa($addr)} = $host;
+		        $IP2Group{inet_ntoa($addr)} = $group;
+		    }
+		 } else {
+		   $IP2Host{inet_ntoa($h->addr)} = $host;
+		   $IP2Group{inet_ntoa($h->addr)} = $group;
+		 }
+	  }
+	}
+}
+
+# Send a trap to the mon server
+sub SendTrap {
+    my ($l) = @_;
+
+	my ($typ,$opstatus,$sum,$dtl);
+	if ($l->{status} == 0) {
+	   $opstatus = 'ok';
+	   $sum = $l->{host}.": ".$l->{desc}." ok since "
+	         .localtime($l->{status_time});
+	   $dtl = "\n"; 
+	   $dtl .= "Happened ".scalar(@{$l->{matches}})." within "
+	         .$l->{period}."s" unless $l->{'period'} == 0;
+	} elsif ($l->{status} == -1) {
+	   $opstatus = 'fail';
+	   $sum = $l->{host}.": ".$l->{desc}." occured too seldom since "
+	         .localtime($l->{status_time});
+	   $dtl = "\nLast time was "
+	         .localtime($l->{last_match});
+	} elsif ($l->{status} == 1) {
+	   $opstatus = 'fail';
+	   $sum = $l->{host}.": ".$l->{desc}." occured too often since "
+	         .localtime($l->{status_time});
+	   $dtl = "\n";
+	   $dtl .= "Happened ".scalar(@{$l->{matches}})." within "
+	         .$l->{period}."s\n" unless $l->{'period'} == 0;
+	   # Include copy of the line which triggered the trap
+	   $dtl .= ${$l->{'last_matched_msg'}}{'msg'}."\n";
+	} else {
+	   &Log(0,"BUG: Unknown status in SendTrap");
+	   return undef;
+	}
+
+    &Log(4,"Sending trap: ".$l->{'group'}." $opstatus $sum");
+    # Send the trap
+    $mon->send_trap(
+	    group => $l->{'group'},
+		service => 'syslog',
+		retval => 1,
+		opstatus => $opstatus,
+		summary => $sum,
+		detail => $dtl) || &Log(2, "trap sending failed: ".$mon->error);
+}
+
+sub ReadConf {
+    my ($conf) = @_;
+
+    if ($conf !~ /^[a-z0-9\.\-\/]+$/oi) {
+	   &Log(1,"Security violation: $conf contains illegal characters");
+	   die;
+	}
+	
+	# Setup defaults
+	%CONF = ( 
+	   'select_timeout' => 10,
+	   'full_walk_timeout' => 30,
+	   'bind_ip' => '0.0.0.0',
+	   'bind_port' => 514,
+	   'logfile' => '',
+	   'daemon_mode' => 0,
+	   'syslogfile' => "",
+	);
+	
+	if (!open(CONF,"<$conf")) {
+	   &Log(2,"Failed to open configuration file");
+	   die;
+	}
+	
+	my ($l,$lineno);
+	my $level = 'global';
+    my ($CHECKNAME,$GROUPNAME);
+	
+	while (defined($l = <CONF>)) {
+	   chomp $l;
+	   $l =~ s/^\s*//;
+	   $l =~ s/\s*$//;
+	   $lineno++;
+	   
+	   next if $l =~ /^#/;
+       
+	   if ($level eq 'global') {
+	      if ($l =~ /^full_walk_timeout\s+(.*)$/o) {
+	         $CONF{'full_walk_timeout'} = &dhmstos($1);
+			 next;
+	      } elsif ($l =~ /^select_timeout\s+(.*)$/o) {
+	        $CONF{'select_timeout'} = &dhmstos($1);
+		    next;
+	      } elsif ($l =~ /^loglevel\s+(\d)$/o) {
+	        $CONF{'loglevel'} = $1;
+		    next;
+	      } elsif ($l =~ /^logfile\s+([a-z0-9\.\-\/]*)$/io) {
+	        $CONF{'logfile'} = $1;
+		    next;
+	      } elsif ($l =~ /^syslogfile\s+([\%a-z0-9\.\-\/]+)$/io) {
+	        $CONF{'syslogfile'} = $1;
+		    next;
+	      } elsif ($l =~ /^daemon_mode\s*$/o) {
+	        $CONF{'daemon_mode'} = 1;
+		    next;
+		  } elsif ($l =~ /^bind_ip\s+(\d+\.\d+\.\d+\.\d+)$/o) {
+	        $CONF{'bind_ip'} = $1;
+		    next;
+		  } elsif ($l =~ /^bind_port\s+(\d+)$/o) {
+	        $CONF{'bind_port'} = $1;
+		    next;
+	      } elsif ($l =~ /^mon_host\s+(\S+)$/o) {
+	        $CONF{'mon_host'} = $1;
+		    next;
+	      } elsif ($l =~ /^mon_user\s+(\S+)$/o) {
+	        $CONF{'mon_user'} = $1;
+		    next;
+	      } elsif ($l =~ /^mon_pass\s+(\S+)$/o) {
+	        $CONF{'mon_pass'} = $1;
+			next;
+	      } elsif ($l =~ /^check\s+(\S+)$/o) {
+		    $level = 'check';
+			$CHECKNAME = lc($1);
+			$Checks{$CHECKNAME} = {
+			  'name' => lc($1),
+			  'period' => 300,
+			  'min' => -1,
+			  'max' => 1,
+			  'final' => 0,
+			  'surpress_ok' => 0,
+			  'desc' => 'I was too lazy to write a proper configuration file',
+			};
+			next;
+		  } elsif ($l =~ /^group\s+(.*)$/o) {
+		    $level = 'group';
+			$GROUPNAME = $1;
+			next;
+		  } elsif ($l eq "") {
+		    next;
+		  }
+################ END GLOBAL CONFIGURATION FILE OPTIONS
+	   } elsif ($level eq 'check') {
+	     if ($l =~ /^period\s+(.*)$/o) {
+		    $Checks{$CHECKNAME}{'period'} = &dhmstos($1);
+			next;
+		 } elsif ($l =~ /^min\s+(\-?\d+)$/o) {
+		   $Checks{$CHECKNAME}{'min'} = $1;
+		   next;
+		 } elsif ($l =~ /^max\s+(\-?\d+)$/o) {
+		   $Checks{$CHECKNAME}{'max'} = $1;
+		   next;
+		 } elsif ($l =~ /^desc\s+(.*)$/o) {
+		   $Checks{$CHECKNAME}{'desc'} = $1;
+		   next;
+		 } elsif ($l =~ /^pattern\s+(.*)$/o) {
+		   $Checks{$CHECKNAME}{'pattern'} = $1;
+		   next;
+		 } elsif ($l =~ /^final\s*$/o) {
+		   $Checks{$CHECKNAME}{'final'} = 1;
+		   next;
+		 } elsif ($l =~ /^surpress_ok\s*$/o) {
+		   $Checks{$CHECKNAME}{'surpress_ok'} = 1;
+		   next;
+		 } elsif ($l eq "") {
+		   # blank line indicates end of check block
+		   $level = 'global';
+		   $CHECKNAME = '';
+		   next;
+		 }
+#### END OF "CHECK" part
+	   } elsif ($level eq 'group') {
+	     if ($l =~ /^per-host\s+(.*)$/o) {
+		    @{$CONF{'checks-per-host'}{$GROUPNAME}} = split(/\s+/,$1);
+		    next;
+		 } elsif ($l =~ /^per-group\s+(.*)$/o) {
+		    @{$CONF{'checks-per-group'}{$GROUPNAME}} = split(/\s+/,$1);
+			next;
+		 } elsif ($l =~ /^on-host\s+(\S+)\s+(.*)$/o) {
+		    @{$CONF{'on-host'}{$GROUPNAME}{$1}} = split(/\s+/,$2);
+			next;
+		 } elsif ($l eq "") {
+		   $level = 'global';
+		   $GROUPNAME = '';
+		   next;
+		 }
+	   }
+   
+	   &Log(3,"Error while parsing configuration file, line $lineno: $l");
+	}
+}
+
+sub Init {
+    %Checks = ();
+	%GROUP_MEMBERS = ();
+	%IP2Host = ();
+	%IP2Group = ();
+	%ChecksPerHost = ();
+	%ChecksPerGroup = ();
+	$mon = undef;
+	%CONF = ();
+	
+	&ReadConf($conf_file);
+	
+	if ( ($HAS_FORKED != 1) && $CONF{'daemon_mode'} == 1) {
+	   if ($CONF{'logfile'} ne '') {
+	     &daemonize;
+		 $HAS_FORKED = 1;
+	   } else {
+	     &Log(2,"You can't summon a daemon while talking to the public");
+	   }
+	}
+	
+	# We need some information from the mon server now...
+	&ChatMonServer;
+	# Parse the hosts, resolve them etc
+	&ParseHosts;
+	# Build the cache, precompile the checks
+	&BuildChecks;
+	
+	$last_full_walk = time;
+	%LastMsg = ();
+	%Msg = ();
+
+}
+
+#
+# convert a string like "20m" into seconds
+#
+sub dhmstos {
+    my ($str) = @_;
+    my ($s);
+
+    if ($str =~ /^\s*(\d+(?:\.\d+)?)([dhms])\s*$/i) {
+	if ($2 eq "m") {
+	    $s = $1 * 60;
+	} elsif ($2 eq "h") {
+	    $s = $1 * 60 * 60;
+	} elsif ($2 eq "d") {
+	    $s = $1 * 60 * 60 * 24;
+	} else {
+	    $s = $1;
+	}
+    } else {
+    	return undef;
+    }
+    $s;
+}
+
+sub daemonize {
+    chdir '/'                 or die "Can't chdir to /: $!";
+	open STDIN, '/dev/null'   or die "Can't read /dev/null: $!";
+	open STDOUT, '>/dev/null' or die "Can't write to /dev/null: $!";
+	defined(my $pid = fork)   or die "Can't fork: $!";
+	exit if $pid;
+	setsid                    or die "Can't start a new session: $!";
+	open STDERR, '>&STDOUT'   or die "Can't dup stdout: $!";
+}
+
+sub Trigger_Reload {
+   $DO_RELOAD = 1;
+   $SIG{HUP} = \&Trigger_Reload;
+}
+
+##############################################################################
+
+package LogEntry;
+# Some of the more important stuff happens here
+
+use strict;
+use Time::HiRes qw (time alarm sleep);
+
+BEGIN {
+      use Exporter   ();
+	  use vars       qw($VERSION @ISA @EXPORT @EXPORT_OK %EXPORT_TAGS);
+
+      # set the version for version checking
+	  $VERSION     = 0.01;
+	  @ISA         = qw(Exporter);
+	  @EXPORT      = qw();
+	  %EXPORT_TAGS = ( );     # eg: TAG => [ qw!name1 name2! ],
+	  
+	  # your exported package globals go here,
+	  # as well as any optionally exported functions
+	  @EXPORT_OK   = qw();
+	  }
+
+use vars      @EXPORT_OK;
+
+# non-exported package globals go here
+use vars      qw();
+
+sub new {
+    my $proto = shift;
+	my $class = ref($proto) || $proto;
+	my $self  = {
+	};
+	
+	bless ($self, $class);
+	
+	# Initialise with remaining arguments
+	if (@_) {
+	$self->init(@_);
+	}
+	
+	return $self;
+}
+
+sub init (\%$$) {
+    my ($self,$INIT,$group,$host) = @_;
+	
+	# We load some values from the INIT hash
+	%{$self} = %{$INIT};
+
+	# After changing the pattern, it is sensible to reset our counters
+	@{$self->{matches}} = (); 
+
+	$self->{group} = $group;
+	$self->{host} = $host;
+    
+	# 0  : did not trigger
+	# -1 : triggered because of too few matches
+	# 1  : triggered because of too many matches
+	$self->{status} = 0;
+	$self->{status_time} = time;
+	$self->{last_match} = 0;
+	
+	# The checkitem is a piece of code which we precompile here.
+	
+	my $code = 'sub { my ($r)=@_; if ('.$$INIT{'pattern'}
+	          .') { return 1; } else { return 0 } }';
+    
+	&::Log(7,"Compiling: $code");
+	$self->{matcher} = eval $code;
+	if ($@) { &::Log(2,"Error while compiling ".$$INIT{'name'}." ignoring");
+	          $self->{matcher} = sub { return 0; };
+	}
+			
+	return $self->{matcher};
+}
+
+sub check {
+    my ($self,$msg) = @_;
+    
+	&::Log(7,"Checking ".$self->{desc});
+	my $code;
+	
+	eval { 
+	   $code = &{$self->{matcher}}($msg); 
+	};
+	
+	if ($@) { 
+	   &::Log(2,"$self->{desc}: Fatal error while matching: $@");
+	   return 0;
+	}
+
+    # Our reference time is the msec at which this message was received
+	my $t = $$msg{'time'};
+
+	# Trim our data backlog
+	while ( (scalar(@{$self->{matches}})>0) 
+	   && ($t-$self->{matches}[0] > $self->{period})) 
+	{ shift @{$self->{matches}} }
+
+	if ($code == 1) {
+	   &::Log(7,"$self->{desc}: Matched");
+	   # Pattern matched. Record timestamp.
+	   push @{$self->{matches}},$t;
+	   $self->{last_match} = $t;
+	   # Keep a copy of the last match
+	   %{$self->{last_matched_msg}} = %{$msg}; 
+    }
+	
+	my $count = scalar(@{$self->{matches}});
+	my $age = $t-$self->{status_time};
+	
+	# First, we check if we matched too often. We don't check for
+	# the age here since nothing is going to magically lower the match
+	# counter.
+	if (($count > $self->{max})) {
+       &::Log(7,"$self->{desc}: Matched too often within period");
+	   $self->trigger(1);
+	# if we are below the threshold, and our age is at least
+	# period (we need to check for the age - otherwise, we might
+	# later on receive more messages and be alright / too high)
+    } elsif (($count < $self->{min}) && ($age >= $self->{period})) {
+	     &::Log(7,"$self->{desc}: Matched too seldom within period");
+		 $self->trigger(-1);
+	# same in blue for the "ok" condition
+	} elsif (($count > $self->{min}) && ($age >= $self->{period})) {
+	     &::Log(7,"$self->{desc}: Roger");
+	     $self->trigger(0);
+	} 
+	
+	&::Log(7,"$self->{desc}: Current counter: $count");
+	
+	# Abort processing if we are a final check and matched
+	if ( ($code == 1) && ($self->{'final'} == 1) ) {
+       &::Log(7,"$self->{desc}: Terminating walk due to final check");
+	   return 1;
+    } else {
+       return 0;
+    }
+	
+	&::Log(0,"Here are dragons");
+	die;
+}
+
+
+sub trigger {
+    my ($self,$status) = @_;
+	
+	return if ($status == $self->{status});
+	
+    &::Log(6,"$self->{desc}: Status change: ".$self->{status}."->".$status
+	      ." Counter: ".scalar(@{$self->{matches}}));
+	$self->{status} = $status;
+	$self->{status_since} = time;
+	
+	# We had a status change and need to send the right trap
+	if (($status != 0) || ($self->{'surpress_ok'} == 0)) {
+	   &::SendTrap($self);
+	}
+}

@@ -1,0 +1,59 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<html>
+<head>
+<meta name="GENERATOR" content="SGML-Tools 1.0.9">
+<title>The Minotaur user manual: Principles</title>
+<link href="minotaur-user-en-3.html" rel="next">
+<link href="minotaur-user-en-1.html" rel="previous">
+<link href="minotaur-user-en.html#toc2" rel="contents">
+</head>
+<body>
+<a href="minotaur-user-en-3.html">Next</a> <a href= 
+"minotaur-user-en-1.html">Previous</a> <a href= 
+"minotaur-user-en.html#toc2">Contents</a> 
+
+<hr>
+<h2><a name="s2">2. Principles</a></h2>
+
+<p>Minotaur is a web client for MON, a monitoring tool written by
+Jim Trocki.</p>
+
+<p>The MON software is a general scheduler executing periodic tests
+on a set of services and triggers alarms when a problem occurs.</p>
+
+<p>The scheduler can be consulted upon a simple textual protocol on
+a predefined port.</p>
+
+<p>The web interface is based on this protocol. The CGI script
+(Common Gateway Interface) consults the scheduler and presents the
+results on a HTML way. By concern for efficiency, simplicity,
+compatibility and stability, the java, javascript, frame and other
+web avatars are not used.</p>
+
+<p>To understand the web interface, you need to think about the
+following hierarchy:</p>
+
+<ul>
+<li>The scheduler supervises groups.</li>
+
+<li>Groups are made up with items. Generally, those items are just
+internet or intranet hosts.</li>
+
+<li>Those items can be hosts presented by their name or their IP
+address, or everything else, directories for example.</li>
+
+<li>Upon each group of items, the scheduler supervises one or more
+services. Each service is tested with a software called a
+monitor.</li>
+
+<li>For each service, the scheduler can trigger one or more alarms
+when something goes wrong.</li>
+</ul>
+
+<hr>
+<a href="minotaur-user-en-3.html">Next</a> <a href= 
+"minotaur-user-en-1.html">Previous</a> <a href= 
+"minotaur-user-en.html#toc2">Contents</a>
+</body>
+</html>
+

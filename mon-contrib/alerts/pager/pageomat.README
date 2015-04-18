@@ -1,0 +1,51 @@
+Subject: 
+         Re: Webpage.alert
+   Date: 
+         Tue, 18 Jul 2000 16:48:38 -0400 (EDT)
+   From: 
+         Ed Ravin <eravin@panix.com>
+     To: 
+         andy.ciordia@goingv.com (Andy Ciordia)
+     CC: 
+         mon@linux.kernel.org
+
+
+
+
+Andy Ciordia writes:
+
+[web paging scripts]
+> I can whip one of these up but if someone has already created the wheel
+> for talking to lynx or some perl module to post a set of variables to a
+> web paging service could they make it available?
+
+Been there and done that,  here's what I learned:
+
+* you don't want to use lynx - you can, but there's no easy way to tell
+if it worked properly unless you call it via expect or Comm.pl so you can
+do two-way interaction with it and see what its output is.  For all that
+trouble, you might as well interface directly with the Web server.
+
+* not every ASCII character can be sent via a vendor's web page.  Skytel
+loses % + &, for example, but thankfully they have an SNPP server so
+you can send your data that way.  Bell Atlantic Mobile loses < and >,
+perhaps it'll work better once they're finished changing their name to
+Verizon :-p.
+
+* I would be moderately paranoid about stability of the paging company's web
+pages - when they decide to change their interface, your script will break.
+Maybe send a test page at noon once a month to make sure it's still
+working?  Keep harassing the company until they supply an SNPP server, or
+switch to someone who does?
+
+The attached script, "pageomat", is an alpha version - it knows how to
+send the pages via either SNPP or the company's web page, if it's a company
+it knows about.  To figure out how to send the page, I used lynx to surf to
+the company's web site, sent a page, and either sniffed the transaction via
+tcpdump or used Lynx's frame rendering (the \ command) and other debug
+options to figure out what was happening.  If your company's not in there,
+you'll need to do the same, but it's fairly easy to add new info (it's all
+in a database).
+
+Comments, fixes, suggestions for improvement are welcome - send them to
+<eravin@panix.com>.

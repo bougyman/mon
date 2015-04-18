@@ -1,0 +1,344 @@
+#!/usr/bin/perl 
+#
+# Try to establish a connection to a web application using pubcookie
+# authentication.  See http://www.pubcookie.org
+#
+# User, password, realm and pubcookie login server can either be
+# specified on the command line or in the monitor-auth.cf file.
+#
+# Arguments are "[-c monitor-auth-config] [-U user] [-P pass] [-R
+# realm] [-L pubcookie-login-server] [-t timeout] [-u urlsuffix] host
+# [host...]"
+#
+# Adapted from "nis.monitor" by
+# Carnegie Mellon University, Computing Services
+#
+# nis.monitor written by Juha Ylitalo <jylitalo@iki.fi>
+#
+#    Copyright (C) 1999, Juha Ylitalo
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use strict;
+use vars qw(@failures @report $ua $cj $pubcookie_status $TIMEOUT $appurl $debug $opt_t $opt_u $opt_d
+	    $opt_U $opt_P $opt_R $opt_L $opt_c
+	    $user $password $realm $pcserver);
+use Getopt::Std;
+use English;
+use IO::File;
+use LWP;
+use HTTP::Request;
+use HTTP::Cookies;
+
+getopts ("u:t:d:U:P:R:L:c:");
+$TIMEOUT = $opt_t || 30;
+$appurl = $opt_u || "";
+$debug = $opt_d || 0;
+$user = $opt_U;
+$password = $opt_P;
+$realm = $opt_R;
+$pcserver = $opt_L;
+
+if ($debug > 1) {
+  require LWP::Debug;
+  import LWP::Debug qw(+);
+}
+
+unless (&parse_cf) {
+  print join(' ', @ARGV) . "\n\nMonitoring Error!\nNo user/password specified on command line and can't open or parse config file\n";
+  exit 254;
+}
+
+@failures = ();
+@report = ();
+$ua= new LWP::UserAgent;
+$cj= new HTTP::Cookies;
+# Masquerade as MSIE, because some servers return an error for a user agent of libwww-perl. 
+# suck suck suck
+$ua->agent('Mozilla/4.0 (compatible; MSIE 6.0; Windows NT 5.1)');
+$ua->cookie_jar($cj);
+$pubcookie_status=pubcookie_login($ua, $cj, $pcserver);
+if ($pubcookie_status) {
+  print join(' ', @ARGV) . "\n\nUnable to complete initial pubcookie login!\n$pubcookie_status\n";
+  exit(254);
+}
+
+foreach my $server ( @ARGV ) {
+    &webapp_poll($ua, $pcserver, $server );
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n\n";
+print join "\n\n", @report;
+print "\n";
+exit scalar(@failures);
+
+
+sub pubcookie_login {
+    my ($ua, $cj,  $pcserver ) = @_;
+    my ($fail);
+    undef $fail;
+###############################################################
+    warn "Authenticating to pubcookie server $pcserver.\n" if ($debug);
+    eval {
+
+        local $SIG{ALRM} = sub { die "Timeout Alarm" };
+        alarm $TIMEOUT;
+        my $request= new HTTP::Request (POST => "https://$pcserver/login.cgi");
+
+        $request->content_type('application/x-www-form-urlencoded');
+        $request->content("user=$user");
+        $request->add_content("&realm=$realm");
+        $request->add_content("&pass=$password");
+        $request->add_content("&one=$pcserver");
+        $request->add_content("&two=pinit");
+        $request->add_content("&creds_from_greq=1");
+        $request->add_content("&three=1");
+        $request->add_content("&four=");
+        $request->add_content("&five=");
+        $request->add_content("&six=$pcserver");
+        $request->add_content("&seven=/login.cgi");
+        $request->add_content("&reply=1");
+        my $res = $ua->request($request);
+        if ($res->is_success) {
+          my %cookies;
+
+          $cj->scan(sub{
+                      warn "COOKIE: $_[1]\n" if ($debug > 1);
+                      $cookies{$_[1]}=1;
+                    });
+          if ($cookies{pubcookie_cred}) {
+            print "Pubcookie login OK\n" if ($debug);
+          } else {
+            print "auth reply cookies not present\n" if ($debug);
+            $fail="$pcserver: authentication request failed\n";
+          }
+           print $cj->as_string(), "\n\n\n" if ($debug > 1);
+           print $res->as_string(), "\n" if ($debug > 1);
+        } else {
+          $fail=$pcserver .": " . $res->status_line();
+        }
+        alarm 0; # Cancel the alarm
+      };
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+        $fail="$pcserver: Time Out\n";
+    }
+    return $fail;
+}
+
+sub pubcookie_appsrvreq {
+  my ($ua, $pcserver, $appurl ) = @_;
+  my ($fail);
+  my $res;
+  undef $fail;
+  ###############################################################
+  warn "Talking to $pcserver about access to $$appurl\n" if ($debug);
+  eval {
+    local $SIG{ALRM} = sub { die "Timeout Alarm" };
+    alarm $TIMEOUT;
+    my $request= new HTTP::Request (GET => "https://$pcserver/");
+#    my $request2=$request->clone;
+#    $ua->cookie_jar->add_cookie_header($request2);
+#    print "-=-=-=-=-=-=\n",$request2->as_string(), "\n-=-=-=-=-=-=-=\n";
+    $res = $ua->request($request);
+    alarm 0; # Cancel the alarm
+  };
+  if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+    return "$pcserver request Timed Out";
+  } elsif ($EVAL_ERROR) {
+    return $EVAL_ERROR
+  }
+  if ($res->is_success) {
+    warn $cj->as_string(), "\n\n\n" if ($debug > 1);
+    warn $res->as_string(), "\n" if ($debug > 1);
+    my %cookies;
+    $cj->scan(sub{
+                $cookies{$_[1]}=1;
+              });
+    if ($cookies{pubcookie_l}) {
+      warn "OK\n" if ($debug > 1);
+    } else {
+      warn "$pcserver refused application request\n" if ($debug);
+      return "$pcserver refused application request\n";
+    }
+  } else {
+    warn "$pcserver request failed: " . $res->status_line() if ($debug);
+    return "$pcserver request failed: " . $res->status_line();
+  }
+  my $refr=$res->header("Refresh");
+  if ($refr) { 
+    warn "Got refresh $refr\n" if ($debug);
+    if ($refr =~ m,\d+;URL=[a-z]+://[^/]+/(\S+)$,) {
+      $$appurl=$1;
+    }
+  }
+  return undef;
+}
+
+
+sub webapp_poll {
+    my ( $ua, $pcserver, $appsrv) = @_;
+    my $retry = 0;
+    my $retry_limit = 3;
+    my $res;
+    my $pubcookie_status;
+    my $justreturn;
+    my $appsvc;
+###############################################################
+    warn "Attempting to access https://$appsrv\n" if ($debug);
+    eval {
+
+      local $SIG{ALRM} = sub { die "Timeout Alarm" };
+      my $url="https://$appsrv";
+      alarm $TIMEOUT;
+      my $request= new HTTP::Request (HEAD => "$url");
+      $res = $ua->simple_request($request);
+      alarm 0;
+      my $subj=$res->header("Client-SSL-Cert-Subject");
+      if ($subj =~ /CN=([\.\w]+)$/) {
+        $appsvc=$1;
+      }
+    };
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+      push @failures, $appsrv;
+      push @report, $appsrv . ":\nUnable to authenticate via pubcookie to $appsrv.\nFailed to establish initial connection to https://$appsrv, connection timed out.\n";
+      return @failures;
+    }
+  retry:
+    eval {
+
+      local $SIG{ALRM} = sub { die "Timeout Alarm" };
+      my $url="https://$appsrv/$appurl";
+      alarm $TIMEOUT;
+      # LWP::UserAgent deletes the host and cookie headers when it recurses on
+      # a redirect. We don't want that. On the other hand, we do want to make
+      # sure there are no off-server redirects, so we use simple_request and 
+      # process redirects ourselves
+      while (my $i++ < 10) {
+ 	 warn "Fetching $url\n" if ($debug);
+         my $request= new HTTP::Request (GET => "$url");
+         $request->header("Host", $appsvc) if ($appsvc);
+         $res = $ua->simple_request($request);
+         alarm 0; # Cancel the alarm
+	 warn "HTTP request success.\n" if ($debug && $res->is_success);
+	 warn "HTTP response code ".$res->code."\n" if ($debug);
+         last if ($res->is_success);
+         my $code=$res->code;
+         if ($code == &HTTP::Status::RC_MOVED_PERMANENTLY or
+             $code == &HTTP::Status::RC_MOVED_TEMPORARILY) {
+             $url=$res->header("Location");
+             {   # code taken from LWP::UserAgent
+                 local $URI::ABS_ALLOW_RELATIVE_SCHEME = 1;
+                 my $base = $res->base;
+                 $url = $HTTP::URI_CLASS->new($url, $base)
+                            ->abs($base);
+		 warn "Got redirect to $url\n" if ($debug);
+             }
+             # some things (e.g. the portal) will issue absolute redirects
+             # to the load-balanced name. We want to do all testing against
+             # the actual requested target
+             if ($appsvc && $url =~ m,https://$appsvc,) {
+                   $url=~ s/$appsvc/$appsrv/;
+             }
+             if ($url !~ m,https://$appsrv,) {
+                   push @failures, $appsrv;
+                   push @report, $appsrv . ":\nUnable to authenticate via pubcookie to https://$appsrv/$appurl\nReceived unexpected redirect to $url\n";
+                   $justreturn=1;
+                   last;
+             }
+
+         } else {
+             last;
+         }
+       }
+    };
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+      push @failures, $appsrv;
+      push @report, $appsrv . ":\nUnable to authenticate via pubcookie to https://$appsrv/$appurl, connection timed out.\n";
+    }
+    return @failures if ($justreturn);
+    if ($res->is_success) {
+      my $refr=$res->header('Refresh');
+      if ($refr && $refr =~ /^0;/) {
+	warn "Got refresh $refr, pcserver = $pcserver, Retry is $retry.\n" if ($debug);
+        if (($retry <= $retry_limit) && ($refr =~ /$pcserver/)) {
+          $pubcookie_status=pubcookie_appsrvreq($ua, $pcserver, \$appurl);
+          if ($pubcookie_status) {
+            push @failures, $appsrv;
+            push @report, $appsrv . ":\nUnable to authenticate via pubcookie to https://$appsrv/$appurl\n" . $pubcookie_status;
+          } else {
+            $retry++;
+            goto retry;
+          }
+        } else {
+          push @failures, $appsrv;
+          push @report, $appsrv . ":\nUnable to authenticate via pubcookie to https://$appsrv/$appurl\nToo many redirects ($retry), received redirect to $refr";
+        }
+      } else {
+        warn "$appsrv request OK\n" if ($debug);
+      }
+      warn $cj->as_string(), "\n\n\n" if ($debug > 1);
+      warn $res->as_string(), "\n" if ($debug > 1);
+    } else {
+      push @failures, $appsrv;
+      push @report, $appsrv . ":\nUnable to authenticate via pubcookie to https://$appsrv/$appurl\n".  $res->status_line();
+    }
+    return @failures;
+}
+
+sub parse_cf {
+  my (%users, %passwords, %realms, %pcservers, $cf);
+  my $g=$ENV{MON_GROUP};
+  my $s=$ENV{MON_SERVICE};
+  warn "Parsing config file.\n" if ($debug);
+  my $file = $opt_c || $ENV{MON_CFBASEDIR}."/monitor-auth.cf";
+  $cf=new IO::File "<$file" or return 0;
+  while (<$cf>) {
+    if (/^(\S+):user\s*=\s*(\S+)$/) {
+      $users{$1}=$2;
+    }
+    if (/^(\S+):password\s*=\s*(\S+)$/) {
+      $passwords{$1}=$2;
+    }
+    if (/^(\S+):realm\s*=\s*(\S+)$/) {
+      $realms{$1}=$2;
+    }
+    if (/^(\S+):pubcookie_server\s*=\s*(\S+)$/) {
+      $pcservers{$1}=$2;
+    }
+  }
+  $user ||=   $users{"$g:$s"};
+  $user ||= $users{"$g:*"};
+  $user ||= $users{"*:$s"};
+  $user ||= $users{"*:*"};
+  $password ||=   $passwords{"$g:$s"};
+  $password ||= $passwords{"$g:*"};
+  $password ||= $passwords{"*:$s"};
+  $password ||= $passwords{"*:*"};
+  $realm ||=   $realms{"$g:$s"};
+  $realm ||= $realms{"$g:*"};
+  $realm ||= $realms{"*:$s"};
+  $realm ||= $realms{"*:*"};
+  $pcserver ||=   $pcservers{"$g:$s"};
+  $pcserver ||= $pcservers{"$g:*"};
+  $pcserver ||= $pcservers{"*:$s"};
+  $pcserver ||= $pcservers{"*:*"};
+  warn "Config is: user:$user, password:$password, realm:$realm, pcserver:$pcserver\n" if ($debug > 1);
+  return 0 unless (defined($user) && defined($password) && defined($realm) && defined($pcserver));
+  return 1;
+}

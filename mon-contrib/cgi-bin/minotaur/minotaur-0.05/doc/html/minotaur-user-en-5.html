@@ -1,0 +1,94 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<HTML>
+<HEAD>
+ <META NAME="GENERATOR" CONTENT="SGML-Tools 1.0.9">
+ <TITLE>The Minotaur user manual: The status table</TITLE>
+ <LINK HREF="minotaur-user-en-6.html" REL=next>
+ <LINK HREF="minotaur-user-en-4.html" REL=previous>
+ <LINK HREF="minotaur-user-en.html#toc5" REL=contents>
+</HEAD>
+<BODY>
+<A HREF="minotaur-user-en-6.html">Next</A>
+<A HREF="minotaur-user-en-4.html">Previous</A>
+<A HREF="minotaur-user-en.html#toc5">Contents</A>
+<HR>
+<H2><A NAME="s5">5. The status table</A>   </H2>
+
+<P>
+<P>
+<FIGURE>
+<EPS FILE="../images/StatusTable-en.eps">
+<IMG SRC="../images/StatusTable-en.png">
+<BR>
+<CAPTION><EM>The status table</EM></CAPTION>
+</FIGURE>
+<P>
+<DL>
+<P>
+<DT><B>The host column.</B><DD><P>This column contains the list of all
+hosts. The disabled hosts are selected. You can select or
+deselect some hosts.
+<P>
+<DT><B>The ``group'' column.</B><DD><P>The group column just names the group.
+<P>
+<DT><B>The ``Members'' column.</B><DD><P>The members column contains the
+group host lists, one in each cell, one for each ``group'' column
+cell.
+<P>
+<DT><B>The ``Service'' column.</B><DD><P>The service column just names the
+services. There can be several services for each group. The
+checkbox button allow you to change the state of the service. If
+the service is enabled then it will be disabled, if the service is
+disabled il will be enabled.
+<P>
+<DT><B>The ``Last at'' and ``Next in'' column.</B><DD><P>The ``Last at''
+column tells you when the last test was done. The ``Next in''
+column tells you the waiting time untill the next test. The
+chackbox button allow you to perform a test right now. You will not
+see the result immediatly because the test can take some time to
+end. Reloading the page a few seconds later is often enough.
+<P>
+<DT><B>The ``Status'' column.</B><DD><P>The status column gives the service
+status, one cell for each service. If the tests were good then
+you see the string "succeeded" alone. Else, you see the string
+"failed" followed by an summary information, typically the host
+that failed the tests.
+<P>
+<DT><B>Behevior.</B><DD><P>When a service is red or blue, the group is upped
+at the top of the table. The sort order is red, then blue. With
+this feature, you just have to look at the top part of the
+table. If you select an automatic refresh and the url 
+<A HREF="../../cgi-bin/minotaur.cgi#status">minotaur.cgi#status</A>
+then the view is always pertinent. You can put this url on a big
+screen and get worried only if red color happens.
+<P>
+<DT><B>Color legend.</B><DD><P>
+<UL>
+<LI>When everything is good the services are not colored.
+        </LI>
+<LI>When a service is ``down'' the service and its group
+are red.  The up-brother services (in the same group) are
+green.
+     </LI>
+<LI>When a service is not yet tested, at the Mon reset or
+starting, it is yellow.
+     </LI>
+<LI>When a service is disabled (none alarm is triggered),
+it is blue.
+     </LI>
+<LI>The sorting rule to present the groups is : red,
+blue, yellow, alphanumeric.
+</LI>
+<LI>The sorting rule to present services in a group is :
+red, blue, yellow, alphanumeric.
+       </LI>
+</UL>
+</DL>
+<P>
+<P>
+<HR>
+<A HREF="minotaur-user-en-6.html">Next</A>
+<A HREF="minotaur-user-en-4.html">Previous</A>
+<A HREF="minotaur-user-en.html#toc5">Contents</A>
+</BODY>
+</HTML>

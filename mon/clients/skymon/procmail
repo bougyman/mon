@@ -1,0 +1,10 @@
+#Add this entry to your .procmailrc file, substituting "PIN" for
+#your SkyTel 7-digit 2-way PIN, and your SkyTel pager email address
+#(PIN@skymail.com).
+#
+# $Id: procmail,v 1.1.1.1 2004/06/09 05:18:07 trockij Exp $
+#
+:0 H B D b c
+* ^From: PIN@skytel.com
+* ^/[a-zA-Z0-9]*:
+|skymon PIN@skymail.com

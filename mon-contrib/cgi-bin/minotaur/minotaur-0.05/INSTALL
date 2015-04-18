@@ -1,0 +1,110 @@
+This is the INSTALL file for Minotaur
+
+Unpacking the software:
+=======================
+
+I suppose you've downloaded the archive in a directory called /archive
+I suppose you will put the software in /public
+
+First, verify that the archive is correct.
+
+    gzip -tv /archive/minotaur-x.xx.tgz
+
+If you see the word OK then go on:
+
+    cd /public                            # where you want to put the software
+    tar xzvf  /archive/minotaur-x.xx.tgz  # Extraction
+    cd minotaur-x.xx                      # Move into the distribution
+
+
+the bin directory:
+==================
+
+The directory bin/ contains the file minotaur.pl 
+This file is the core file.
+
+
+the cgi-bin directory:
+======================
+
+The directory  ./cgi-bin contains the file  minotaur.cgi This  file is
+simply  a shell script calling  the  perl script minotaur.pl with some
+options, the configuration file, the local lib path, and pragmas.
+
+You just have to tell your web server minotaur.cgi is a CGI script.  I
+suppose you know how  to to this. If  you  don't, read the web  server
+doc.
+
+
+The doc directory:
+==================
+
+I've started to write the documentation  in english and french.  I use
+sgmltools with a linuxdoc dtd.  Give me feedback.
+
+The  formats I give  is  html and ascii.  If  you want an other format
+simply type:
+
+    cd doc
+    make
+
+and read.
+
+You need:
+
+    ° sgmltools   for the .*
+    ° gnumake     for the .*
+    ° tidy        for the .htm* and .txt
+    ° lynx        for the .txt
+    ° TeX         for the .dvi and .ps
+    ° dvips       for the .ps
+
+
+The lib directory:
+==================
+
+It contains:
+
+    ° Mon/Client.pm
+    ° Translation.pm
+
+
+
+The etc directory:
+==================
+
+The  etc/  directory  contains   messages.conf  minotaur-cgi.conf  and
+infos-xx.html files. You can read and then change them.
+
+The infos, configuration, and messages files can be where you want.
+
+
+The example directory:
+======================
+
+This directory contains MON files I used to write the documentation.
+
+The mon auth.cf file:
+---------------------
+
+Since minotaur does use authentification, you have to set your auth.cf
+file to allow list,  test, and servertime  for the web users. See  the
+MON authentification scheme.
+
+You must consider that using  normal http protocol, the  user/password
+data will be  seen through the network. use  https if you  want better
+security.
+
+test is a good feature but it can be dangerous.  disable and enable is
+even more dangerous.
+
+list:            test, mon, all
+servertime:      test, mon, all
+disable:         test, mon
+enable:          test, mon
+test:            test, mon
+
+You can even enforce authentification by lines like:
+
+list:            test, mon
+servertime:      test, mon

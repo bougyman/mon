@@ -1,0 +1,97 @@
+#!/usr/bin/perl
+#
+# Monitor snmp processes
+#
+# Arguments are:
+#
+# [-c community] host [host ...]
+#
+# This script will exit with value 1 if host:community has prErrorFlag
+# set.  The summary output line will be the host names that failed
+# and the name of the process.  The detail lines are what UCD snmp returns
+# for an prErrMessage.  ('Too (many|few) (name) running (# = x)').
+# If there is an SNMP error (either a problem with the SNMP libraries,
+# or a problem communicating via SNMP with the destination host),
+# this script will exit with a warning value of 2.
+#
+# There probably should be a better way to specify a given process to
+# watch instead of everything-ucd-snmp-is-watching.
+#
+# $Id: process.monitor,v 1.2 2007/04/26 10:46:45 trockij Exp $
+#
+#
+#    Copyright (C) 1998, Brian Moore
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Std;
+
+$ENV{'MIBS'} = "UCD-SNMP-MIB";
+
+getopts("c:");
+$community = $opt_c || 'public';
+
+$RETVAL = 0;
+
+foreach $host (@ARGV) {
+    $session = new SNMP::Session(DestHost => $host,
+    				 Version => 2,
+                                 Community => $community);
+    if (!defined ($session)) {
+    	$RETVAL = ($RETVAL == 1) ? 1 : 2;
+	push @failures, "$host session error";
+	push @longerr, "$host could not get SNMP session";
+	next;
+    }
+
+    my $v = new SNMP::Varbind (["prIndex"]);
+    $session->getnext ($v);
+
+    while (!$session->{"ErrorStr"} && $v->tag eq "prIndex") {
+	my @q = $session->get ([
+	    ["prNames", $v->iid],
+	    ["prMin", $v->iid],
+	    ["prMax", $v->iid],
+	    ["prCount", $v->iid],
+	    ["prErrorFlag", $v->iid],
+	    ["prErrMessage", $v->iid],
+#	    ["prErrFix", $v->iid],
+	]);
+
+	last if ($session->{"ErrorStr"});
+
+        if ($q[4] > 0) {
+	    $RETVAL = 1;	    
+    	    push (@failures, $host);
+            push (@longerr, "$host: count=$q[3] min=$q[1] max=$q[2] err=$q[5]");
+        }
+
+	$session->getnext ($v);
+    }
+
+    if ($session->{"ErrorStr"}) {
+    	push (@failures, $host);
+	push (@longerr, "$host returned an SNMP error: " . $session->{"ErrorStr"});
+	$RETVAL = 1;
+    }
+}
+
+if (@failures) {
+    print join (", ", sort @failures), "\n", "\n";
+    print join ("\n", @longerr), "\n";
+}
+
+exit $RETVAL;

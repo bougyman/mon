@@ -1,0 +1,44 @@
+#!/usr/bin/perl
+#
+# ipmi_power_unit.monitor
+# Uses ipmi to check for failed power supplies.
+# For use with mon.
+#
+# Augie Schwer <augie@corp.sonic.net>
+
+use strict;
+use warnings;
+
+use English;
+
+my $TIMEOUT = 5;
+
+my $ipmitool = `which ipmitool 2> /dev/null`;
+chomp $ipmitool;
+my @power_unit_fail;
+
+eval 
+{
+	local $SIG{ALRM} = sub { die "timeout" };
+	alarm $TIMEOUT;
+	
+	@power_unit_fail = `$ipmitool sdr type "Power Unit" | grep "Redundancy Lost"`;
+};
+
+alarm(0);
+
+if ($EVAL_ERROR =~ /^timeout/)
+{
+	print "ipmitool timed out.\n";
+	exit 1;
+}
+
+if ( @power_unit_fail )
+{
+	print "A power unit has failed\n";
+	exit 1;
+}
+
+print "Success!\n";
+exit 0;
+

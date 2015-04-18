@@ -1,0 +1,45 @@
+#####################################################################
+##                                                                 ##
+##  sybase.monitor                                  Version 1.1.0  ##
+##                                                  1999-09-13     ##
+##  Copyright (C) 1999                                             ##
+##  Peter Holzleitner (P.Holzleitner@computer.org)                 ##
+##                                                                 ##
+#####################################################################
+#
+# A MON plug-in monitor to determine if a Sybase database server is
+# operational and whether there is enough free space in the database(s).
+#
+# Arguments:
+#
+#  [-username=uid] [-password=pwd] [-config=configfile] [-list] serverlist
+#
+#   Note that the server names correspond to the entries in the Sybase
+#   "interfaces" file and may be different from the DNS hostnames.
+#   The server name lookup is case sensitive in Sybase.
+#
+# Requirements:
+#
+#   This monitor requires the perl5 DBI and DBD::Sybase modules,
+#   available from CPAN (http://www.cpan.org)
+#
+# License:
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software Foundation,
+#    Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+#
+# History:
+#
+#       1.1.0  add check for infected and log-suspended processes
+#       1.0.0  initial release

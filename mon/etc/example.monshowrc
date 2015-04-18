@@ -1,0 +1,61 @@
+#
+# Configuration for monshow
+#
+# Place this file in one of the following places:
+#         $HOME/.monshowrc
+#         cgi-bin/.monshowrc
+#
+# /etc/mon/monshowrc will be overridden if any of the others
+# exist.
+#
+# $Id: example.monshowrc,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+#
+
+# mon server and port
+set host monhost
+set port 2583
+#set prot
+
+# disabled groups/services/hosts
+set show-disabled
+
+# show all statuses instead of just failures
+set full
+
+# refresh web page every 5 minutes
+#set refresh 30
+
+#
+# row colors for CGI, these are the defaults
+#
+set table-color cccccc
+set bg-ok	a0d0a0
+set bg-fail	e088b7
+set bg-untested	e0e0e0
+
+#
+# HTML header
+#
+set html-header
+<h2>This is the custom HTML header</h2>
+END
+
+#
+# footer for detail report
+#
+link bd2 ping http://monhost/detail-bd2-ping.html
+
+link-text bd2 ping
+This is detail about bd2 ping which is probably data
+collected from some other non-mon source.
+END
+
+
+#
+# show only these services. if none of these
+# are listed, show all groups and services
+#
+#watch serversbd1
+#watch serversbd2
+
+#service news nntp

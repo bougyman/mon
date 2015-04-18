@@ -1,0 +1,88 @@
+$Name:  $
+$Id: README,v 1.3 2005/04/17 07:42:25 trockij Exp $
+
+INTRODUCTION
+------------
+
+"mon" is a tool for monitoring the availability of services. Services
+may be network-related, environmental conditions, or nearly anything
+that can be tested with software.  It is extremely useful for system
+administrators, but not limited to use by them. It was designed to be a
+general-purpose problem alerting system, separating the tasks of testing
+services for availability and sending alerts when things fail. To achieve
+this, "mon" is implemented as a scheduler which runs the programs which
+do the testing, and triggering alert programs when these scripts detect
+failure.  None of the actual service testing or reporting is actually
+handled by "mon". These functions are handled by auxillary programs.
+
+This model was chosen because it is very extensible, and does not require
+changing the code of the scheduler to add new tests or alert types. For
+example, an alphanumeric paging alert can be added simply by writing a
+new alert script, and referencing the alert script in the configuration
+file. Monitoring the temperature in a room can be done by adding a script
+that gathers data from a thermistor via a serial port.  Often these
+monitoring scripts can just be wrappers for pre-existing software, such
+as "ping" or "ftp".
+
+The "mon" scheduler also can serve network clients, allowing manipulation
+of run-time parameters, disabling and enabling of alerts and tests,
+listing failure and alert history, and reporting of current states of
+all monitors.
+
+There are several clients which come with the distribution, found in
+cgi-bin/ and clients/ :
+
+    -moncmd, which is a command-line client. moncmd supports the full
+     functionality of the client/server interface.
+
+    -monshow, a dual command-line and CGI interface report generator
+     for showing the operational status of the services monitored by
+     the server.  It displays nicely-formatted columnar output of the
+     current operational status, groups, and the failure log.
+
+    -skymon, which is a SkyTel 2-Way paging interface, allowing
+     you to query the server's state and to manipulate it in the same
+     manner as moncmd, right from your pager. Access is controlled via
+     a simple password and an access control file.
+
+    -mon.cgi, which is an interactive web interface, allowing
+     you to not only view status information, but to change parameters
+     in the server while it is running.
+
+
+
+AVAILABILITY
+------------
+
+The latest release of mon is available from kernel.org
+in pub/software/admin/mon/. Please choose a mirror from
+
+http://www.kernel.org/mirrors/
+
+The WWW page is at
+
+http://www.kernel.org/software/mon/
+
+
+CVS
+---
+
+CVS trees of both the development trunk and stable release branches are
+available from anonymous CVS access on sourceforge.net. To check out the latest
+stable branch, do the following:
+
+$ cvs -d:pserver:anonymous@cvs.sourceforge.net:/cvsroot/mon login
+$ cvs -z3 -d:pserver:anonymous@cvs.sourceforge.net:/cvsroot/mon co -r mon-1-0-0pre1 mon
+
+The "development" branch may be checked out by omitting the "-r mon-1-0-0pre1".
+
+
+INSTALLATION
+------------
+
+See the "INSTALL" file for installation instructions.
+
+
+----------
+Jim Trocki
+trockij@arctic.org

@@ -1,0 +1,205 @@
+#!/usr/bin/perl -w
+#
+# monitor host reboots via SNMP
+#
+# for use with "mon"
+#
+# options:
+#
+#   reboot.monitor --statefile=filename --dir=dir [--community=com] host1 host2...
+#
+#   Since this is scheduled from mon, it must maintain state between
+#   runs. It uses the "statefile" for this, in which it stores a
+#   sysUpTime sample for each host specified on the command line.
+#
+#   THIS STATE FILE MUST NOT BE SHARED BETWEEN MULTIPLE INSTANCES OF THIS
+#   MONITOR, SINCE IT DOES NOT HANDLE LOCKING OF THE FILE DURING UPDATES!!
+#
+# Jim Trocki
+#
+# $Id: reboot.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+# modified June 2000 by Ed Ravin <eravin@panix.com>
+# changed output to conform with other monitors (just hostname on summary)
+# minor cosmetic changes (usage, use default Mon state dir)
+# the old behavior still available with the "--verbose" option
+
+use SNMP;
+use Getopt::Long;
+
+($ME = $0) =~ s-.*/--;
+
+GetOptions (\%opt, "statefile=s", "dir=s", "community=s", "verbose");
+
+$STATEDIR = $opt{"dir"} ? $opt{"dir"}
+           : $ENV{"MON_STATEDIR"} ? $ENV{"MON_STATEDIR"}
+           : die "$ME: --dir not specified and \$MON_STATEDIR not set\n";
+
+$STATEFILE = $opt{"statefile"} || $ME;
+
+$STATE = "$STATEDIR/$STATEFILE";
+$COMM = $opt{"community"} || "public";
+
+die "$ME: reboot state dir $STATEDIR does not exist\n"
+    if (! -w $STATEDIR);
+
+$VERBOSE= $opt{"verbose"} || 0;
+
+die "$ME: no host arguments\n" if (@ARGV == 0);
+
+if (! -f $STATE) {
+    open (O, ">$STATE");
+    close (O);
+}
+
+#
+# read in state file
+#
+if (!open (IN, "$STATE")) {
+    die "$ME: could not open state file $STATE\n";
+}
+
+while (defined ($host = <IN>)) {
+    if ($host =~ /^(\S+) (\d+) (\d+)/) {
+	$last_sample{$1}{"uptime"} = $2;
+	$last_sample{$1}{"lastcheck"} = $3;
+    }
+}
+close (IN);
+
+#
+# get uptime for each host via SNMP
+#
+@failures = ();
+
+foreach $host (@ARGV) {
+    if (!defined($s = new SNMP::Session (DestHost => $host,
+    		Community => $COMM, "Version" => 2))) {
+	print "reboot.monitor: cannot create SNMP session to $host\n";
+	next;
+    }
+
+    if (!defined($u = $s->get("sysUpTime.0"))) {
+	next;
+    }
+
+    #
+    # If the uptime is lower than the last sample,
+    # assume this is a reboot. Note that this cannot
+    # account for counter rollover!
+    #
+
+    #
+    # no history for this
+    #
+    if (!defined $last_sample{$host}{"uptime"}) {
+
+    } elsif ($last_sample{$host}{"uptime"} < 2**32 - (120 * 60 * 100) &&
+	    $u < $last_sample{$host}{"uptime"}) {
+    	push (@failures, $host);
+	$last_sample{$host}{"olduptime"} = $last_sample{$host}{"uptime"};
+	$last_sample{$host}{"oldcheck"} = $last_sample{$host}{"lastcheck"};
+    }
+
+    $last_sample{$host}{"uptime"} = $u;
+    $last_sample{$host}{"lastcheck"} = time;
+}
+
+#
+# update state file
+#
+if (!open (OUT, ">$STATE")) {
+    die "$ME: could not open $STATEFILE for writing: $!\n";
+}
+
+foreach $k (sort keys %last_sample) {
+    print OUT "$k $last_sample{$k}{uptime} $last_sample{$k}{lastcheck}\n";
+}
+
+close (OUT);
+
+#
+# all is OK, nobody has rebooted
+#
+if (@failures == 0) {
+    exit;
+}
+
+#
+# we have reboots, so calculate uptime, downtime,
+# and report it
+#
+$t = time;
+foreach $host (@failures) {
+    $downtime = &secs_to_hms (
+	$t - $last_sample{$host}{"oldcheck"} -
+    	int ($last_sample{$host}{"uptime"} / 100));
+    $uptime = &secs_to_hms (
+	int ($last_sample{$host}{"olduptime"} / 100));
+    if ($VERBOSE)
+    {
+    	push (@f, "$host / down $downtime / up $uptime");
+    }
+
+    else
+    {
+    	push (@f, "$host");
+    }
+}
+@f = sort @f;
+print "@f\n";
+
+printf ("%-20s  %-25s  %-25s\n", "host", "rebooted on", "last seen up on");
+printf ("%-20s  %-25s  %-25s\n", "-" x 20, "-" x 25, "-" x 25);
+
+$timen = time;
+
+foreach $host (@failures) {
+    $secs = int($last_sample{$host}{"uptime"} / 100);
+    $t = localtime ($timen - $secs);
+    $downtime= localtime($last_sample{$host}{"oldcheck"} - ($last_sample{$host}{"uptime"} / 100) );
+    printf ("%-20s  %-25s  %-25s\n", $host, $t, $downtime);
+}
+
+exit 1;
+
+
+sub secs_to_hms {
+    my ($s) = @_;
+    my ($dd, $hh, $mm, $ss);
+
+    $dd = int ($s / 86400);
+    $s -= $dd * 86400;
+
+    $hh = int ($s / 3600);
+    $s -= $hh * 3600;
+
+    $mm = int ($s / 60);
+    $s -= $mm * 60;
+
+    $ss = $s;
+
+    if ($dd == 0) {
+        sprintf("%02d:%02d", $hh, $mm);
+    } else {
+        sprintf("%d days, %02d:%02d", $dd, $hh, $mm);
+    }
+}
+

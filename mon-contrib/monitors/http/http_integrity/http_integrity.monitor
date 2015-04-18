@@ -1,0 +1,198 @@
+#!/usr/local/bin/perl
+#
+# NAME
+#  http_integrity.monitor
+#
+#
+# SYNOPSIS
+#  http_integrity.monitor [-u url] [-n num_threads] [-a anchor_tag_types]
+#    [-t link_timeout] [-T page_timeout] host...
+#
+#
+# DESCRIPTION
+#  Use try to connect to a http server and verify the integrity of the
+#  page and objects within that page (e.g. to make sure that there are
+#  no broken images).
+#
+#  For use with "mon".
+#
+#
+# EXAMPLES
+# ./http_integrity.monitor -u "/index.html" host1 host2 host3
+#
+#
+# OPTIONS
+#  -u  URL path to retrieve from each host.
+#
+#  -s  Use SSL to connect to the host.
+#
+#  -n  Max number of requests to issue at one time. Defaults to 8.
+#      Increasing this number may produce faster load times, depending
+#      on the performance of the site and the speed of the link. 
+#      Decreasing this number may produce slower load times, again,
+#      depending on the performance of the site and the speed of the link.
+#      Experiment to find what works best for you.
+#
+#  -t  Timeout, in seconds, to wait for data when downloading any given 
+#      link. Must be an integer.
+#
+#  -T  Timeout, in seconds, to issue an error for if the time to load
+#      the page, plus any associated images/applets/etc., exceeds this
+#      number. Can be a floating point number.
+#
+#  -a  Types of anchor tag items to retrieve, in a space separated quoted
+#      list. Default is "img applet". Case matters.
+#
+#
+# AUTHOR
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  $Id: http_integrity.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+#
+# COPYRIGHT
+#    Copyright (C) 2000, Andrew Ryan
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use strict;
+use English;
+use LWP::Parallel::UserAgent;
+use LWP::UserAgent;
+use HTML::LinkExtor;
+use URI::URL;
+use Time::HiRes qw( gettimeofday tv_interval );
+use Getopt::Std;
+
+use vars qw/$opt_s $opt_u $opt_n $opt_t $opt_a $opt_T/;
+
+getopts ("su:n:t:a:t:T:");
+my $url_path = $opt_u || "/";     #default URL path to test is "/"
+my $max_req = $opt_n || 16;     #maximum number of requests to issue at one time
+my $page_timeout = $opt_T || 10;     #timeout, in seconds, for whole page
+my $item_timeout = $opt_t || int($page_timeout/2);     #timeout, in seconds, for any given item
+my $opt_s = "s" if $opt_s ;
+my @retrieve_anchors = $opt_a ? split(' ', $opt_a) : ("img","applet");
+
+my @failures = ();
+my @details = ();
+my ($host, $p, $url, $tag, %attr, %saw, @addl_links, $base, $res, $req, $entries);
+
+my ($total_time, $time_begin, $time_end, $t0, $t1);
+
+my ($res_bytes, $total_bytes);
+
+my $ua = new LWP::UserAgent;
+$ua->timeout   ($item_timeout);  # timeout, in seconds, for base page
+my $pua = LWP::Parallel::UserAgent->new();
+$pua->max_req ($max_req);
+$pua->timeout   ($item_timeout);  # timeout, in seconds, for any given request
+
+my $exit_status = 0;   #default exit status is OK
+
+
+foreach $host (@ARGV) {
+    # Set up a callback that collect image links
+    @addl_links = ();
+    $total_time = 0;
+    $url = "http$opt_s://${host}${url_path}";
+    
+    # Make the parser.  Unfortunately, we don't know the base yet
+    # (it might be diffent from $url)
+    $p = HTML::LinkExtor->new(\&callback);
+
+    # Request document and parse it as it arrives
+    $t0 = [Time::HiRes::gettimeofday];
+    $res = $ua->request(
+		      HTTP::Request->new(GET => $url)
+			,sub {$p->parse($_[0])});
+    $t1 = [Time::HiRes::gettimeofday];
+    $total_time += Time::HiRes::tv_interval($t0, $t1);
+    if ($res->is_error) {
+	push (@failures, $host);
+	if ( $res->code == 408 ) {
+	    push(@details, sprintf("ERROR: Timeout [%s seconds] retrieving %s", $item_timeout, $res->request->url ) ) if $res->is_error;
+	} else {
+	    push(@details, sprintf("ERROR: %s [%s] retrieving %s", $res->code, $res->message, $res->request->url ) ) if $res->is_error;
+	}
+	$exit_status++;
+	next;
+    }
+
+
+    # Expand all image URLs to absolute ones
+    $base = $res->base;
+    @addl_links = map { $_ = url($_, $base)->abs; } @addl_links;
+    
+    $res_bytes = length($res->as_string);
+    $total_bytes += $res_bytes;
+    
+    # uniq the array of addl_links
+    undef %saw;
+    @saw{@addl_links} = ();
+    @addl_links = keys %saw;
+    
+     foreach (@addl_links) {
+        next if /^https/i;   #we don't do https here
+        $req = HTTP::Request->new('GET', "$_");
+        if ( $res = $pua->register ($req) ) {
+	    push(@details, sprintf("ERROR: %s", $res->error_as_HTML) );
+	    $exit_status++;
+        }
+    }
+    $t0 = [Time::HiRes::gettimeofday];
+    $entries = $pua->wait();   #now retrieve everything
+    $t1 = [Time::HiRes::gettimeofday];
+    $total_time += Time::HiRes::tv_interval($t0, $t1);
+
+    foreach (keys %$entries) {
+        $res = $entries->{$_}->response;
+	$res_bytes = length($res->content);
+        $total_bytes += $res_bytes;
+	$exit_status++ if $res->is_error;
+	if ( $res->code == 408 ) {
+	    push(@details, sprintf("ERROR: Timeout [%s seconds] retrieving %s", $item_timeout, $res->request->url ) ) if $res->is_error;
+	} else {
+	    push(@details, sprintf("ERROR: %s [%s] retrieving %s", $res->code, $res->message, $res->request->url ) ) if $res->is_error;
+	}
+    }
+
+    if ($total_time > $page_timeout) {
+	push (@failures, $host) ;
+	push (@details, sprintf("ERROR: $url took %.2f seconds for complete load (>%.1f seconds)", $total_time, $page_timeout) );	
+	next;
+    }
+    
+    if ($exit_status > 0) {
+	push (@failures, $host) ;
+	push(@details, sprintf("%s total bytes received in %s objects in %.2f seconds (%.2f bytes/sec)",$total_bytes, scalar(@addl_links)+1, $total_time, $total_bytes/$total_time) )  ;
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n";
+print join("\n", @details);
+
+exit $exit_status;
+
+sub callback {
+    my($tag, %attr) = @_;
+    foreach (@retrieve_anchors) {
+	 push(@addl_links, values %attr) if $tag eq $_;
+     }
+}

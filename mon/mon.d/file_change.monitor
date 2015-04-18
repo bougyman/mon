@@ -1,0 +1,294 @@
+#!/usr/bin/perl
+#
+# mon monitor to watch for file changes
+#
+# Jon Meek - April 2001 - <meekj@ieee.org>
+#
+$RCSid = q{$Id: file_change.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $};
+#
+# Copyright (C) 2001 Jon Meek
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+=head1 NAME
+
+file_change.monitor
+
+=head1 SYNOPSIS
+
+I<file_change.monitor -d -r -b base_directory file1 file2 ... fileN>
+
+=head1 DESCRIPTION
+
+B<file_change.monitor> will watch specified files in a directory and
+trigger an alert when any monitored file changes, or is missing. File
+changes can optionally be logged using RCS.
+
+This monitor was designed to monitor B<copies> of the actual files.
+The files will often be copies of files mirrored from remote systems
+such as firewalls, routers, mail gateways, etc.
+
+File changes are detected using MD5 checksums. Current file
+information is stored in the mon state directory in a file that
+corresponds to the base directory (with '/' replaced by '_'). The
+file contains a time stamp (in UNIX seconds), the MD5 checksum (in
+hexadecimal) and the name of the file. This file is generated
+automatically if it does not already exist.
+
+=head1 OPTIONS
+
+=over 5
+
+=item B<-b base_directory>
+
+The base directory for the files. All filenames are relative to this
+directory.
+
+=item B<-r>
+
+Log file changes using RCS. Each directory containing files to be
+checked should have an RCS subdirectory. The mon user needs access
+(possibly both file permissions and RCS authorization) to the RCS
+files. B<file_change.monitor> will leave the file locked so that it
+will be able to check in the next revision.
+
+This option should NOT be used when the original files are being
+monitored directly since there will be permission issues and because
+the current checkin process re-writes the original file (via I<ci -l>).
+
+=item B<-d>
+
+Provide debugging information.
+
+=back
+
+=head1 EXAMPLE MON CONFIGURATION
+
+ hostgroup fw_configs pr-ifw/pr-ifw1.html pt-ifw/pt-ifw.html
+                      rd-ifw/rd-ifw1.html rd-ifw/rd-ifw2.html
+
+ watch fw_configs
+       service file_change
+       interval 5m
+       monitor file_change.monitor -r -b /home/httpd/html/sys_status
+       period wd {Sun-Sat}
+       alert mail.alert meekj@ieee.org
+
+=head1 HANDLING RCS PERMISSION ISSUES
+
+Files must be initially checked-in before the monitor can take over the task.
+
+ sudo -u netmon ci -l file.cfg
+
+If file_change.monitor ever runs as a different user, such as root,
+there will be problems. To correct the situation, perform the
+following on each file:
+
+ sudo ci -u -mfile_change.monitor file.cfg
+ sudo -u netmon co -l file.cfg
+
+=head1 BUGS
+
+B<file_change.monitor> does not currently recognize any file locking
+mechanism. There could be a problem if a file is being modified when
+the monitor runs. Using a program like rsync to copy files to the
+monitor directory should nearly eliminate this problem since copies
+are usually made to a temporary file and the rename is an atomic
+operation.
+
+=head1 AUTHOR
+
+Jon Meek <meekj@ieee.org>
+
+=cut
+
+use Getopt::Long;
+use Digest::MD5;
+
+$TimeNow = time;
+
+GetOptions(
+	   "b=s" => \$BaseDir,
+           "d" => \$Debug,
+           "r" => \$RCS,
+ );
+
+$StateFile = $BaseDir;
+$StateFile =~ s/\//_/g; # Change / to _ to make filename
+$StateFile = "$ENV{MON_STATEDIR}/$StateFile";
+
+$CI = 'ci';          # Assume that RCS's ci is in the path
+
+print "Will use RCS: $RCS\n" if $Debug;
+
+#
+# Read the previous checksums if the State File exists
+#
+if (-e $StateFile) {
+  print "Existing $StateFile\n" if $Debug;
+  open(F, $StateFile);
+  while ($in = <F>) {
+    ($t, $md5, $f) = split(' ', $in);
+    if ($md5 eq 'LastCheck') { # May add a LastCheck time later
+      $LastCheck = $md5;
+    } else {
+      $PrevChangeTime{$f} = $t;
+      $PrevMD5{$f} = $md5;
+    }
+  }
+  close F;
+  $StateFileExists = 1; # Remember that there is a existing State File
+} else {
+  $StateFileExists = 0; # or not
+  print "No Existing $StateFile\n" if $Debug;
+}
+
+$NewFile = 0;
+@Failures = ();
+
+foreach $f (@ARGV) {
+  if ($f =~ /\*/) {
+    push(@Files, glob("$BaseDir/$f"));
+  } else {
+    push(@Files, "$BaseDir/$f");
+  }
+}
+
+#@Files = @ARGV; # File names are left on the command line after Getopt
+
+$md5 = new Digest::MD5;
+
+foreach $f (@Files) {      # Check each file
+
+#  if (defined $BaseDir) {
+#    $rdfile = "$BaseDir/$f";
+#  } else {
+#    $rdfile = "$f";
+#  }
+
+#  if (open(F, $rdfile)) {
+  if (open(F, $f)) {
+    seek(F, 0, 0);        # Compute MD5 checksum
+    $md5->reset();
+    $md5->addfile(F);
+    $fileMD5 = $md5->hexdigest();
+    close F;
+
+    print "File: $f\n NewMD5:      $fileMD5\n PreviousMD5: $PrevMD5{$f}\n" if $Debug;
+
+    $CurrentMD5{$f} = $fileMD5;
+
+    if (exists $PrevMD5{$f}) {
+      if ($CurrentMD5{$f} ne $PrevMD5{$f}) {
+	push(@Failures, $f);
+	$CurrentChangeTime{$f} = $TimeNow;
+	$dTime = $TimeNow - $PrevChangeTime{$f};
+	$fmtTimeDiff = &TimeDisplayScale($dTime);
+	$ResultString{$f} = "File changed, previous change $fmtTimeDiff";
+	print " File: $f changed, previous change $dTime s\n" if $Debug;
+	if ($RCS) { # Check new version of file into RCS
+	  $Command = "$CI -l -mfile_change.monitor $f 2>&1"; # Save STDOUT & STDIN from ci
+	  print " ci command: $Command\n" if $Debug;
+	  $OpenResult = open(CI, "$Command |") or warn "Can't fork $Command: $!";
+	  print " command open result: $CmdResult\n" if $Debug;
+	  while ($in = <CI>) {
+	    $CiOutput .= $in;
+	  }
+	  close CI or warn "Can't close ci: $!/$?";;
+	  print " ci output: $CiOutput\n" if $Debug;
+	}
+      } else {
+	$CurrentChangeTime{$f} = $PrevChangeTime{$f};
+      }
+    } else { # Here if no state file entry exists for this $f
+      $CurrentChangeTime{$f} = $TimeNow;
+      $NewFile++;
+    }
+
+  } else { # The file does not exist, report as a failure
+    push(@Failures, $f);
+    $ResultString{$f} = 'File Does Not Exist';
+  }
+}
+print "\n" if $Debug;
+
+#
+# Report results, or keep quiet if all is well
+#
+print "New: $NewFile   Fail: @Failures $StateFile\n" if $Debug;
+
+if ($NewFile || @Failures) { # Need to write new state file
+  print "Writing a new $StateFile\n" if $Debug;
+  open(F, ">$StateFile");
+  foreach $f (sort keys %CurrentMD5) {
+    print F "$CurrentChangeTime{$f} $CurrentMD5{$f} $f\n";
+  }
+  close F;
+}
+
+if (@Failures == 0) { # No files changed
+    exit 0;
+}
+
+#
+# Handle file change notification
+#
+print "@Failures\n";
+
+foreach $f (sort @Failures) {
+    print "$f: $ResultString{$f}\n\n";
+}
+print "\n";
+
+print "$CiOutput\n";
+
+#print "$CiOutput\n" if $Debug;
+
+exit 1; # Indicate failures
+
+sub TimeDisplayScale { # Scale the time from seconds to minutes/hours/days
+  my($current_time, $past_time) = @_;
+  my($dt, $ret, $idt, $dts);
+
+  $dt = $current_time - $past_time;
+  $dts = $dt;
+  if ($dt < 60) { # Arbitrary seconds/minutes boundry
+    $ret = "$dt seconds";
+  } else {
+    $dt = $dt / 60;
+    $idt = int ($dt + 0.5);
+    $ret = sprintf("%d minutes (%d s)", $idt, $dts);
+  }
+
+  if ($dt > 120) { # Arbitrary minutes/hours boundry
+    $dt = $dt / 60;
+    $ret = sprintf("%0.1f hours (%d s)", $dt, $dts);
+  }
+
+  if ($dt > 48) { # Arbitrary hours/day boundry
+    $dt = $dt / 24;
+    $ret = sprintf("%0.1f days (%d s)", $dt, $dts);
+  }
+
+  return $ret;
+}
+
+__END__
+
+file_change.monitor -d -b /home/httpd/html/sys_status pr-ifw/pr-ifw1.html pt-ifw/pt-ifw.html
+
+~/lab/mon/file_change.monitor -r -d -b /home/httpd/html/sys_status rd-ifw/rd-ifw2.html
+
+

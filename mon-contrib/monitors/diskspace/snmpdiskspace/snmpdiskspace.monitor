@@ -1,0 +1,523 @@
+#!/usr/local/bin/perl
+#
+# NAME
+#  snmpdiskspace.monitor
+#
+#
+# SYNOPSIS
+#  snmpdiskspace.monitor [--list] [--timeout seconds] [--config filename]
+#                        [--community string] [--free minfree] 
+#                        [--retries retries] [--usemib <mibtype>] host...
+#
+#
+# DESCRIPTION
+#  This script uses the Host Resources MIB (RFC1514), and optionally
+#  the MS Windows NT Performance MIB, or UCD-SNMP extensions
+#  (enterprises.ucdavis.dskTable.dskEntry) to monitor diskspace on hosts
+#  via SNMP.
+#
+#  snmpdiskspace.monitor uses a config file to allow the specification of
+#  minimum free space on a per-host and per-partition basis. The config 
+#  file allows the use of regular expressions, so it is quite flexible in
+#  what it can allow. See the sample config file for more details and
+#  syntax.
+#
+#  The script only checks disks marked as "FixedDisks" by the Host MIB,
+#  which should help cut down on the number of CD-ROM drives 
+#  erroneously reported as being full! Since the drive classification
+#  portion of the UCD Host MIB isn't too great on many OS'es, though,
+#  this won't buy you a lot. Empire's SNMP agent gets this right on
+#  all the hosts that I checked, though. Not sure about the MS MIB.
+#  UCD-SNMP only checks specific partition types (md, hd, sd, ida)
+# 
+#  snmpdiskspace.monitor is intended for use as a monitor for the mon
+#  network monitoring package.
+#
+#
+# OPTIONS
+#  --community   The SNMP community string to use. Default is "public".
+#  --config      The config file to use. Default is either 
+#                /etc/mon/snmpdiskspace.cf or 
+#                /usr/lib/mon/mon.d/snmpdiskspace.cf, in that order.
+#  --retries     The number of retries to use, if we get an SNMP timeout.
+#                Default is retry 5 times.
+#  --timeout     Seconds to wait before declaring a timeout on an SNMP get.
+#                Default is 20 seconds.
+#  --free        The default minimum free space, in a percentage or absolute
+#                quantity, as per the config file. Thus, arguments of, for
+#                example, "20%", "1gb", "50mb" are all valid.
+#                Default is 5% free on every partition checked.
+#
+#  --ifree       The default minimum free inode percentage, specified as
+#                a percentage.  Default is 5% free.
+#
+#  --list        Give a verbose listing of all partitions checked on all 
+#                specified hosts.
+#
+#  --listall     like --list, but also lists the thresholds defined for
+#                each filesystem, so you can doublecheck the config file
+#
+#  --usemib      Choose which MIB to use: one or more of host, perf, ucd
+#                Default tries all three, in that order
+#
+#  --debug       enable debug output for config file parsing and MIB fetching
+#
+#
+# EXIT STATUS
+#  Exit status is as follows:
+#    0     No problems detected.
+#    1     Free space on any host was below the supplied parameter.
+#    2     A "soft" error occurred, either a SNMP library error, 
+#          or could not get a response from the server. 
+#
+#  In the case where both a soft error and a freespace violation are
+#  detected, exit status is 1.
+#
+# BUGS
+# When using the net-snmp agent, you must build it with "--with-dummy-values"
+# or the monitor may not parse the Host Resources MIB properly.
+#
+# List of local filesystem types used when parsing the UCD MIB should be
+# configurable.
+#
+#
+# NOTES
+# $Id: snmpdiskspace.monitor,v 1.2 2005/03/18 19:24:53 trockij Exp $
+#
+#  * Added support for inode status via UCD-SNMP MIB.  Fourth column in config
+#  file (optional) is for inode%.
+#  * added --debug and --usemib options.  Latter needed so you can force use
+#  of UCD mib if you want inode status.
+#  * rearranged the error messages to be more Mon-like (hostname first)
+#  * added code to synchronize instance numbers when using UCD MIB.  This
+#  could solve the "sparse MIB" problem usually fixed by the
+#  --with-dummy-values option in net-snmp if needed for other agents
+#  Ed Ravin (eravin@panix.com), January 2005
+#
+#  Added support for regex hostnames and partition names in the config file,
+#  'use strict' by andrew ryan <andrewr@nam-shub.com>.
+#
+#  Generalised to handle multible mibs by jens persson <jens.persson@btj.se>
+#  Changes Copyright (C) 2000, jens persson
+#
+#  Modified for use with UCD-SNMP by Johannes Walch for 
+#  NWE GmbH (j.walch@nwe.de)
+#
+#  Support for UCD's disk MIB added by Matt Simonsen <matt@careercast.com>
+#
+#
+# SEE ALSO
+#  mon: http://www.kernel.org/software/mon/
+#
+#  This requires the UCD SNMP library and G.S. Marzot's Perl SNMP
+#  module. (http://ucd-snmp.ucdavis.edu and CPAN, respectively).
+#
+#  The Empire SystemEdge SNMP agent: http://www.empire.com
+#
+#
+# COPYRIGHT
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use strict;
+use SNMP;
+use Getopt::Long;
+
+sub readcf;
+sub toBytes;
+sub get_values;
+
+# setup what mibs to use
+# $ENV{"MIBS"} = 'RFC1213-MIB:HOST-RESOURCES-MIB:WINDOWS-NT-PERFORMANCE:UCD-SNMP-MIB';
+$ENV{"MIBS"} = 'RFC1213-MIB:HOST-RESOURCES-MIB:UCD-SNMP-MIB';
+
+my %opt;
+
+# parse the commandline
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i", "config=s", "list", "listall", "free=i", "ifree=n", "usemib=s", "debug");
+
+die "No host arguments given!\n" if (@ARGV == 0);
+
+my $RET = 0;   #exit value of script
+my @ERRS = (); # array holding detail output
+my @HOSTS = ();  # array holding summary output
+my @cfgfile = ();  #array holding contents of config file
+
+
+# Read in defaults
+my $COMM		= $opt{"community"} || $ENV{"COMMUNITY"} || "public";
+my $TIMEOUT	= $opt{"timeout"} * 100000 || 2000000;   #default timeout is 20 seconds
+my $RETRIES	= $opt{"retries"} || 5;
+my $CONFIG	= $opt{"config"} || (-d "/etc/mon" ? "/etc/mon" : "/usr/lib/mon/mon.d")
+    . "/snmpdiskspace.cf";
+my $DISKFREE  = $opt{"free"}  || -5;   #default max % full is 95%
+my $INODEFREE = $opt{"ifree"} ||  5;   #default max % inode full is 95%
+my $USEMIB= $opt{"usemib"} || "host perf ucd";
+
+my $LIST= $opt{"list"} || $opt{"listall"} || 0;
+my $LISTALL= $opt{"listall"} || 0;
+my $DEBUG= $opt{"debug"} || 0;
+
+
+my ($host, $checkval, $icheckval, %FREE, $disk, @disklist, $cfgline);
+
+# read the config file
+if ( !readcf ($CONFIG) ) {
+    # not being able to read config file shouldn't be a fatal, since we
+    # have defaults we can use.
+    print STDERR "readcf: Could not read config file $CONFIG: $!\n";
+}
+
+
+# now do the checks for each host
+foreach $host (@ARGV) {
+
+    # fetch the info from the computers
+    @disklist = get_values($host);
+    next unless (@disklist) && (ref($disklist[0]) eq "ARRAY");    #make sure we got an OK return value from get_values before going any further
+
+    # Now check each partition 
+    foreach $disk (@disklist) {
+	undef $checkval ;
+	undef $icheckval ;
+
+	# Go through the config file line by line until we 
+	# find a match for this host/partition. Stop as soon
+	# as we find a match.
+	foreach $cfgline (@cfgfile) {
+	    if ( ($host =~ m/^$cfgline->[0]$/) &&
+		 ($disk->[2] =~ m/^$cfgline->[1]$/)
+		 ) {
+		print STDERR "'$host' matched /^$cfgline->[0]\$/ or '$disk->[2]' matched /^$cfgline->[1]\$/, using checkval $cfgline->[2]\n" if $DEBUG;
+		$checkval = $cfgline->[2] ;
+		$icheckval= $cfgline->[3] ;
+		last;
+	    }
+	}
+
+	# Set to default otherwise
+	$checkval = $DISKFREE unless defined($checkval);
+	$icheckval= $INODEFREE unless defined($icheckval);
+	$icheckval=~ s/%$//;
+
+	# do the checking, first absolute and then percentage
+	next if $checkval == 0 && $icheckval == 0;  # nothing to check: ignore
+	my $hostfailed= 0;
+	if (($checkval > 0) && ($disk->[0] <$checkval)) {
+		$hostfailed++;
+		push (@ERRS,sprintf("%s: filesystem %s is (%1.1f%% full), %1.0fMB free (below threshold %1.0fMB free)",
+		    $host , $disk->[2] , $disk->[1] , $disk->[0] / 1048576, $checkval / 1048576 ));
+	} elsif (($checkval < 0) && ($disk->[1] - $checkval >=100)) {
+		$hostfailed++;
+		push (@ERRS,sprintf("%s: filesystem %s is (%1.1f%% full), %1.0fMB free (below threshold %s%% free)",
+		    $host , $disk->[2] , $disk->[1] , $disk->[0] / 1048576, abs($checkval) ));
+	}
+
+	if (($icheckval > 0) && ($disk->[3] ne "N/A") && (100 - $disk->[3]) < $icheckval ) {
+		$hostfailed++;
+		push (@ERRS, sprintf ("%s: filesystem %s has %1.1f%% inodes free (below threshold %s%% inodes free)",
+		$host, $disk->[2], 100 - $disk->[3], $icheckval ));
+	}
+		
+	if ($hostfailed)
+	{
+		push (@HOSTS, $host);
+		$RET = 1;
+	}
+
+	# if the user want a listing, then the user will get a listing :-)
+	    write if ($LIST or $LISTALL);
+	    if ($LISTALL) {
+	    printf("   Will alarm if MB free declines below threshold %1.0fMB free\n", $checkval / 1048576) if $checkval > 0;
+	    printf("   Will alarm if %%free space declines below threshold %1.1f%% free\n", abs($checkval)) if $checkval < 0;
+	    printf("   No free space alarm defined in config file.\n") if $checkval == 0;
+	    printf("   Will alarm if %%free inodes declines below %1.1f%%\n", $icheckval) if $icheckval > 0;
+	    printf("   No %%inodes free alarm defined in config file.\n") if $icheckval == 0;
+	    printf("   WARNING: Unable to alarm on inodes free, dskPercentNode not found in MIB\n") if $disk->[3] eq "N/A" and $icheckval > 0;
+	   }
+	}
+}
+
+if ($LIST or $LISTALL) {
+    print "\n\n";
+}
+
+# Uniq the array of failures, so multiple failures on a single host
+# are reported in the details section (lines #2-infinity) but not
+# in the summary (line #1).
+# Then print out the failures, if any.
+my %saw;
+undef %saw;
+@saw{@HOSTS} = ();
+@HOSTS = keys %saw;
+
+
+if ($RET) {
+    print "@HOSTS\n";
+    print "\n";
+    print join("\n", @ERRS), "\n";
+}
+
+exit $RET;
+
+
+
+#
+# read configuration file
+#
+sub readcf {
+    my ($f) = @_;
+    my ($l, $host, $filesys, $free, $ifree);
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+	($host, $filesys, $free, $ifree) = split;
+#	if (!defined ($FREE{$host}{$filesys} = toBytes ($free))) {
+		 if (!push (@cfgfile, [$host , $filesys , toBytes ($free), $ifree || 0]) ) {
+	    die "error free specification, config $f, line $.\n";
+	}
+		 print STDERR "cf: assigned host=$host, filesys=$filesys, free=$free, ifree=$ifree\n" if $DEBUG;
+    }
+    close (CF);
+}
+
+
+
+sub toBytes {
+    # take a string and parse it as folows
+    # N      return N
+    # N kb   return N*1024
+    # N mb   return N*1024^2
+    # N gb   return N*1024^3
+    # N %    return -N
+    my ($free) = @_;
+    my ($n, $u);
+
+    if ($free =~ /^(\d+\.\d+)(kb|mb|gb|%|)$/i) {
+        ($n, $u) = ($1, "\L$2");
+    } elsif ($free =~ /^(\d+)(kb|mb|gb|%|)$/i) {
+        ($n, $u) = ($1, "\L$2");
+    } else {
+    	return undef;
+    }
+
+    return (int ($n * -1)) if ($u eq "%");
+    return (int ($n * 1024 )) if ($u eq "kb");
+    return (int ($n * 1024 * 1024)) if ($u eq "mb");
+    return (int ($n * 1024 * 1024 * 1024)) if ($u eq "gb");
+    int ($n);
+}
+
+
+#
+# Do the work of trying to get the data from the host via SNMP
+#
+sub get_values {
+    my ($host) = @_;
+
+    my (@disklist,$Type,$Descr,$AllocationUnits,$Size,$Used,$Freespace,$Percent,$InodePercent);
+    my ($v,$s);
+    
+    
+    if (!defined($s = new SNMP::Session (DestHost => $host,
+    		Timeout => $TIMEOUT, Community => $COMM,
+		Retries => $RETRIES))) {
+	$RET = ($RET == 1) ? 1 : 2 ;
+	push (@HOSTS, $host);
+	push (@ERRS, "$host: could not create session: " . $s->{ErrorStr});
+	return undef;
+    }
+
+    # First we try to use the Host mib (RFC1514)
+    # supported by net-snmpd on most platforms, see http://www.net-snmp.org
+    #
+    # You can also use the Empire (http://www.empire.com) 
+    # SNMP agent to provide hostmib support on UNIX and NT.
+
+    if ($USEMIB =~ /host/i)
+    {
+
+	    $v = new SNMP::VarList (
+		['hrStorageIndex'],
+		['hrStorageType'],
+		['hrStorageDescr'],
+		['hrStorageAllocationUnits'],
+		['hrStorageSize'],
+		['hrStorageUsed'],
+	    );
+
+
+	    while (defined $s->getnext($v)) {
+		last if ($v->[0]->tag !~ /hrStorageIndex/);
+		
+		$Type               = $v->[1]->val;
+		$Descr              = $v->[2]->val;
+		$AllocationUnits    = $v->[3]->val;
+		$Size               = $v->[4]->val;
+		$Used               = $v->[5]->val;
+
+		$Freespace = (($Size - $Used) * $AllocationUnits);
+		print STDERR "Found HOST MIB filesystem: Type=$Type, Descr=$Descr, AllocationUnits=$AllocationUnits, Size=$Size, Used=$Used\n" if $DEBUG;
+
+		# This next check makes sure we're only looking at storage
+		# devices of the "FixedDevice" type (4). For comparison, Physical 
+		# RAM is 2, Virtual Memory is 3,  Floppy Disk is 6, and CD-ROM is 7
+		# Using the Empire agent, this will eliminate drive types other
+		# than hard disks. The UCD agent is not as good as determining
+		# drive types under the HOST mib.
+		next if ($Type !~ /\.1\.3\.6\.1\.2\.1\.25\.2\.1\.4/);
+		
+		if ($Size != 0) {
+		    $Percent= ($Used / $Size) * 100.0;
+		} else {
+		    $Percent=0;
+		};
+		
+		push (@disklist,[$Freespace,$Percent,$Descr, "N/A"]);
+		print STDERR "Using HOST MIB filesystem:  $Descr ($Type)\n" if $DEBUG;
+	    };
+
+	    if (@disklist) {
+		return @disklist;
+	    };
+    };
+
+    # Then we test the perfmib from M$ NT resource kit
+    # I'm using the agent/mib-defs from
+    # http://www.wtcs.org/snmp4tpc/
+    
+    # for somereason every second request fails,
+    # so we fetch the variables twice and discards 
+    # the bad ones
+
+    if ($USEMIB =~ /perf/i)
+    {
+
+	    $v = new SNMP::VarList (
+		['ldisklogicalDiskIndex'],
+		['ldiskPercentFreeSpace'],
+		['ldiskPercentFreeSpace'],
+		['ldiskFreeMegabytes'],
+		['ldiskFreeMegabytes'],
+	    );
+
+	    while (defined $s->getnext($v)) {
+		# Make sure we are still in relevant portion of MIB
+		last if ($v->[1]->val !~ /^\.1\.3\.6\.1\.2\.1\.25\.2\.1\.4/);
+		last if ($v->[0]->val =~ /Total/);
+		
+		$Descr		= ( $v->[0]->val =~ /.*:.*:(\w+:)$/gi)[-1] ;
+		$Percent	= $v->[2]->val;
+		$Freespace	= $v->[4]->val * 1024 * 1024;
+		
+		push (@disklist,[$Freespace,$Percent,$Descr, "N/A"]);
+		print STDERR "Using PERF MIB filesystem: $Descr, $Freespace,$Percent\n" if $DEBUG;
+	    };
+	    if (@disklist) {
+		return @disklist;
+	    }
+    }
+    
+    #Try UCD-SNMP .enterprises.ucdavis.dskTable.dskEntry MIB extrnsion
+    # Comes with UCD-SNMP / net-snmp
+
+    if ($USEMIB =~ /ucd/i)
+    {
+	    $v = new SNMP::VarList (
+		['dskIndex'],
+		['dskPath'],
+		['dskPercent'],
+		['dskAvail'],
+		['dskDevice'],
+		['dskPercentNode'],
+	    );
+
+	    while (defined $s->getnext($v)) {
+		last if ($v->[0]->tag !~ /dskIndex/);  # end of MIB?
+
+		my $instancenum= $v->[0]->iid;  # what instance number?
+
+		# check for partial fetches (like swap partition) that won't
+		# return all the MIB entries
+
+		if ($v->[2]->iid != $instancenum or
+		    $v->[3]->iid != $instancenum or
+		    $v->[5]->iid != $instancenum)
+		{
+		    # ignore this instance and try to move on to next
+		    # we wouldn't need this if use-dummy-values really worked
+		    $v = new SNMP::VarList (
+			['dskIndex', $instancenum],
+			['dskPath', $instancenum],
+			['dskPercent', $instancenum],
+			['dskAvail', $instancenum],
+			['dskDevice', $instancenum],
+			['dskPercentNode', $instancenum],
+		    );
+		    next;
+		}
+
+		$Descr              = $v->[1]->val;
+		$Percent           = $v->[2]->val;
+		$Freespace         = $v->[3]->val;
+		$Freespace         *= 1024; #Convert from kbytes to bytes to make consistent
+		$Type              = $v->[4]->val;
+		$InodePercent	   = $v->[5]->val;
+
+		print STDERR "Found UCD MIB filesystem: Type=$Type, Descr=$Descr, Percent=$Percent, Freespace=$Freespace, InodePercent=$InodePercent\n" if $DEBUG;
+
+		# Try to catch only local filesystems. This covers the
+		# the basics, but probably should be configurable
+		next unless ( $Type =~ m/\b(md|hd|wd|sd|ida|raid)/ ) ;
+
+		print STDERR "Using UCD MIB filesystem:  $Descr ($Type)\n" if $DEBUG;
+		push (@disklist,[$Freespace,$Percent,$Descr, $InodePercent]);
+	    };
+
+	    if (@disklist) {
+		return @disklist;
+	    }
+    }
+
+    #Check for errors
+    if ($s->{ErrorNum}) {
+	push (@HOSTS, $host);
+	push (@ERRS, "$host: could not get SNMP info: " . $s->{ErrorStr});
+	$RET = ($RET == 1) ? 1 : 2 ;
+	return undef;
+    }
+
+    # Check for OID not found
+    push (@HOSTS, $host);
+    push (@ERRS, "$host: Disk space OIDs not found in MIB(s): $USEMIB");
+    $RET = ($RET == 1) ? 1 : 2 ;
+    return undef;
+
+}
+
+# format specifications, should be able to cut, paste and edit into a config file
+format STDOUT_TOP =
+System           Description                    % Used    Free space     Inode%
+-------------------------------------------------------------------------------
+.
+
+format STDOUT =
+@<<<<<<<<<<<<<<  @<<<<<<<<<<<<<<<<<<<<<<<<<<<<  @###.# %  @#######.# mb @>>>>>>
+$host,           $disk->[2],                    $disk->[1], $disk->[0]/1024/1024,  ( $disk->[3] ne "N/A" ? ($disk->[3] + 0) . "%" : "N/A")
+.

@@ -1,0 +1,125 @@
+mon.cgi has always been "customizable," in that the source was
+available and you were encouraged to substitute your own parameters
+(e.g., mon host, mon port, company logo, etc.). But this meant that 
+with each new version, you had to go back and re-edit the source
+code. Not a big deal, but still something of a pain.
+
+As of v1.49, mon.cgi includes some features which are meant to
+facilitate these changes and make site-specific customizations easier
+to perform, especially as mon and mon.cgi continue to evolve.
+
+
+Creating Your Own Config File
+-----------------------------
+Previous to v.1.49 of mon.cgi, you could customize the look of the
+page, but all customizations had to be done in the source itself. This
+has numerous disadvantages, so 1.49 introduces an *optional* config
+file which will be read only as necessary and will allow you to
+specify custom values for parameters without having to touch the
+source code each time. You can still edit the source each time if you
+want, but if you want to set up a config file, follow these steps:
+
+1) Copy the config file (included with the mon.cgi distribution)
+   config/mon.cgi.cf to a location of your choice. It's best to start
+   with a sample config file, because the config file format is very
+   simple, and it will give you a chance to see how it works and
+   experiment with parameters.
+
+2) Edit the mon.cgi source code to find the line that specifies the
+   variable "$moncgi_config_file". Change the value to the filesystem
+   path of your copy of your mon.cgi config file.
+
+3) Now you can edit the config file and make changes at will. Every
+   time you change the mtime of the file (e.g., by saving it in a text
+   editor, or touch'ing the file), mon.cgi will re-read the config
+   file and the changes will take effect. If there are errors in
+   parsing the config file, they will go to STDERR, which in most
+   setups will end up in your web server's error log. Look in the
+   errors file if your config isn't working like you expect it to
+   work.
+
+
+
+
+
+Adding A New Row And Custom Commands To The Command Button Bar
+--------------------------------------------------------------
+Adding a new row to the command button bar, with corresponding custom
+commands, is quite a bit more involved than the relatively simple
+matter of changing a config file. If you've developed, or are
+interested in developing your own custom commands, however, this
+functionality might be just what you needed.
+
+In the following example, we add a command called "ack_all" to the
+button bar, and also add the routine to do the ack'ing. The actual
+guts of the ack_all routine aren't included, but the goal of these
+instructions is to give you enough to start off.
+
+The first step is to create your own moncgi_custom_print_bar
+function. A stub function exists in the mon.cgi code, and the below
+code shows you how you would put in your own function that has one
+button, labeled "Acknowledge All Failures".
+
+Sample moncgi_custom_print_bar subroutine:
+sub moncgi_custom_print_bar {
+    #
+    # This is a sample routine, which adds a third row to the
+    # command table, with one command: "Acknowledge All Failures"
+    #
+    my ($face)= (@_);
+
+    $webpage->print("<tr>\n");
+    $webpage->print("\t<td colspan=7 align=center><font
+    FACE=\"$face\"><a
+    href=$url?${monhost_and_port_args}command=ack_all>Acknowledge
+    All Failures</a></font></td>\n");
+    $webpage->print("</tr>\n");
+}
+
+
+The next step is to tell mon.cgi that you are using your own custom
+commands, by creating your own moncgi_custom_commands
+subroutine. Again, there is a sample function in the mon.cgi code
+which you can replace with your own.
+
+Sample moncgi_custom_commands subroutine:
+sub moncgi_custom_commands
+{
+       if ($command eq "ack_all")
+       {
+	       #
+	       # Set up the page
+	       #
+               &setup_page("Acknowledge All Alarms");
+	       #
+	       # Note: you would have to write the "ack all"
+	       #       command yourself!
+               &moncgi_ack_all;
+       }
+       else
+       {
+	       #
+	       # We didn't find anything, return
+	       #
+	       return 0;
+       }
+       return 1; # we did find something, suppress further command processing
+}
+
+
+The last step is to create the actual subroutines which will do the
+custom work you want them to do (assuming you weren't just calling
+existing commands in a different way. In our example, this means we
+have to write a function that actually goes out and acks all existing
+failures. We won't do this here, but hopefully this gives you an idea
+of how to proceed.
+
+sub moncgi_ack_all {
+    #
+    # Here is where the actual code to do the "ack all" would go
+    #
+}
+
+When future releases of mon.cgi come out, you can copy and paste your
+custom subroutines and be up and running with the new version in
+minimal time. At least, that is what this was designed for.

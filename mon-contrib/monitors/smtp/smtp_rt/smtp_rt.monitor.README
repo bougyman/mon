@@ -1,0 +1,83 @@
+From ctbates@tva.gov Mon Aug 23 06:55:41 1999
+Date: Thu, 08 Jul 1999 11:03:40 -0400
+From: Tom Bates <ctbates@tva.gov>
+To: mon@linux.kernel.org, meir@education.gov.il
+Subject: Repost of smtp_rt.monitor
+
+My previous attempt to post this did not make it out of our MS email
+system intact. Here it is again:
+
+I modified smpt.monitor to watch an email gateway between smpt and MS
+Exchange, but presumably it could watch any email gateway.
+smtp_rt.monitor sends an empty message to the monitored mailbox beyand
+the gateway (monitored_mailbox@yourdomain.com), which sends a return
+receipt back to a mailbox on the MON host, which has a .forward file
+piped to mail_handler (e.g., |/home/yourname/mail_handler) which handles
+the return receipt and lets the monitor know that the round-trip was
+successful.
+
+Tom Bates
+TVA
+=============.forward==============
+|/home/yourname/mail_handler
+=============end .forward==============
+
+=============mail_handler==============
+#!/usr/bin/perl
+@msg = <STDIN>;
+$x = 0;
+while ($x < @msg) {
+  if ($msg[$x] =~/^Subject:/) {
+    $msg[$x] =~s/^Subject: Delivered: //;
+    $timestamp = $msg[$x];
+    chop ($timestamp);
+    }
+$x++;
+}
+open (OUTFILE, ">/tmp/$timestamp");
+close (OUTFILE);
+=============end mail_handler==============
+
+=============smtp_rt.monitor==============
+#!/usr/bin/perl
+# smpt_rt.monitor
+# Tries to connect to a SMTP server, send a timestamped message, and
+# wait for the return receipt to arrive within the timeout period.
+#
+# Tom Bates
+# Tennessee Valley Authority
+# ctbates@tva.gov
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "smtp.monitor" , which was
+# Adapted from "http.monitor" by
+# Jim Trocki, trockij@transmeta.com
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: smtp_rt.monitor.README,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or
+modify
+#    it under the terms of the GNU General Public License as published
+by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+

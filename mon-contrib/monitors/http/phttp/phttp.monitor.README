@@ -1,0 +1,68 @@
+NAME
+    phttp.monitor - parallel http monitor.
+
+SYNOPSIS
+    type this:
+
+     phttp.monitor --help
+
+    and read, it is a safe job.
+
+DESCRIPTION
+    phttp.monitor checks http servers in parallel without forking.
+    The request can be an arbitrary multi-line string and the
+    response can be parsed using an arbitrary regular expression.
+    So, HTTP proxies, GET POST PUT TRACE directives, authorization
+    scheme, xxx code or complex content responses, are all possible.
+
+RETURN STATUS
+     O on success for all hosts, or usage demand (--help option)
+     1 on failure of any host
+
+SUMMARY LINE
+    list of hosts that failed the test with the connection time (in
+    secondes) beetween (), if any, like :
+
+     www.foo.org(15) www.boo.com(1)
+
+DETAILS
+    detail output (just after summary) follows this convention:
+
+    *   lines beginning with + are successes
+
+    *   lines beginning with ~ are just warnings
+
+    *   lines beginning with - are failures
+
+CAVEATS
+  OPEN FILE HANDLES
+
+    Be careful that the number of open file handles is limited.
+    Usually 1024 and since 0, 1, 2 (stdin, stdout, stderr) are
+    already open, you have only 1021 maximum connections allowed and
+    upon upper connections the tests will systematically fail.
+
+  TIMEOUT
+
+    The timeout counter for each host begins just after the first
+    connect command. The name resolution is already done so it does
+    not count. But since everything is done in parallel, be carefull
+    that the timeout can come from your proper bandwidth, cpu etc.
+    For example, using the same host on both sides (client and
+    server) and running phttp.monitor with a "-n 19" nice value, the
+    first complete response comes after ~35 secondes and the last
+    after ~55 secondes. All were successful, thanks to Apache. Yes,
+    I demanded the same header page 1021 times and I am not rich (an
+    old Cirix 133 Mega hertz).
+
+  DOS
+
+    Deny Of Service is easy if you have a good tube and a good box.
+    Please, do not use this software for hard war. Be nice.
+
+LICENCE
+    This is GNU PUBLIC LICENCE software
+
+AUTHOR
+    Gilles LAMIRAL lamiral@mail.dotcom.fr
+

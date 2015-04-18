@@ -1,0 +1,28 @@
+#
+# snmpopt.cf
+#
+# This optional file is used to pass parameters to the SNMP library,
+# used by snmpvar.monitor.
+#
+
+# (default values shown)
+
+# common options
+# Version = 1
+# Port    = 161
+# Retries = 8
+# Timeout = 5
+
+# SNMPv1/v2 options
+# Community = public
+
+# SNMPv3 options
+# SecName   = initial
+# SecLevel  = noAuthNoPriv
+# AuthPass  =
+# SecEngineId =
+# ContextEngineId =
+# Context
+# AuthProto = MD5
+# PrivProto = DES
+# PrivPass  =

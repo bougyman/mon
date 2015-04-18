@@ -1,0 +1,50 @@
+# NAME
+#  bgp.monitor
+#
+# SYNOPSIS
+#  bgp.monitor list_of_routers 
+#
+# DESCRIPTION
+#  This monitor look to all routers via SNMP and get the BGP (Border Gateway Protocol)
+#  neighbor status for each bgp session.
+#  This is most usefull for a bgp multihomed network (or ISP) to verify that
+#  all is upstream provider or peer are alive.
+#  This script worked fine for me over Cisco 75xx an 65xx routers.
+#
+#  For use with "mon".
+#
+# INSTALATION
+#  This script need the SNMP Session module from Simon Leinen <simon@switch.ch>
+#  Wich you could found under http://www.switch.ch/misc/leinen/snmp/perl/
+#  They are alsopart of MRTG (http://people.ee.ethz.ch/~oetiker/webtools/mrtg/)
+#
+#
+# EXAMPLES
+# ./bgp.monitor routerIP_or_name [...]
+#
+# OUTPUT
+#  Displays a list of all peer sessions and status.  Exit status will be
+#  non-zero if a router cannot be contacted or if a BGP session that should
+#  be established isn't.
+#
+# OPTIONS
+#  To use an SNMP community other than "public", set the COMMUNITY environment
+#  variable in mon.cf in the stanza that invokes bgp.monitor.  The same
+#  community name will be tried for all the routers specified on the command
+#  line.
+#
+# COPYRIGHT
+#  Version 1.0, Marc Hauswirth, Safe Host SA <marc@safehostnet.com>
+#  Some inspiration is taked from others mon monitors (www.kernel.org/pub/admin/mon/ and from
+#  routerinfo.pl by Ben Buxton (bb@zipworld.net), also under GPL, see http://www.zipworld.com.au/~bb/linux/
+#  and from routerint.monitor by Philippe Strauss (philou@philou.ch) and me.
+#  
+#
+# LICENSE
+#  License: GNU GPL v2, see http://www.gnu.org/copyleft/gpl.html
+#
+# COMMENTS
+# Fell free to send me your comments to marc@safehostnet.com
+#
+# Version 1.00 -- 5 april 2002
+# Version 1.1  -- 7 april 2005

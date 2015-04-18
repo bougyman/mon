@@ -1,0 +1,10 @@
+#
+# Use try to connect to a http server.
+# For use with "mon".
+#
+# Arguments are "port@host [port@host...]"
+#
+# Requires lmstat (you can get it from http://www.flexlm.com/)
+#
+# Adapted from "nis.monitor" by
+# Juha Ylitalo <jylitalo@iki.fi>

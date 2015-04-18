@@ -1,0 +1,43 @@
+#
+# Monitor diskspace via SNMP
+# (based on process.monitor by Brian Moore)
+#
+# Originally written by SATOH Fumiyasu <fumiya@samba.gr.jp>.
+# Modified Oct 2001 by Dan Urist <durist@world.std.com>
+#   Changes: added usage, SNMP v.3 support, -T threshold option and
+#            unique-ified errors
+#
+# Usage:
+#       [-h]                # Usage
+#       [-t Timeout]        # Timeout in ms (default: 1000000)
+#       [-r Retries]        # Retries before failure (default: 5)
+#       [-v SNMPversion]    # 1,2,2c or 3 (default: 1)
+#       [-c Community]      # For SNMP v.1,2,2c (default: public)
+#       [-u snmpuser]       # For SNMP v.3 (default: initial)
+#       [-l seclevel]       # For SNMP v.3 (default: noAuthNoPriv)
+#       [-A authpassphrase] # For SNMP v.3 
+#       [-T threshold]      # If a disk threshold is given, the script
+#                           # will exit with the value of the highest
+#                           # disk percentage found that is over the
+#                           # threshold; if no disks are over the threshold
+#                           # it will exit with value 0, and it will exit
+#                           # with value 2 for SNMP error
+#       host [host ...]
+#
+#
+# This script will exit with value 1 if host:community has dskErrorFlag
+# set.  The summary output line will be the host names that failed
+# and the disk information.  The detail lines are what UCD snmp returns
+# for an dskErrMessage. ('/filesystem: less than WATERMARK free (= CURRENT)').
+# If there is an SNMP error (either a problem with the SNMP libraries,
+# or a problem communicating via SNMP with the destination host),
+# this script will exit with a warning value of 2.
+#
+# If the -T threshold option is used, the script will exit with the
+# highest disk percentage found that is over the threshold. The intent
+# is to allow use with mon's "alert exit=value" parameter to allow for
+# finer-grained alerts based on disk usage.  If no disks are over the
+# threshold, the script will exit with value 0; if an SNMP error
+# occurs (and there are no other errors), the script will exit with
+# value 2.
+

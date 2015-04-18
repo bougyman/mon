@@ -1,0 +1,88 @@
+#!/usr/bin/perl
+#
+# popup.alert - SMB popup (winpopup) alerts for mon
+# version .03
+#    Copyright (C) 2001, Matthew Rechs - rechsm@hotmail.com
+# 
+#    popup.alert is based on the alert.template distributed by mon, which is
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#    example alert line in mon.cf:
+#    
+#    alert popup.alert netbios-name
+# 
+#    where netbios-name is the name of the workstation (not the user) 
+#    that you want to send the popup to
+# 
+
+use Getopt::Std;
+use Text::Wrap;
+use Cwd;
+getopts ("S:s:g:h:t:l:u");
+
+@checkdirs = ('/usr/local/samba/bin/', '/usr/local/bin/', '/usr/bin/');
+
+# Set this if you don't want popup.alert to find your smbclient for you
+#$smbclient = '/path/to/smbclient';
+
+while ($checkpath = shift @checkdirs && ! $smbclient) {
+	$check = $checkpath . 'smbclient';
+	if (-x $check) { 
+	    $smbclient = $check; 
+	    last ;
+	}
+}
+
+#
+# Last ditch attempt to find smbclient
+#
+if (! $smbclient ) {
+	$smbclient = `which smbclient`; chomp $smbclient;
+}
+
+die("Couldn't find $smbclient - tried " . join(@checkdirs, ',') . ' and which') unless $smbclient;
+
+$summary=<STDIN>;
+chomp $summary;
+while (<STDIN>) {
+	$details .= $_;
+}
+
+$summary = $opt_S if (defined $opt_S);
+
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+$t = localtime($opt_t);
+
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+$alerttext = "
+ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)
+Group                 : $opt_g
+Service               : $opt_s
+Time noticed          : $t
+Secs until next alert : $opt_l
+Members               : $opt_h
+-------------------------------
+$details ";
+
+local $SIG{PIPE} = sub { die "pipe to smbclient was broken - $! $?"}; 
+
+foreach $dest (@ARGV) {
+	open(POPUP, "| $smbclient -M $dest > /dev/null") || die("Couldn't open pipe to $smbclient - $!");
+	print POPUP $alerttext;
+	close POPUP || die "broken pipe to $smbclient - $! $?";
+}

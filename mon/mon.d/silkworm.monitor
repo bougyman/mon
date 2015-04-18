@@ -1,0 +1,331 @@
+#!/usr/bin/perl
+#
+# "mon" monitor to detect thermal/fan/psu/port failures
+# for brocade silkworm fcal switches
+#
+# arguments are "[-c community] host [host...]"
+# 
+# -c community   SNMP community
+#
+# Jim Trocki
+#
+# $Id: silkworm.monitor,v 1.1.1.1 2004/06/09 05:18:05 trockij Exp $
+#
+#    Copyright (C) 2000, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Std;
+use strict;
+
+sub get_status;
+sub get_table;
+sub get_vars;
+sub fancy_psu_table;
+
+$ENV{"MIBS"} = "RFC1213-MIB:SW-MIB";
+
+my %opt;
+getopts ('c:', \%opt);
+
+my $COMM = $opt{"c"} || "public";
+
+my @failures = ();
+my $detail;
+my %sensors;
+my %ports;
+my %opstatus;
+
+foreach my $host (@ARGV)
+{
+    my %status = get_status ($host, $COMM);
+
+    if ($status{"error"} ne "")
+    {
+    	push (@failures, $host);
+	$detail .= "could not retrieve status from $host: $status{error}\n\n";
+	next;
+    }
+
+    elsif ($status{"failure"})
+    {
+    	push (@failures, $host);
+	$detail .= $status{"failure_summary"};
+    }
+
+    $sensors{$host} = $status{"sensor_table"};
+    $ports{$host} = $status{"port_table"};
+    $opstatus{$host} = $status{"operstatus"};
+}
+
+
+#
+# output returned to mon
+#
+if (@failures != 0)
+{
+    print join (" ", sort @failures), "\n";
+    print "$detail\n";
+}
+
+else
+{
+    print "\n";
+}
+
+print <<EOF;
+Operational Status
+-----------------------------------------------------------------------------
+Host               Status
+-----------------------------------------------------------------------------
+EOF
+
+foreach my $host (keys %opstatus)
+{
+    printf ("%-18s %s\n", $host, $opstatus{$host});
+}
+
+print <<EOF;
+
+
+Sensor Table
+-----------------------------------------------------------------------------
+Host                 Type         Status    Value      Info
+-----------------------------------------------------------------------------
+EOF
+
+foreach my $host (keys %sensors)
+{
+    foreach my $r (@{$sensors{$host}})
+    {
+	my $val = $r->{"swSensorValue"};
+	$val = "unknown" if ($val == -2147483648);
+
+    	printf ("%-20s %-12s %-9s %-10s %s\n",
+		$host,
+		$r->{"swSensorType"},
+		$r->{"swSensorStatus"},
+		$val,
+		$r->{"swSensorInfo"},
+	);
+    }
+
+    print "\n";
+}
+
+print <<EOF;
+
+
+Port Table
+-----------------------------------------------------------------------------
+Host                 Index      Type    AdmStatus PhyState   OpStatus LinkState
+-----------------------------------------------------------------------------
+EOF
+
+foreach my $host (keys %ports)
+{
+    foreach my $r (@{$ports{$host}})
+    {
+    	printf ("%-20s %-10s %-7s %-09s %-10s %-7s %s\n",
+	    $host,
+	    $r->{"swFCPortIndex"},
+	    $r->{"swFCPortType"},
+	    $r->{"swFCPortAdmStatus"},
+	    $r->{"swFCPortPhyState"},
+	    $r->{"swFCPortOpStatus"},
+	    $r->{"swFCPortLinkState"},
+	);
+    }
+
+    print "\n";
+}
+
+
+exit 1 if (@failures != 0);
+
+exit 0;
+
+
+
+#
+# params: (hostname, community)
+#
+# returns:
+# (
+#  "error" => "error name, empty string means no error",
+# )
+#
+sub get_status
+{
+    my ($host, $comm) = @_;
+
+    my $s;
+    if (!defined ($s = new SNMP::Session (
+    	"DestHost" => $host,
+	"Community" => $comm,
+	"Version" => 2,
+	"UseEnums" => 1,
+	)))
+    {
+    	return ("error" => "cannot create session");
+    }
+
+    my $error;
+    my $failure_detected = 0;
+    my $failure_summary = "";
+    my $sensor_table;
+    my $port_table;
+    my $operstatus;
+
+    #
+    # is this really a brocade fcal switch?
+    #
+    my $sys_oid = $s->get (["sysObjectID", 0]);
+
+    return ("error" => $s->{"ErrorStr"}) if ($s->{"ErrorStr"} ne "");
+
+    return ("error" => "not Brocade fiberchannel switch")
+    	if ($sys_oid !~ /^\.1\.3\.6\.1\.4\.1\.1588\.2\.1\.1\.[12]/);
+
+    #
+    # operational status
+    #
+    if (!defined ($operstatus = $s->get ("swOperStatus.0")))
+    {
+    	return ("error" => "$s->{ErrorStr}");
+    }
+
+    $failure_detected++ if ($operstatus ne "online");
+
+    #
+    # sensor table
+    #
+    ($error, $sensor_table) = get_table ($s,
+    	["swSensorType"],
+	["swSensorStatus"],
+	["swSensorValue"],
+	["swSensorInfo"],
+    );
+
+    return ("error" => $error) if ($error ne "");
+
+    #
+    # port table
+    #
+    ($error, $port_table) = get_table ($s,
+    	["swFCPortIndex"],
+    	["swFCPortType"],
+	["swFCPortPhyState"],
+	["swFCPortOpStatus"],
+	["swFCPortAdmStatus"],
+	["swFCPortLinkState"],
+    );
+
+    return ("error" => $error) if ($error ne "");
+
+    foreach my $r (@{$sensor_table})
+    {
+    	next if ($r->{"swSensorStatus"} eq "nominal" ||
+		$r->{"swSensorStatus"} eq "absent" );
+
+	$failure_summary .= "$host sensor $r->{swSensorType} failure ($r->{swSensorStatus})\n";
+	$failure_detected++;
+    }
+
+    foreach my $r (@{$port_table})
+    {
+	#
+	# ignore disabled/loopback ports
+	#
+	next if ($r->{"swFCPortLinkState"} ne "enabled");
+
+	#
+	# ignore operational ports
+	#
+	next if ($r->{"swFCPortOpStatus"} eq "online");
+
+	$failure_summary .= "$host port $r->{swFCPortIndex} failure ($r->{swFCPortOpStatus})\n";
+	$failure_detected++;
+    }
+
+    (
+    	"error"			=> "",
+	"failure"		=> $failure_detected,
+	"failure_summary"	=> $failure_summary,
+	"operstatus"		=> $operstatus,
+	"sensor_table"		=> $sensor_table,
+	"port_table"		=> $port_table,
+    );
+}
+
+
+sub get_table
+{
+    my ($s, @tbl) = @_;
+
+    my $table = [];
+    my $tblid = $tbl[0]->[0];
+    my $i = 0;
+
+    my $row = new SNMP::VarList (@tbl);
+
+    return ("MIB problem") if (!defined $row);
+
+    while (defined ($s->getnext ($row)))
+    {
+    	last if ($s->{"ErrorStr"} ne "");
+
+	my $r = $row->[0]->[0];
+
+ 	last if ($r ne $tblid);
+
+	foreach my $col (@{$row})
+	{
+	    $table->[$i]->{"iid"} = $col->[1];
+	    $table->[$i]->{$col->[0]} = $col->[2];
+	}
+
+	$i++;
+    }
+
+    return ($s->{"ErrorStr"}) if ($s->{"ErrorStr"} ne "");
+
+    (
+    	"",
+	$table,
+    );
+}
+
+
+sub get_vars
+{
+    my ($s, @vars) = @_;
+
+    my $r = new SNMP::VarList ( @vars );
+
+    return ("MIB problem") if (!defined $r);
+
+    return ($s->ErrorStr) if (!defined ($s->get ($r)));
+
+    my $v;
+
+    foreach my $element (@{$r})
+    {
+    	$v->{$element->[0]} = $element->[2];
+    }
+
+    ("", $v);
+}

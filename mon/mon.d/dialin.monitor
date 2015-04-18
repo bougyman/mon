@@ -1,0 +1,327 @@
+#!/usr/bin/perl
+#
+# Check to see if modems on the terminal server are still answering the phone
+#
+# This script should be run using a setgid uucp wrapper which then
+# invokes this script in order to gain permissions to do UUCP-style
+# modem locking.
+#
+# Jim Trocki
+#
+# $Id: dialin.monitor,v 1.1.1.1 2004/06/09 05:18:05 trockij Exp $
+#
+use Getopt::Std;
+use Expect;
+use POSIX;
+use English;
+use Sys::Syslog;
+
+sub hangup_ath;
+sub hangup_dtr;
+sub lock_modem;
+sub unlock_modem;
+sub attempt_dialin;
+
+Sys::Syslog::setlogsock ('unix');
+openlog ("dialin.monitor", "cons,pid", "daemon");
+getopts ('dn:D:l:r:t:', \%opt);
+
+die "not running as GID uucp, are you using the setgid wrapper?\n"
+    unless ($opt{"d"} || $EGID == getgrnam ("uucp"));
+
+$NUMBER		= $opt{"n"} || die "specify dial number with -n\n";
+$DIAL_TIMEOUT	= $opt{"t"} || 60;
+$DEVICE		= $opt{"D"} || "/dev/modem";
+$LOCKDIR	= $opt{"l"} || "/var/lock";
+$RETRIES	= $opt{"r"} || 2;
+
+$SIG{"TERM"} = \&unlock_modem_and_die;
+$SIG{"INT"} = \&unlock_modem_and_die;
+
+my $no = 0;
+my $yes = 0;
+my @detail = ();
+for (my $retr = 0; $retr < $RETRIES; $retr++) {
+    my $r = attempt_dialin;
+    if ($r eq "OK") {
+    	$yes++;
+	last;
+    }
+    $no++;
+    push @detail, $r;
+    sleep 5;
+}
+
+exit 0 if ($yes);
+
+print "failure for $NUMBER after $RETRIES retries\n", join ("\n", @detail), "\n";
+
+exit 1;
+
+
+#
+# make an attempt to dial in
+# returns "OK" upon success, and an error string upon failure
+#
+sub attempt_dialin {
+    my $got_lock = 0;
+    for (my $tries=0; $tries < 6; $tries++) {
+	my $r = lock_modem;
+	if ($r eq "ok") {
+	    $got_lock = 1;
+	    last;
+	}
+    if ($opt{"d"}) { print STDERR "problem getting lock: $!\n" }
+	sleep 10;
+    }
+
+    if ($opt{"d"}) { print STDERR "got_lock=$got_lock\n" }
+
+    if (!$got_lock) {
+    	return "could not get lock";
+    }
+
+    if ((my $r = hangup_dtr) != 1) {
+	unlock_modem;
+	return "could not drop DTR: $r";
+    }
+
+    if (!open (MODEM, "+<$DEVICE")) {
+    	return "could not open $DEVICE: $!";
+    }
+    select (MODEM); $| = 1; select (STDOUT);
+
+    my $s = Expect->exp_init (\*MODEM);
+
+    if (!$s) {
+	unlock_modem;
+	return "could not init expect";
+    }
+
+    $s->exp_stty ("9600", "cs8", "-clocal", "crtscts", "-parenb", "-cstopb");
+
+    #
+    # Reset modem
+    #
+    my $err = "";
+    for (my $n =0; $n < 2; $n++) {
+	if ($opt{"d"}) { print STDERR "resetting modem\n" }
+	print $s "ATZ\r";
+
+	($matched_pattern_position, $error, $successfully_matching_string,
+		$before_match,$after_match) = $s->expect (5, "OK");
+	if ($error eq "1:TIMEOUT") {
+	    $err = "timeout waiting for OK prompt";
+	    next;
+	} elsif (!defined $matched_pattern_position) {
+	    $err = "no pattern matched waiting for OK prompt";
+	    next;
+	}
+	$err = "";
+	$s->clear_accum;
+	last;
+    }
+    if ($err ne "") {
+    	unlock_modem;
+	return $err;
+    }
+
+    #
+    # dial phone number and wait for connect
+    #
+    if ($opt{"d"}) { print STDERR "dialing and waiting for carrier\n" }
+    print $s "ATDT$NUMBER\r";
+
+    ($matched_pattern_position, $error, $successfully_matching_string,
+	    $before_match,$after_match) =
+	    $s->expect ($DIAL_TIMEOUT, "CONNECT", "BUSY", "NO CARRIER", "NO DIALTONE");
+    if ($error eq "1:TIMEOUT") {
+	unlock_modem;
+	return "timeout waiting for connection [$before_match] [$after_match]";
+    } elsif (!defined $matched_pattern_position) {
+	unlock_modem;
+	return "no pattern matched waiting for connection";
+    } elsif ($matched_pattern_position != 1) {
+	unlock_modem;
+	return "no connection: $successfully_matching_string";
+    }
+    $s->clear_accum;
+
+
+    #
+    # once connected, wait for login prompt
+    #
+    if ($opt{"d"}) { print STDERR "got connect, waiting for login prompt\n" }
+
+    ($matched_pattern_position, $error, $successfully_matching_string,
+	    $before_match,$after_match) =
+	    $s->expect (30, "login:");
+    if ($error eq "1:TIMEOUT") {
+	close (MODEM);
+	hangup_dtr;
+	unlock_modem;
+	return "connection but timeout on prompt";
+    } elsif (!defined $matched_pattern_position) {
+	close (MODEM);
+	hangup_dtr;
+	unlock_modem;
+	return "no login prompt";
+    }
+    $s->clear_accum;
+
+
+    #
+    # got login prompt, hang up phone
+    #
+    if ($opt{"d"}) { print STDERR "all OK, hanging up\n" }
+
+    close (MODEM);
+
+    if (($r = hangup_dtr) != 1) {
+	unlock_modem;
+	return "could not toggle DTR: $r";
+    }
+
+    unlock_modem;
+    return "OK";
+}
+
+
+#
+# this quite possibly only works on Linux, or at least that's
+# where I stole the TIOCM_DTR and TIOCMBIC values from
+#
+sub hangup_dtr {
+
+if ($opt{"d"}) { print STDERR "\tdropping DTR\n" }
+
+    open (M, "+<$DEVICE") || return "could not open device: $!";
+    my $TIOCM_DTR = pack ("i", 0x02);
+    my $TIOCMBIC  = 0x5417;
+    if (!ioctl (M, $TIOCMBIC, $TIOCM_DTR)) {
+    	return "could not do ioctl: $!";
+    }
+    sleep 5;
+    close (M);
+    return 1;
+}
+
+
+sub hangup_ath {
+    my $i, $ok;
+    my $matched_pattern_position, $error, $successfully_matching_string,
+    	$before_match, $after_match;
+
+if ($opt{"d"}) { print STDERR "\thanging up via ATH\n" }
+
+    $ok = 0;
+    PLUS_LOOP:
+    for ($i=0; $i<3; $i++) {
+	print $s "+++";
+
+	($matched_pattern_position, $error, $successfully_matching_string,
+		$before_match, $after_match) =
+		$s->expect (4, "OK");
+	if (defined $matched_pattern_position) {
+	    $ok = 1;
+	    last PLUS_LOOP;
+	}
+    }
+
+    return undef unless ($ok);
+
+    print $s "ATH\r";
+
+    ($matched_pattern_position, $error, $successfully_matching_string,
+	    $before_match, $after_match) =
+	    $s->expect (5, "OK");
+
+    return 1 if ($matched_pattern_position == 1);
+    return undef;
+}
+
+
+sub lock_modem {
+    my $dev, $pid;
+    my $lockfile, $tmpfile;
+
+if ($opt{"d"}) { print STDERR "\tlocking modem\n" }
+
+    ($dev) = $DEVICE =~ /\/([^\/]*)$/;
+    return "device unparseable" unless ($dev ne "");
+
+    $lockfile = "$LOCKDIR/LCK..$dev";
+    $tmpfile  = "$LOCKDIR/TMPLCK..$$";
+
+    open (O, ">$tmpfile") || return "could not open tmp lock: $!";
+    print O "$$\n";
+    close (O);
+
+    if (!link ($tmpfile,  $lockfile)) {
+    	if ($! == EEXIST) {
+	    if (!open (I, $lockfile)) {
+		unlink ($tmpfile);
+	    	return "could not open existing lock file: $!";
+	    }
+	    $pid = <I>;
+	    close (I);
+	    my ($npid) = $pid =~ /(\d+)/;
+	    my $v = kill 0, $npid;
+	    if ($v == 0 && $! != ESRCH) {
+	    	unlink ($tmpfile);
+		return "lock already exists";
+	    }
+
+if ($opt{"d"}) { print STDERR "lock from dead process exists\n" }
+
+	    if (!unlink ($lockfile)) {
+		unlink ($tmpfile);
+if ($opt{"d"}) { print STDERR "lock from dead process exists, could not unlink stale lock\n" }
+	    	return "could not unlink stale lock file: $!";
+	    }
+	    if (!link ($tmpfile, $lockfile)) {
+		unlink ($tmpfile);
+if ($opt{"d"}) { print STDERR "lock from dead process exists, could create lock\n" }
+	    	return "could not create lock file: $!";
+	    }
+	} else {
+	    return "cannot create lock file: $!";
+	}
+    }
+
+    unlink ($tmpfile) || return "could not unlink temp lock file: $!";
+
+if ($opt{"d"}) { print STDERR "lock is OK\n" }
+    return "ok";
+
+    # create a temp file in /var/lock and put PID in it
+    # make a hard link to it, check return value
+    # if errno = EEXIST then
+    #	open and read existing lock file
+    #	check if the proc exists via kill -0
+    #	if it does exist, unlink the tmpfile and return failure
+    #	else unlink lockfile
+    #	link tmpfile to lockfile
+    #	unlink tmpfile
+    #	return OK
+    #	
+}
+
+
+sub unlock_modem {
+    my $dev;
+
+if ($opt{"d"}) { print STDERR "\tunlocking modem\n" }
+
+    ($dev) = $DEVICE =~ /\/([^\/]*)$/;
+    return "device unparseable" unless ($dev ne "");
+
+    unlink ("$LOCKDIR/LCK..$dev") || return "could not unlink lock file: $!";
+
+    return 1;
+}
+
+sub unlock_modem_and_die {
+    unlock_modem;
+    die;
+}

@@ -1,0 +1,282 @@
+#!/usr/bin/perl -w
+#
+# try to connect to a particular
+# port on a bunch of hosts. For use with "mon".
+#
+# Options are
+#   -p <port-num>
+#   -t <connect-timeout-in-seconds> (default 15)
+#   -s <string to send upon connecting to provoke some output>
+#   -e <Perl regexp to expect in response>
+#   -q <string to send before closing after parsing response>
+#   -d <string to use as line delimiter for regexp matching>
+
+# without /-s/-e/-q/, just checks that the socket can be opened
+# and closed.
+
+# cheap transformations done on send/quit/delim strings - \r and \n are
+# converted to CR and LF.  \\ is not supported - no escape possible.
+
+# sample usage:
+#
+# smtp:    tcpch.monitor -p 25  -e '^220\b' -q 'QUIT\r\n'
+# web:     tcpch.monitor -p 80  -s 'GET / HTTP/1.0\r\n' -e '^HTTP.*200 OK'
+
+
+#
+# Jim Trocki, trockij@transmeta.com
+# updated August 2000 by Ed Ravin <eravin@panix.com> for send/expect/quit
+#
+# $Id: tcpch.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use Socket;
+
+my %opt;
+getopts ("d:p:t:s:e:q:", \%opt);
+$USAGE= "Usage: tcpch.monitor -p port [-t timeout] [-s sendstr] [-e regexp] [-q quitstr] [-d line-delim]\n";
+
+my $PORT = $opt{"p"} || undef;
+my $TIMEOUT = $opt{"t"} || 15;
+
+my $SEND=   $opt{"s"} || undef;
+my $EXPECT= $opt{"e"} || undef;
+my $QUITSTR=$opt{"q"} || undef;
+my $DELIM=  $opt{"d"} || "\n";
+if ($DELIM)
+{
+	$DELIM=~ s/\\n/\n/g;
+	$DELIM=~ s/\\r/\r/g;
+}
+
+my @failures = ();
+my @detail = ();
+
+my $ALARM = 0;
+
+sub checkbuf  # buffer, regexp
+{
+	my ($buffer, $regexp)= @_;
+
+	return $buffer =~ /$regexp/ if ($DELIM eq '');
+
+	my @lines= split($DELIM, $buffer);
+
+	foreach my $line (@lines)
+	{
+		if ($line =~ /$regexp/)
+		{
+			return 1;
+		}
+	}
+	return 0;
+}
+
+die $USAGE unless (@ARGV > 0);
+die "$0: missing port number\n" unless defined $PORT;
+
+foreach my $host (@ARGV) {
+    my $pro = getprotobyname ('tcp');
+
+    if (!defined $pro) {
+    	die "(local err) could not getprotobyname\n";
+    }
+
+    if (!defined socket (S, PF_INET, SOCK_STREAM, $pro)) {
+    	die "(local err) could not create socket: $!\n";
+    }
+
+    my $a = inet_aton ($host);
+    if (!defined $a) {
+    	push @failures, $host;
+	push @detail, "(local err) $host could not inet_aton";
+	close (S);
+	next;
+    }
+
+    my $sin = sockaddr_in ($PORT, $a);
+    if (!defined $sin) {
+	push @failures, $host;
+	push @detail, "(local err) $host could not sockaddr_in";
+    	close (S);
+	next;
+    }
+
+    my $r;
+
+    eval {
+	local $SIG{"ALRM"} = sub { die "alarm\n" };
+
+	alarm $TIMEOUT;
+
+	$r = connect (S, $sin);
+
+	alarm 0;
+    };
+
+    if ($@) {
+		push @failures, $host;
+
+		if ($@ eq "alarm\n") {
+			push @detail, "$host timeout on connect";
+		} else {
+			push @detail, "$host interrupted syscall on connect: $!";
+		}
+
+	close (S);
+	next;
+    }
+
+    if (!defined $r) {
+	push @failures, $host;
+	push @detail, "$host: could not connect: $!";
+	close (S);
+	next;
+    }
+
+    select S; $|= 1; select STDOUT;
+
+	if (defined($SEND))
+	{
+		my $rc= undef;
+
+		$SEND=~ s/\\n/\n/g;
+		$SEND=~ s/\\r/\r/g;
+		eval {
+			local $SIG{"ALRM"} = sub { die "alarm\n" };
+
+			alarm $TIMEOUT;
+			$rc= send S, $SEND, 0;
+			alarm 0;
+		    };
+	    if ($@) {
+		push @failures, $host;
+
+		if ($@ eq "alarm\n") {
+				push @detail, "$host timeout on write";
+			} else {
+				push @detail, "$host interrupted syscall on write: $!";
+			}
+		}
+
+		if (! $rc)
+		{
+			push @failures, $host;
+			push @detail, "$host: write failed: $!";
+			close (S);
+			next;
+		}
+	}
+
+	if (defined($EXPECT))
+	{
+		# read and match
+
+		my $rc= undef;
+		my $alldata= "";
+
+		eval {
+			local $SIG{"ALRM"} = sub { die "alarm\n" };
+
+			alarm $TIMEOUT;
+
+			$rc= recv S, $rxdata, 1024, 0;
+			$alldata= $alldata . $rxdata;
+
+			while ( !checkbuf($alldata,  $EXPECT))
+			{
+				$rc= recv S, $rxdata, 1024, 0;
+				$alldata= $alldata . $rxdata;
+			}
+			alarm 0;
+		    };
+	    if ($@) {
+		push @failures, $host;
+
+		if ($@ eq "alarm\n") {
+				push @detail, "$host timeout on read";
+			} else {
+				push @detail, "$host interrupted syscall on read: $!";
+			}
+		}
+		if ($rc)
+		{
+			push @failures, $host;
+			push @detail, "$host: recv failed : $!";
+			close (S);
+			next;
+		}
+
+		if (! checkbuf($alldata, $EXPECT))
+		{
+			push @failures, $host;
+			push @detail, "$host: did not recv expected response";
+			close (S);
+			next;
+		}
+	}
+
+	if (defined($QUITSTR))
+	{
+		my $rc= undef;
+
+		$QUITSTR=~ s/\\n/\n/g;
+		$QUITSTR=~ s/\\r/\r/g;
+
+		eval {
+			local $SIG{"ALRM"} = sub { die "alarm\n" };
+
+			alarm $TIMEOUT;
+			$rc= send S, $QUITSTR, 0;
+			alarm 0;
+		    };
+	    if ($@) {
+		push @failures, $host;
+
+		if ($@ eq "alarm\n") {
+				push @detail, "$host timeout writing quitstr";
+			} else {
+				push @detail, "$host interrupted syscall writing quitstr: $!";
+			}
+		}
+
+		if (! $rc)
+		{
+			push @failures, $host;
+			push @detail, "$host: quit write failed: $!";
+			close (S);
+			next;
+		}
+	}
+
+    if (!defined close (S)) {
+    	push @failures, $host;
+	push @detail, "$host: could not close socket: $!";
+	next;
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n";
+print "\n", join ("\n", @detail), "\n";
+
+exit 1;

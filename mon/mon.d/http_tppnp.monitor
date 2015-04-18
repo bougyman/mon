@@ -1,0 +1,842 @@
+#!/usr/bin/perl
+#
+# Parallel http monitor, with timing, using separate process for each request
+#                        results are gathered using a named pipe
+#                        an optional "SmartAlarm" capability is provided
+#                        to classify alarms and/or limit alarms when there
+#                        are sporadic outages
+#
+# http_tppnp.monitor : http _ timing - proxy - parallel - named pipe
+#                      http _ t        p       p          np
+#
+#
+# Jon Meek
+# Lawrenceville, NJ
+# meekj@ieee.org
+#
+# $Id: http_tppnp.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $
+#
+#    Copyright (C) 2002, Jon Meek
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+=head1 NAME
+
+B<http_tppnp.monitor> - http/https server parallel monitor for mon
+
+=head1 DESCRIPTION
+
+http/https server monitor for mon. Logs timing and size results, can use a
+proxy server. Each measurements is made using a separate measurement process,
+a central server is used to collect, process, and log the results.
+
+An optional "SmartAlarm" capability is provided to classify alarms
+and/or limit alarms when there are sporadic outages
+
+=head1 SYNOPSIS
+
+B<http_tppnp.monitor> -l log_file_YYYYMM.log [--servertimeout nn] [--clienttimeout nn] [--responsealarmtime nn] [--randskew nn] [--okcodes nnn,mmm,kkk] [--nocache] [--pipe pipename] [--stripprotocol] [--smartalarm smartalarm.module] [--sacfg smartalarm.cfg] [--smartalarmdir /smartalarm/path] [--forcesmartalarm] [--d --debug] [--v] host [host:/path_to_doc ...]
+
+The host list can be in any combination of the following:
+
+ webmail.mysite.com/index.html
+ http://webmail.mysite.com/
+ test.mysite.com/~meekj/ca_zip.txt@proxy.mysite.com
+ http://webmail.mysite.com:81/
+ https://webmail.mysite.com/
+
+http is the default if the protocol is not specified
+
+=head1 OPTIONS
+
+=over 5
+
+=item B<-l log_file_template> or B<--log log_file_template>
+
+/path/to/logs/internet_web_YYYYMM.log Current year & month are substituted
+for YYYYMM, that is the only possible template at this time. The format of the
+log file is:
+
+ unix_time proxy protocol://host path bytes response_time response_code
+
+If B<--stripprotocol> is specified then protocol:// is not included.
+The response_time is in seconds. If the response was determined to be
+a failure the time is reported as a negative number.
+
+=item B<-c> or B<--okcodes>
+
+Comma seperated list of acceptable http response codes, 200 is the default
+but must be explicitly included in the list if -c or --okcodes is used.
+
+=item B<--nocache>
+
+Add 'Pragma: no-cache' header to all requests. Used to bypass caches.
+
+=item B<--servertimeout N s>
+
+Wait this long before giving up the wait for measurement results.  If
+you change this, be sure that it is at least
+(clienttimeout + randskew + 5) seconds.  Defaults to 45 seconds.
+
+=item B<--clienttimeout N s> N s
+
+The maximum time each measurement process waits for a response after
+its request is made (timeout starts after randskew time).  Defaults to
+30 seconds.
+
+=item B<--responsealarmtime N s> or B<-T N s>
+
+Trigger an alarm if any response is greater than N
+seconds. Defaults to a very large number, effectively disabling
+response time checks beyond the regular timeout.
+
+=item B<--randskew N s>
+
+Each measurement process will wait a random number of seconds, up
+to this maximum number before starting. Defaults to 10 seconds.
+
+=item B<--stripprotocol>
+
+Strip {http, https, ftp}:// from the URL stored in the logfile, for
+backwards compatibility of log format.
+
+=item B<--smartalarm Full/path/or/NameOfSmartAlarm>
+
+For selecting the httpSmartAlarm module to filter alarms and trigger
+an alarm only if certain conditions are met. If the full path is not
+specified, then the smart alarm is expected to exist in the ./mon.d
+directory (or more precisely, in the same directory as this
+monitor). Note that .pm should not be included in the module name,
+however the monitor will strip it out if it is included.
+
+The httpSmartAlarm module has the following structure:
+
+ package httpSmartAlarm;
+ #
+ # Module to provide "Smart Alarms" for http_tppnp.monitor
+ #
+
+ use Exporter();
+ $VERSION = 0.02;
+
+ @ISA = qw(Exporter);
+ @EXPORT = qw(CheckAlarm);
+
+ sub CheckAlarm {
+
+  my ($ConfigFile, %TestResult) = @_;
+
+  $TotalDownCount = 0;
+  @DownList = ();
+  &ReadParams($ConfigFile); # Read your config file, if you have one
+
+  foreach $k (sort keys %TestResult) { # Check the results
+    print "TestResult: $k   -  $TestResult{$k}\n" if $Debug;
+
+    ($Failed, $tod, $proxy, $protocol, $site, $file, $size, $t, $http_code)
+      = split(' ', $TestResult{$k});
+ #
+ # Supply some sort of algorithm here
+ #
+  }
+
+  return ($TotalDownCount, @DownList);
+ }
+
+ # Supply a ReadParams subroutine, if needed
+
+ 1;
+
+=item B<--smartalarmdir /path/to/SmartAlarm>
+
+Alternate method of supplying the path to the filter module.
+
+=item B<--forcesmartalarm>
+
+Run SmartAlarm even if there are no failures. Useful if your
+SmartAlarm looks for other problems such as a bad route.
+
+=item B<--sacfg>
+
+The full path to the SmartAlarm configuration file.
+
+=item B<--pipe /path/to/pipe>
+
+The full path, including file name, of the named pipe used for
+inter-process communication.  The default is /tmp/http_tppnp, the PID
+of the server process is added to this name to ensure uniqueness and
+allow multiple sets of server/clients to run simultaneously.
+
+=item B<-d>
+
+Debug/Test, for manual testing only.
+
+=item B<-v>
+
+Verbose, show content of returned data, for manual testing only.
+
+=item B<-a>
+
+[Not backported from http_tpp yet] list all results if
+there is a failure, otherwise list only failed tests
+
+=item B<-r>
+
+[Not backported from http_tpp yet] Follow redirects, can be useful with -d
+
+=back
+
+=head1 MON CONFIGURATION EXAMPLE
+
+Note that a proxy will be used to access ot.myweb.com
+
+ hostgroup internet_web www.ama-assn.org
+                        www.gartner.com
+                        test.mysite.com/~meekj/ca_zip.txt
+                        ot.myweb.com/ca_zip.txt@proxy.mysite.com
+
+ watch internet_web
+         service internet_web
+         interval 5m
+         monitor http_tpps.monitor -l /usr/local/mon/logs/internet_web_YYYYMM.log -T 10 -t 15
+         period wd {Sun-Sat}
+             alert mail.alert firewall_admin
+             alertevery 1h summary
+
+  Command line test examples:
+
+  http_tpps.monitor -d www.redhat.com bns.pha.com mythey.com/_mem_bin/FormsLogin.asp\?/ nonexist.pha.com www.sun.com/@proxy.labs.theyw.com
+
+  http_tpps.monitor -d www.redhat.com@proxy.labs.theyw.com www.sun.com/@proxy.labs.theyw.com www.yahoo.com/@proxy.labs.theyw.com
+
+=head1 BUGS
+
+Using a proxy for https or ftp has not been tested, and probably does
+not work at this time because all proxies are invoked as http.
+
+The path to mkfifo is hardcoded to /usr/bin/mkfifo, this is good for
+Linux and Solaris, but should be an option.
+
+Earlier versions had occasional problems with zombie/defunct processes
+under extreme conditions, such as DNS slowness. Additional protections
+have been added and this does not seem to be a problem.
+
+At times, the monitor would do an "exit 1" telling mon that there was
+a failure even though the failure list is empty. This is probably
+fixed. It was due the main program exiting before all the child
+processes. A two second wait before an "exit 0" appears to be
+sufficient, but the SIGCHLD handler is also disabled. If zombie
+processes appear, this method should be reviewed.
+
+The above problem could be avoided by a mon option to ignore alerts
+with an empty failure summary.
+
+=head1 REQUIRED PERL MODULES
+
+ LWP::UserAgent
+ HTTP::Request::Common
+ Time::HiRes
+
+and, if https/SSL monitoring will be performed
+
+ Crypt::SSLeay
+
+=head1 AUTHOR
+
+Jon Meek, meekj@ieee.org
+
+=head1 SEE ALSO
+
+ http_tp.monitor
+
+ http_tpp.monitor (should not be used, this monitor is a replacement)
+
+ phttp.monitor by Gilles LAMIRAL
+
+ lwp-http.mon by Daniel Hagerty (hag@linnaean.org)
+
+=cut
+
+$RCSid = q{$Id: http_tppnp.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $ };
+
+use IO::Socket;
+use POSIX qw(:signal_h WNOHANG);
+use Getopt::Long;
+use Time::HiRes qw( gettimeofday tv_interval );
+use LWP::UserAgent;
+use HTTP::Request::Common;
+
+$SmartAlarmConfig = ''; # Initialize, in case none is supplied
+
+GetOptions(
+	   "servertimeout=i" => \$ServerTimeout,
+	   "clienttimeout=i" => \$ClientTimeout,
+	   "responsealarmtime=i" => \$ResponseAlarmTime,
+	   "T=i" => \$ResponseAlarmTime,
+	   "randskew=i" => \$RandSkew,
+	   "okcodes=s" => \$opt_c,
+	   "pipe=s" => \$NamedPipe,
+	   "c=s" => \$opt_c,
+	   "l=s" => \$opt_l,
+	   "log=s" => \$opt_l,
+	   "stripprotocol" => \$StripProtocol,
+	   "nocache" => \$NoCache,
+	   "smartalarm=s" => \$SmartAlarm,  # Name of the SmartAlarm module
+	   "sacfg=s" => \$SmartAlarmConfig, # Name of the SmartAlarm config file
+	   "smartalarmdir=s" => \$SmartAlarmDir,
+	   "forcesmartalarm" => \$ForceSmartAlarm,
+	   "d" => \$Debug,
+	   "debug" => \$Debug,
+           "debuglog=s" => \$DebugLog,
+	   "v",
+	   "client",  # For use by client only
+	   "url=s" => \$URL,
+	   "proxy=s" => \$Proxy,
+	  );
+
+$ServerTimeout = 45 unless $ServerTimeout;
+$ClientTimeout = 30 unless $ClientTimeout;
+$ResponseAlarmTime = 10000 unless $ResponseAlarmTime;
+$RandSkew = 10 unless defined $RandSkew; # Can be zero
+$NamedPipe = '/tmp/http_tppnp' unless $NamedPipe;
+$MKFIFO = '/usr/bin/mkfifo'; # Program to make the named pipe, or FIFO
+
+my $ResponseCount = 0; # Count the responses as they are delivered
+my %httpCode = ();     # Where the results are kept
+my %httpTime = ();     # Keys are in URL@proxy form
+my %httpSize = ();
+my %s = ();            # A temporary hash used to pass data
+
+$TimeOfDay = time;
+
+if ($DebugLog) {
+  open(DEBUGLOG, ">>$DebugLog") || warn "Can't open debug log: $DebugLog";
+  $Debug = 1;
+}
+
+#########################################################################################
+#
+# Client code - started by fork-exec in Server code below
+#
+if ($opt_client) {
+
+  sleep 1;          # Give the server a second to get setup
+
+  sub PipeProblem { # For alarm/timeout signal
+    my $signame = shift;
+    print "$ProgName could not write to pipe, received signal $signame\n";
+    print DEBUGLOG "\n--------- Exiting from PipeProblem with alert ---------\n\n" if $Debug;
+    exit 1;
+  }
+  $SIG{PIPE} = \&PipeProblem;
+
+  $RandomDelayTime = int(rand($RandSkew));
+  print DEBUGLOG "Child($$): $Proxy $URL  -  Delaying $RandomDelayTime s (max $RandSkew)\n" if $Debug;
+  # exit if ($URL =~ /junk/); # For testing what happens if a client never responds (URL contains 'junk')
+
+  sleep($RandomDelayTime); # Randomly delay ourselves to avoid a rush
+
+  my $ua = new LWP::UserAgent;
+  $ua->timeout($ClientTimeout);	# Set timeout for LWP
+  $TheContent = '';
+
+  if ($Proxy ne 'noproxy') {
+    $ua->proxy('http', "http://$Proxy"); # Need to generalize this
+  }
+
+  $s{measurementtime} = time;   # Not currently used, but may become log option
+  $dt = 0;
+  $t0 = [gettimeofday];		# Get start time
+
+
+  if ($NoCache) {
+    $response = $ua->get($URL, Pragma => 'no-cache'); # Request fresh content
+  } else {
+    $response = $ua->request(GET $URL);
+  }
+
+  $t1 = [gettimeofday];		# Get end time
+  $dt = tv_interval($t0, $t1);  # Compute elapsed time
+
+  $ResultCode = $response->code();
+  $TheContent = $response->content();
+
+  $ByteCount = length($TheContent);
+
+  print DEBUGLOG "URL: $URL $ResultCode $ByteCount $dt\n" if $Debug;
+  print $TheContent if $opt_v;
+  #
+  # Submit the results to the server process over a named pipe
+  #
+  if (-p $NamedPipe) { # Be sure that the pipe is there, otherwise our server may have exited
+    open (PIPE, ">$NamedPipe") || die "Can't open pipe: $NamedPipe\n";
+    print PIPE "$URL $Proxy $ResultCode $ByteCount $dt\n";
+    print DEBUGLOG "\nChild($$) --------- Exiting normally ---------\n" if $Debug;
+    exit 0; # The client invocation ends here
+  } else {
+    print  DEBUGLOG "Child($$) exiting because pipe $NamedPipe does not exist\n" if $Debug;
+    exit 0;
+  }
+}
+
+############# End Client Section ###################################################
+
+####################################################################################
+#
+############# Server Section ####################################
+#
+
+#
+# Determine path to monitor, for starting children
+#
+$ProgName = $0; # Will need full path
+print DEBUGLOG "\n\nStarting at $TimeOfDay Name: $ENV{PWD} / $ProgName\n" if $Debug;
+
+if (!(-x $ProgName)) { # We can't find ourself, won't be able to exec!
+  print DEBUGLOG @ARGV if $Debug;
+  print DEBUGLOG "\n" if $Debug;
+  print "$ProgName cannot be found, or is not executable by mon\n";
+  exit 1; # Indicate failure to mon
+}
+
+if ($SmartAlarm) { # Use Smart Alarm module
+  use File::Basename;
+  $basename = basename($SmartAlarm); # Get the path to the module
+  $dirname = dirname($SmartAlarm);
+  if ((length($dirname) == 0) || ($dirname eq '.')) {
+    $SmartAlarmDir = dirname($ProgName) unless $SmartAlarmDir;
+  } else {
+    $SmartAlarmDir = $dirname;
+  }
+  $basename =~ s/\.pm$//;
+  print DEBUGLOG "SmartAlarmDir: $SmartAlarmDir    Module: $basename\n" if $Debug;
+#  use lib "/usr/local/mon/mon.d"; # Use ENV variable or option later
+  push (@INC, $SmartAlarmDir);
+  eval "use $basename";
+  do {
+    print "Couldn't load $SmartAlarmDir/$basename.pm: $@\n";
+    exit 1;
+  } unless ($@ eq '');
+  httpSmartAlarm->import();
+}
+
+#
+# Reap children to avoid defunct processes / zombies
+# See "Network Programming with Perl" by Lincoln Stein
+#
+sub Reaper {
+  my $signame = shift;
+  my $timenow = time;
+  while ((my $child_pid = waitpid(-1, WNOHANG)) > 0) {
+    print DEBUGLOG "Parent $$ Reaped child: $child_pid after $signame at $timenow\n" if $Debug;
+  }
+}
+$SIG{CHLD} = \&Reaper;
+
+# Handle interrupt key and termination signals
+
+sub OtherSIGs {
+  my $signame = shift;
+  unlink $NamedPipe;
+  print "$ProgName Terminated on Signal: $signame\n";
+  print DEBUGLOG "\n--------- Exiting OtherSIGs with alert following $signame ---------\n\n" if $Debug;
+  exit 1;
+}
+
+$SIG{HUP} = $SIG{INT} = $SIG{QUIT} = $SIG{TERM} = \&OtherSIGs;
+
+#
+# Make the named pipe for children to report results
+#
+$NamedPipe .= ".$$"; # Tack on the PID for uniqueness
+print DEBUGLOG "Making $NamedPipe\n" if $Debug;
+$cmd = qq{$MKFIFO $NamedPipe};
+$ret_val = system($cmd);
+
+#$SIG{CHLD} = $SIG{PIPE} = $SIG{INT} = 'IGNORE'; # don't want to die on 'Broken pipe' or Ctrl-C
+
+if ($opt_c) { # Parse list of acceptable http response codes
+  (@t) = split(/,/, $opt_c);
+  foreach $code (@t) {
+    $AcceptableResponseCode{$code}++;
+  }
+} else {
+  $AcceptableResponseCode{200}++; # Default is 200
+}
+
+foreach $target (@ARGV) { # Build host and path lists
+
+  print DEBUGLOG "\nTarget: $target\n" if $Debug;
+
+#
+# Normalize the request
+#   we may want to have more restrictive URL formats in the future
+#   and eliminate this
+#
+  $protocol = 'http'; # Default protocol
+  $host_path = '';
+
+  if ($target =~ /^(\w+):\/\/(.*)/) {
+    $protocol = $1;
+    $host_path = $2;
+  } else {
+    $host_path = $target;
+  }
+
+  print DEBUGLOG "Protocol: $protocol   host/path: $host_path\n" if $Debug;
+
+  undef $proxy_server;
+  if ($host_path =~ /@/) {
+    ($host_path, $proxy_server) = split(/@/, $host_path, 2);
+  }
+
+  ($host, $Path) = split(/\//, $host_path, 2);
+
+  if (defined $proxy_server) {
+    $ProxyServer = $proxy_server;
+  } else {
+    $ProxyServer = 'noproxy';
+  }
+
+  print DEBUGLOG "$host - $ProxyServer - $Path\n" if $Debug;
+
+  $URL = "$protocol://$host/$Path";
+  push(@URLs, $URL);
+  push(@Proxies, $ProxyServer);
+}
+
+$RandSkew = 0 if (@URLs <= 1); # No need to delay if there is a single URL
+
+#
+# Open the named pipe, must be in read/write mode, otherwise open will block
+#
+open (PIPE, "+< $NamedPipe") || die "Server Process: Can't open pipe: $NamedPipe\n";
+
+#
+# Use evals for time-out capability
+#
+
+eval {
+  $SIG{ALRM} = sub {die "Server alarm timeout"};
+  alarm($ServerTimeout);
+
+  eval {
+    #
+    # Check each target URL by firing off a measurement child process
+    #
+    for ($i = 0; $i <= $#URLs; $i++) {
+      $URL = $URLs[$i];
+      $Proxy = $Proxies[$i];
+      $URL_Proxy = $URL . '@' . $Proxy; # Unique test key
+      $URL_Proxies{$URL_Proxy}++; # Checklist, used to track replies
+      &ForkClient($URL, $Proxy);  # Fire off a client to run the test
+    }
+
+    while (1) {
+      $in = <PIPE>;
+      print DEBUGLOG "Data from pipe: $in" if $Debug;
+      ($s{url}, $s{proxy}, $s{result_code}, $s{byte_count}, $s{dt})
+	= split(' ', $in);
+      $url = $s{url};
+      $proxy = $s{proxy};
+      $URL_Proxy = $url . '@' . $proxy;
+      delete $URL_Proxies{$URL_Proxy}; # Saw this combination, check it off the list
+      $NumTestsLeft = scalar keys(%URL_Proxies);
+      print DEBUGLOG "  $NumTestsLeft tests to go\n" if $Debug;
+      #
+      # Save measurement results in hashes
+      #
+      $httpCode{$URL_Proxy} = $s{result_code};
+      $httpTime{$URL_Proxy} = $s{dt};
+      $httpSize{$URL_Proxy} = $s{byte_count};
+
+      last if ($NumTestsLeft == 0); # Bail out and process if we got all the replies
+    }
+
+    close PIPE;
+
+    alarm(0);
+  };
+  alarm(0);	   # Race condition prevention
+};
+
+unlink $NamedPipe; # For housekeeping, and to let any straggling clients know
+                   # that the server process has exited
+#
+# Process the results, exit occurs from ProcessResults
+#
+&ProcessResults(\%httpCode, \%httpTime, \%httpSize);
+
+############# End of Server Code ############################################
+
+#
+# Subroutines below
+#
+
+sub ForkClient {
+  my ($url, $proxy) = @_;
+
+ FORK:
+  if ($pid = fork) {
+    # parent here
+    # child process pid is available in $pid
+    # waitpid($pid,0); # Can't do this and retain parallelism
+    #    $returnstatus = ($? >> 8);
+  } elsif (defined $pid) {	#pid is zero here if defined
+    # child here
+
+    # Form our exec() string
+
+    $execstring = "$ProgName --client --url $url --proxy $proxy --pipe $NamedPipe --randskew $RandSkew";
+    $execstring .= ' --nocache' if $NoCache; # Add additional flags
+    $execstring .= ' -d' if $Debug;
+    $execstring .= " --debuglog $DebugLog" if $DebugLog;
+    $execstring .= ' -v' if $opt_v;
+    print DEBUGLOG "execstring: $execstring\n" if $Debug;
+    exec($execstring);
+
+    # parent process pid is available with getppid
+  } elsif ($! =~ /No more process/) {
+    # EAGAIN, supposedly recoverable fork error
+    sleep 2;
+    redo FORK;
+  } else {
+    # weirdo fork error
+    # return 1;
+  }
+}
+
+#
+# Check for alarm conditions, etc.
+#
+sub ProcessResults {
+  my ($Codes, $Times, $Sizes) = @_;
+
+  my @Failures = ();
+  my %FailureDetail = ();
+  my %ResultString = ();
+
+  #
+  # Check for non-responders, LWP will usually give an error
+  # so we may not exercise this often
+  #
+  foreach $r (keys %URL_Proxies) { # Unfullfilled test results
+    print DEBUGLOG "$r $URL_Proxies{$r}\n" if $Debug;
+    push(@Failures, $r);
+    $ThisOneFailed = 1;
+    $FailureDetail{$r} = 'No response';
+    ($protocol, $host, $path, $proxy) = &split_url($r);
+    $Times->{$r} = -1.0;
+    $Sizes->{$r} = 0;
+    $Codes->{$r} = 0;
+    if ($StripProtocol) { # Don't include http:// etc in log file for backwards compatibility
+      $ResultString{$r} = sprintf("%d %s %s %s %d %0.4f %d",
+				  $TimeOfDay, $proxy,
+				  $host, $path, $Sizes->{$r}, $Times->{$r}, $Codes->{$r});
+    } else {
+      $ResultString{$r} = sprintf("%d %s %s://%s %s %d %0.4f %d",
+				  $TimeOfDay, $proxy, $protocol,
+				  $host, $path, $Sizes->{$r}, $Times->{$r}, $Codes->{$r});
+    }
+
+    $SmartAlarmString{$r} = sprintf("%d %d %s %s %s %s %d %d %0.3f %s",
+				    $ThisOneFailed, $TimeOfDay, $proxy, $protocol,
+				    $host, $path,
+				    $Sizes->{$r}, $Times->{$r}, $Codes->{$r});
+
+  }
+
+  #
+  # Check response codes, times, etc
+  #
+  print DEBUGLOG "\nProcessResults\n" if $Debug;
+  foreach $r (keys %$Codes) {
+    next if (exists $URL_Proxies{$r}); # We already got it above
+    $ThisOneFailed = 0;
+    printf DEBUGLOG ("%8.3f  %5d  %6d  %s\n",
+	   $Times->{$r}, $Codes->{$r}, $Sizes->{$r}, $r) if $Debug;
+    #
+    # Check http response code against list
+    #
+    if (!exists $AcceptableResponseCode{$Codes->{$r}}) {
+      $ThisOneFailed++;
+      $Times->{$r} = -1.0 * $Times->{$r}; # Log uses negative time as failure indicator
+      $FailureDetail{$r} = "Bad response code ($Codes->{$r}) ";
+    }
+    #
+    # Check response time against limit, if set, but don't negate response time
+    #
+    if ($ResponseAlarmTime) {
+      if ($Times->{$r} > $ResponseAlarmTime) {
+	$ThisOneFailed++;
+	$FailureDetail{$r} .= 'Long response time';
+      }
+    }
+
+    if ($ThisOneFailed) {
+      push(@Failures, $r);
+    }
+
+    # Pick apart the URL so that we can generate a log entry
+    # compatible with previous versions
+    #
+    ($protocol, $host, $path, $proxy) = &split_url($r);
+
+    if ($StripProtocol) { # Don't include http:// etc in log file for backwards compatibility
+      $ResultString{$r} = sprintf("%d %s %s %s %d %0.4f %d",
+				  $TimeOfDay, $proxy,
+				  $host, $path, $Sizes->{$r}, $Times->{$r}, $Codes->{$r});
+    } else {
+      $ResultString{$r} = sprintf("%d %s %s://%s %s %d %0.4f %d",
+				  $TimeOfDay, $proxy, $protocol,
+				  $host, $path, $Sizes->{$r}, $Times->{$r}, $Codes->{$r});
+    }
+
+    $SmartAlarmString{$r} = sprintf("%d %d %s %s %s %s %d %d %0.3f %s",
+				    $ThisOneFailed, $TimeOfDay, $proxy, $protocol,
+				    $host, $path,
+				    $Sizes->{$r}, $Times->{$r}, $Codes->{$r});
+
+  }
+
+  if ($Debug) {
+    foreach $r (sort keys %ResultString) {
+      print DEBUGLOG "ResultString: $ResultString{$r}\n";
+    }
+  }
+
+  #
+  # Write results to logfile, if -l
+  #
+  if ($opt_l) {
+
+    $LogFile = $opt_l;
+    ($sec, $min, $hour, $mday, $Month, $Year, $wday, $yday, $isdst) =
+      localtime($TimeOfDay);
+    $Month++; $Year += 1900;
+    $YYYYMM = sprintf('%04d%02d', $Year, $Month);
+    $LogFile =~ s/YYYYMM/$YYYYMM/; # Fill in current year and month
+
+    if (-e $LogFile) {		# Check for existing log file
+      $NewLogFile = 0;
+    } else {
+      $NewLogFile = 1;
+    }
+
+    open(LOG, ">>$LogFile") || warn "$0 Can't open logfile: $LogFile\n";
+
+    foreach $r (sort keys %ResultString) {
+      print LOG "$ResultString{$r}\n";
+    }
+
+    close LOG;
+  }
+
+  if ((@Failures == 0) && $ForceSmartAlarm) { # Run SmartAlarm to look for other problems, i.e. bad route
+    ($count, @Failures) = &CheckAlarm($SmartAlarmConfig, %SmartAlarmString);
+    if (@Failures == 0) {
+      sleep 2;               # Allow SIGCHLDs to arrive
+      $SIG{CHLD} = 'IGNORE'; # We are finished, don't wait for straggling SIGCHLDs (hopefully will not leave zombies)
+      exit 0;
+    }
+
+    $SummaryString = join ' ', @Failures;    # Double check failure list
+    $SummaryString =~ s/^\s+//;              # Trim whitespace
+    $SummaryString =~ s/\s+$//;
+#    exit 0 if (length($SummaryString) <= 0); # Require data in failure list
+
+    print "$SummaryString\n";                # Note that we are not supplying any detail data from SmartAlarm
+    print DEBUGLOG "\n--------- Exiting ForceSmartAlarm alarm mode with alert ---------\n\n" if $Debug;
+    exit 1;                                  # Indicate failure to mon
+  }
+
+  if (@Failures == 0) { # No failures, exit with status 0
+    print DEBUGLOG "\n--------- No Failures ---------\n" if $Debug;
+    print DEBUGLOG "\n--------- Exiting normally ---------\n\n" if $Debug;
+    sleep 2;               # Allow SIGCHLDs to arrive
+    $SIG{CHLD} = 'IGNORE'; # We are finished, don't wait for straggling SIGCHLDs (hopefully will not leave zombies)
+    exit 0;
+  }
+
+  if ($SmartAlarm) {		# Smart alarm enabled, check the down list to see if we really
+				# want to trigger an alarm
+
+    ($SmartAlarmDownCount, @SmartAlarmFailures) = &CheckAlarm($SmartAlarmConfig, %SmartAlarmString);
+    print DEBUGLOG "*** SmartAlarm Result: $SmartAlarmDownCount\n" if $Debug;
+
+    if ($SmartAlarmDownCount) { # Have alarm, exit with status 1
+      print DEBUGLOG "\n--------- Have Smart Alarm Failures - mon Data Below ---------\n" if $Debug;
+      @SortedFailures = sort @SmartAlarmFailures; # Sort to help mon in summary mode
+
+      $SummaryString = join ' ', @SortedFailures; # Double check failure list
+      $SummaryString =~ s/^\s+//;                 # Trim whitespace
+      $SummaryString =~ s/\s+$//;
+#      exit 0 if (length($SummaryString) <= 0);    # Require data in failure list
+
+      print "$SummaryString\n";                   # There were failures, list them
+      foreach $r (sort @Failures) { # Then provide details
+	print "$r $Sizes->{$r} bytes $Times->{$r} s  $FailureDetail{$r}\n";
+      }
+      print DEBUGLOG "\n--------- Exiting SmartAlarm mode with alert ---------\n\n" if $Debug;
+      exit 1;			# Indicate failure to mon
+    }
+
+    print DEBUGLOG "\n--------- No Failures Classified by SmartAlarm ---------\n" if $Debug;
+    print DEBUGLOG "\n--------- Exiting SmartAlarm mode ---------\n\n" if $Debug;
+    sleep 2;               # Allow SIGCHLDs to arrive
+    $SIG{CHLD} = 'IGNORE'; # We are finished, don't wait for straggling SIGCHLDs (hopefully will not leave zombies)
+    exit 0;
+  }
+
+# Regular alarm mode
+
+  print DEBUGLOG "\n--------- Have Failures - mon Data Below ---------\n" if $Debug;
+  @SortedFailures = sort @Failures; # Sort to help mon in summary mode
+
+  $SummaryString = join ' ', @SortedFailures; # Double check failure list
+  $SummaryString =~ s/^\s+//;                 # Trim whitespace
+  $SummaryString =~ s/\s+$//;
+#  exit 0 if (length($SummaryString) <= 0);    # Require data in failure list
+
+  print "$SummaryString\n";                   # There were failures, list them
+
+  foreach $r (@SortedFailures) { # Then provide details
+    print "$r $Sizes->{$r} bytes $Times->{$r} s  $FailureDetail{$r}\n";
+  }
+  print DEBUGLOG "\n--------- Exiting regular alarm mode with alert ---------\n\n" if $Debug;
+  exit 1;			# Indicate failure to mon
+}
+
+
+#
+# Pick apart the URL so that we can generate a log entry
+# compatible with previous versions
+#
+sub split_url {
+  my $r = shift;
+  my ($protocol, $host, $path, $proxy);
+
+  $r =~ /^(\w+):\/\/([^\/]+)\/?(.*?)@(.*)/;
+  $protocol = $1;
+  $host = $2; # Ends when '/' seen
+  $path = $3;
+  $proxy = $4;
+  if (length($path) < 1) {	# Set the path for logging purposes
+    $path = '/';		# we don't want an empty, space separated, field
+  }
+  return $protocol, $host, $path, $proxy;
+}
+

@@ -1,0 +1,83 @@
+# NAME
+#  ntservice.monitor - monitor NT service status with the Empire
+#  SystemEdge SNMP agent
+#
+#
+# SYNOPSIS
+#  ntservice.monitor [-vn] [-c community ] [-t timeout ]
+#      [-s "service string"] -u {automatic|manual|disabled} host...
+#
+#
+# ARGUMENTS
+#  -v  Runs in verbose mode, shows all SNMP output collected.
+#      Unsuitable for presentation to Mon but possibly useful
+#      for development/debugging.
+#
+#  -c  SNMP community string. Default is "public".
+#
+#  -t  SNMP timeout, in seconds.
+#
+#  -n  Negate option. Instead of testing if the service is running,
+#      instead test to make sure that the service is NOT running and/or
+#      not installed.
+#
+#  -s  Service string name. Case insensitive name of service to look for.
+#      This is the string that appears in the "Service" column of
+#      the WinNT "Services" control panel.
+#
+#  -u  Service startup type. Will be either "manual", "automatic", or
+#      "disabled." This is the string that appears in the "Startup" column
+#      of the WinNT "Services" control panel. If this option is not set,
+#      the service startup type is ignored.
+#
+#  host...
+#      Space separated list of hosts to monitor.
+#
+#
+#
+# EXAMPLE
+#  Check the MS SQL Server service on the hosts "ntdb1", "ntdb2" `.
+#  Report an error if the service is not running or if its restart
+#  status is not set to "automatic".
+#
+#      ntservice.monitor -c secret -S "MSSQLService" -u automatic ntdb1 ntdb2
+#
+#
+# DESCRIPTION
+#  ntservice.monitor monitors WinNT service status via the Empire
+#  SystemEdge SNMP agent. It is designed to be used as a monitor
+#  for the Mon package.
+#
+#  As such if any monitoring condition is not met, the script will report
+#  a non-zero error code and output 2+ lines of text. The first line of
+#  text will be a space-separated list of hosts which are in error,
+#  second and subsequent lines are detail output about exactly what
+#  went wrong (one error per line).
+#
+#  This script relies on several things:
+#   1) You must have the Empire SNMP set up and running on every machine that
+#   you want this script to run, and have that agent configured to
+#   be monitoring NT processes.
+#   2) You must have the Empire MIB placed in your mibs directory
+#   for your UCD implementation (by default this directory is
+#   /usr/local/share/snmp/mibs/). The dedicated could rewrite with
+#   numeric OID's, but far easier just to get the MIB, it is included
+#   with every package of Empire SystemEdge.
+#
+#
+# EXIT STATUS
+#  0   The command completed successfully.
+#  1   At least one hard failure (e.g. service is definitely in error)
+#       was detected.
+#  2   At least one soft failure (e.g., timeout, OID not found) was detected.
+#
+#
+# SEE ALSO
+#  http://www.kernel.org/pub/software/admin/mon/html/
+#  http://www.empire.com/
+#
+#
+# AUTHORS
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  $Id: ntservice.monitor.README,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#

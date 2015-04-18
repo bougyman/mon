@@ -1,0 +1,109 @@
+<!DOCTYPE HTML PUBLIC "-//IETF//DTD HTML//EN">
+<html> <head>
+<title>dtquery Demo</title>
+</head>
+
+<body bgcolor="#FFFFFF">
+<h1>dtquery Demo</h1>
+<hr>
+
+<p>This page shows samples of all of the graphs that dtquery produces,
+tells you what each graph depicts, and gives you some ideas to see how
+each graph can be interpreted.
+</p>
+
+<p>The graphs were produced by querying a mon server which watches,
+among other things, the ping and NNTP performance of @Home's news
+server news1.frmt1.sfba.home.com.</p>
+
+<p>The graphs are the following, in no particular order of importance:
+<ol>
+  <li><p><a href="HODgraph.html">Downtime by Hour of
+       Day</a> - Also known as &quot;The Bar Code Graph&quot;, this 
+       graph shows a binary representation of the state of the
+       service. Red 
+       means failure, white means OK. Unless your timeframe is very
+       small 
+       (1-2 days, or less), or you have very few failures, it may be hard to
+       get 
+       much out of this graph. But it is very good at showing you date
+       ranges to dig deeper within (or &quot;clumps&quot; of
+       failures). </p>
+       <p><b>Notice</b> that this graph doesn't tell you a lot with such a
+       long timeframe, although you can see distinctive clumps of
+       failures around Jan 20, and seemingly trouble-free operation
+       from about 17-Dec-2000 to early January. Perhaps the hardcore
+       news fiends responsible for pounding @Home's news server were
+       taking off for Christmas?</p>
+  </li>
+  <li><p><a href="TODgraph.html">Cumulative Downtime by Time of Day</a> -
+       This graph 
+       answers the question 
+       &quot;what time of day is this host/group/service spending the
+       most
+       time in the failure state?&quot;
+       </p>
+       <p><b>Notice</b> peaks in this graph at about noon and 2AM, and a
+       trough around 7PM. The 2AM makes sense, since I can imagine
+       that would be a time of low usage (and hence network
+       maintenance), but the noon peak is puzzling. Perhaps they tend
+       to get overloaded around noon?</p>
+  </li>
+  <li><p><a href="DOWgraph.html">Cumulative Downtime by Day of Week</a> -
+       This 
+       graph answers the question 
+       &quot;what day of the week is this host/group/service spending
+       the most 
+       time in the failure state?&quot;</p>
+       <p><b>Notice</b> a big peak here on Thursdays, with smaller peaks on
+       Wed and Fri. Perhaps @Home does most of their news server
+       maintenance 
+       on Thursdays?</p>
+  </li>
+  <li><p><a href="FTDgraph.html">Failure Time Distribution</a> - This
+       graph shows you the exact 
+       distribution of your failure times, in minutes, on a
+       logarithmic 
+       scale. It answers the questions &quot;Are most of my failures
+       short? Long? Is there a discernible pattern?&quot;</p>
+       <p><b>Notice</b> most of the failures here are 5 minutes long, which
+       makes sense, since we test this hostgroup every 5
+       minutes. There are some
+       longer failures out in the 1 hour range and beyond, though.</p>
+  </li>
+  <li><p><a href="SVCgraph.html">Cumulative Downtime by Service</a> - 
+       This graph answers the question  
+       &quot;For a given group or groups, how is my downtime
+       distributed among
+       various services?&quot; For example, how much time has your
+       HTTP
+       service 
+       failed relative to the ping service?</p>
+       <p><b>Notice</b> here a lot more time (about 3x) in NNTP failure than
+       in ping 
+       failure. Which makes sense, judging from my own experience with
+       most ISP's news servers...</p>
+  </li>
+       
+  <li><p><a href="GRPgraph.html">Cumulative Downtime by Group</a> - This
+       graph answers the question 
+       &quot;For a given service or services, how is my downtime
+       distributed among 
+       different hostgroups?&quot; For example, which are the groups with
+       the most minutes spent in the failure state?</p>
+       <p><b>Notice</b> that this graph is really boring, since we only
+       searched on one hostgroup to create these graphs. But if you
+       search on a single
+       service (e.g. 'ping') across multiple hostgroups, this can
+       yield interesting results.</p>
+  </li>
+</ol>
+</p>
+
+<p>
+</p>
+
+<hr>
+<address><a href="mailto://andrewr@nam-shub.com">Andrew Ryan &lt;andrewr@nam-shub.com&gt;</a><br><i>$Id: index.html,v 1.1.1.1 2005/02/18 17:52:22 trockij Exp $</i></address>
+<!-- hhmts start --> Last modified: Fri Feb  2 14:41:30 PST 2001 <!-- hhmts end -->
+</body> </html>

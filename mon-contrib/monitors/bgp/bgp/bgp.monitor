@@ -1,0 +1,206 @@
+#!/usr/bin/perl
+#
+# Router bgp (Border Gateway Protocol v4 ) monitor
+# look at each router and get the status of all is BGP neigbor
+#
+# Version 1.1 (7 april 2005)
+# 
+# Copyright 2002, Marc Hauswirth, Safe Host SA <marc@safehostnet.com>
+#
+# License: GNU GPL v2, see http://www.gnu.org/copyleft/gpl.html
+#
+# Some inspiration is taked from others mon monitors and from
+# routerinfo.pl by Ben Buxton (bb@zipworld.net), also under GPL, see http://www.zipworld.com.au/~bb/linux/
+# and from routerint.monitor by P. Strauss (philou@philou.ch) and me self (marc@safehostnet.com).
+#
+# This script works nice for me with Cisco routers (7xxx) and Cisco L3 switchs (65xx).
+#
+# Fell free to send me your comments to marc@safehostnet.com
+#
+# This script need the SNMP Session module from Simon Leinen <simon@switch.ch>
+#   Wich you could found under http://www.switch.ch/misc/leinen/snmp/perl/
+#   It is also part of MRTG (http://people.ee.ethz.ch/~oetiker/webtools/mrtg/)
+
+# updated 7 April 2005 by Ed Ravin, <eravin@panix.com>
+# use normal Mon summary / detail reporting
+# accept SNMP community via environment var COMMUNITY
+# detect SNMP errors
+
+use SNMP;
+use SNMP_Session;
+use strict;
+
+## -- should be a command-line option, but this is sufficient (and safer,
+## since the community won't be displayed in the Mon interface to users)
+my $community = $ENV{'COMMUNITY'} || "public";
+
+## --
+
+my @failures;
+my @details;
+
+$ENV{'MIBS'}= ""; # all OIDs needed are specified in script
+
+# OID's to the SNMP elements that I want to show...
+# From Cisco's MIB and RFC's
+# http://sunsite.cnlab-switch.ch/ftp/doc/standard/rfc/16xx/1657
+# http://www.telecomm.uh.edu/stats/rfc/BGP4-MIB.html
+
+my %oids = ( 
+	"SysUptime"			=>	"1.3.6.1.2.1.1.3.0",
+	"bgpVersion"			=>	"1.3.6.1.2.1.15.1.0",
+	"bgpLocalAs"			=>	"1.3.6.1.2.1.15.2.0",
+
+#	"bgpPeerTable"			=>	"1.3.6.1.2.1.15.3",
+	"bgpPeerEntry"			=>	"1.3.6.1.2.1.15.3.1",
+	"bgpPeerIdentifier"		=>	"1.3.6.1.2.1.15.3.1.1",
+	"bgpPeerState"			=>	"1.3.6.1.2.1.15.3.1.2",
+	"bgpPeerAdminStatus"		=>	"1.3.6.1.2.1.15.3.1.3",
+	"bgpPeerNegotiatedVersion"	=>	"1.3.6.1.2.1.15.3.1.4",
+	"bgpPeerLocalAddr"		=>	"1.3.6.1.2.1.15.3.1.5",
+	"bgpPeerLocalPort"		=>	"1.3.6.1.2.1.15.3.1.6",
+	"bgpPeerRemoteAddr"		=>	"1.3.6.1.2.1.15.3.1.7",
+	"bgpPeerRemotePort"		=>	"1.3.6.1.2.1.15.3.1.8",
+	"bgpPeerRemoteAs"		=>	"1.3.6.1.2.1.15.3.1.9",
+	"bgpPeerInUpdates"		=>	"1.3.6.1.2.1.15.3.1.10",
+	"bgpPeerOutUpdates"		=>	"1.3.6.1.2.1.15.3.1.11",
+	"bgpPeerInTotalMessages" 	=>	"1.3.6.1.2.1.15.3.1.12",
+	"bgpPeerOutTotalMessages" 	=>	"1.3.6.1.2.1.15.3.1.13",
+	"bgpPeerLastError"		=>	"1.3.6.1.2.1.15.3.1.14",
+	"bgpPeerFsmEstablishedTransitions" =>	"1.3.6.1.2.1.15.3.1.15",
+	"bgpPeerFsmEstablishedTime"	=>	"1.3.6.1.2.1.15.3.1.16",
+	"bgpPeerConnectRetryInterval"	=>	"1.3.6.1.2.1.15.3.1.17",
+	"bgpPeerHoldTime"		=>	"1.3.6.1.2.1.15.3.1.18",
+	"bgpPeerKeepAlive"		=>	"1.3.6.1.2.1.15.3.1.19",
+	"bgpPeerHoldTimeConfigured"	=>	"1.3.6.1.2.1.15.3.1.20",
+	"bgpPeerKeepAliveConfigured"	=>	"1.3.6.1.2.1.15.3.1.21",
+	"bgpPeerMinASOriginationInterval" =>	"1.3.6.1.2.1.15.3.1.22",
+	"bgpPeerMinRouteAdvertisementInterval" => "1.3.6.1.2.1.15.3.1.23",
+	"bgpPeerInUpdateElapsedTime" 	=>	"1.3.6.1.2.1.15.3.1.24",
+	"bgpIdentifier"			=>	"1.3.6.1.2.1.15.4",
+	"bgpRcvdPathAttrTable"		=>	"1.3.6.1.2.1.15.5",
+	"bgp4PathAttrTable"		=>	"1.3.6.1.2.1.15.6",
+	"bgpPathAttrEntry"		=>	"1.3.6.1.2.1.15.5.1",
+	"bgpPathAttrPeer"		=>	"1.3.6.1.2.1.15.5.1.1",
+	"bgpPathAttrDestNetwork"	=>	"1.3.6.1.2.1.15.5.1.2",
+	"bgpPathAttrOrigin"		=>	"1.3.6.1.2.1.15.5.1.3",
+	"bgpPathAttrASPath"		=>	"1.3.6.1.2.1.15.5.1.4",
+	"bgpPathAttrNextHop"		=>	"1.3.6.1.2.1.15.5.1.5",
+	"bgpPathAttrInterASMetric"	=>	"1.3.6.1.2.1.15.5.1.6",
+	"bgp4PathAttrEntry"		=>	"1.3.6.1.2.1.15.6.1",
+	"bgp4PathAttrPeer"		=>	"1.3.6.1.2.1.15.6.1.1",
+	"bgp4PathAttrIpAddrPrefixLen"	=>	"1.3.6.1.2.1.15.6.1.2",
+	"bgp4PathAttrIpAddrPrefix"	=>	"1.3.6.1.2.1.15.6.1.3",
+	"bgp4PathAttrOrigin"		=>	"1.3.6.1.2.1.15.6.1.4",
+	"bgp4PathAttrASPathSegment"	=>	"1.3.6.1.2.1.15.6.1.5",
+	"bgp4PathAttrNextHop"		=>	"1.3.6.1.2.1.15.6.1.6",
+	"bgp4PathAttrMultiExitDisc"	=>	"1.3.6.1.2.1.15.6.1.7",
+	"bgp4PathAttrLocalPref"		=>	"1.3.6.1.2.1.15.6.1.8",
+	"bgp4PathAttrAtomicAggregate"	=>	"1.3.6.1.2.1.15.6.1.9",
+	"bgp4PathAttrAggregatorAS"	=>	"1.3.6.1.2.1.15.6.1.10",
+	"bgp4PathAttrAggregatorAddr"	=>	"1.3.6.1.2.1.15.6.1.11",
+	"bgp4PathAttrCalcLocalPref"	=>	"1.3.6.1.2.1.15.6.1.12",
+	"bgp4PathAttrBest"		=>	"1.3.6.1.2.1.15.6.1.13",
+	"bgp4PathAttrUnknown"		=>	"1.3.6.1.2.1.15.6.1.14",
+	);
+
+
+my %BgpPeerState = (
+	1 => "idle",
+	2 => "connect",
+	3 => "active",
+	4 => "opensnet",
+	5 => "openconfirm",
+	6 => "established"
+	);
+
+my %BgpAdminStatus = (
+	1 => "stop",
+	2 => "start",
+	);
+
+
+my %state;
+
+foreach my $router (@ARGV) {
+	# Get some infos about this router
+	my $sess = new SNMP::Session ( DestHost => $router, Community => $community );
+	if (!defined($sess))
+	{
+		push @failures, $router;
+		push @details, "$router: cannot create SNMP session";
+		next;
+	}
+	my $bgpLocalAs = $sess->get("\." . $oids{bgpLocalAs});
+	if ($sess->{ErrorNum})
+	{
+		push @failures, $router;
+		push @details, "$router: error on initial SNMP get: $sess->{ErrorStr}";
+		next;
+	}
+	
+	my $bgpIdentifier = $sess->get("\." . $oids{bgpIdentifier} . ".0");
+	if ($sess->{ErrorNum})
+	{
+		push @failures, $router;
+		push @details, "$router: error on subsequent SNMP get: $sess->{ErrorStr}";
+		next;
+	}
+
+	push @details, "$router (AS $bgpLocalAs) Id : $bgpIdentifier";
+
+	# Get through the SNMP tree to fetch all peer infos
+	my $vars  = new SNMP::VarList([$oids{bgpPeerIdentifier}],[$oids{bgpPeerRemoteAs}],[$oids{bgpPeerState}],[$oids{bgpPeerFsmEstablishedTime}],[$oids{bgpPeerAdminStatus}], [$oids{bgpPeerRemoteAddr}]);
+	for (my @vals = $sess->getnext($vars);
+			$vars->[0]->tag =~ /15\.3\.1\.1/       # still in table (Did you have a cleaner solutions ?)
+			and 
+			not $sess->{ErrorStr};          # and not end of mib or other error
+			@vals = $sess->getnext($vars))
+		{
+		my $textState = $BgpPeerState{$vals[2]};
+		my $texttime = sectotime($vals[3]);
+		push @details, sprintf("$router:   Neighbor %-16s  AS %-5u   status : %-15s   since : %-16s",$vals[5], $vals[1], $textState, $texttime); 
+
+		# if bgpPeerState != established and bgpPeerAdminStatus == start
+		if ($vals[2] != 6 and $vals[4] == 2) {
+			push @failures, $router;
+			push @details, "$router: Neighbor relation: $vals[5] (AS $vals[1]) is in state $textState ";
+		};
+	}
+}
+
+if (@failures) {
+	print join(' ', @failures), "\n";
+};
+if (@details) {
+	print "\n";
+	print join("\n", @details), "\n";
+}
+
+if (@failures) {
+	# Error state exit
+	exit 1;
+} else {
+	# Correct exit
+	exit 0;
+};
+
+# Transform secondes into a readable format (NNNdNNhNNm).
+sub sectotime {
+	my($sec) = @_;
+	my $texttime = "";
+	if ($sec >= 86400) {
+		$texttime = int($sec/86400) . "d";
+		$sec -= int($sec/86400)*86400;
+	};
+
+	if ($sec >= 3600) {
+		$texttime .= int($sec/3600) ."h";
+		$sec -= int($sec/3600)*3600;
+	} else {
+		$texttime .= "0h";
+	}
+	
+	$texttime .= int($sec/60) . "min";
+	return ($texttime);
+};

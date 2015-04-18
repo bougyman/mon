@@ -1,0 +1,101 @@
+#!/usr/bin/perl
+#
+# Monitor diskspace via SNMP
+# (based on process.monitor by Brian Moore)
+#
+# Arguments are:
+#
+# [-c community] host [host ...]
+#
+# This script will exit with value 1 if host:community has dskErrorFlag
+# set.  The summary output line will be the host names that failed
+# and the disk information.  The detail lines are what UCD snmp returns
+# for an dskErrMessage. ('/filesystem: less than WATERMARK free (= CURRENT)').
+# If there is an SNMP error (either a problem with the SNMP libraries,
+# or a problem communicating via SNMP with the destination host),
+# this script will exit with a warning value of 2.
+#
+# There probably should be a better way to specify a given filesystem to
+# watch instead of everything-ucd-snmp-is-watching.
+#
+# $Id: netsnmp-freespace.monitor,v 1.2 2005/03/18 19:25:27 trockij Exp $
+#
+#
+#    Copyright (C) 2001 SATOH Fumiyasu <fumiya@samba.gr.jp>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Std;
+
+$ENV{'MIBS'} = "UCD-SNMP-MIB";
+
+getopts("c:");
+$community = $opt_c || $ENV{'COMMUNITY'} || 'public';
+
+$RETVAL = 0;
+
+foreach $host (@ARGV) {
+    $session = new SNMP::Session(DestHost => $host,
+                                 Community => $community);
+    if (!defined ($session)) {
+    	$RETVAL = ($RETVAL == 1) ? 1 : 2;
+	push @failures, "$host session error";
+	push @longerr, "$host could not get SNMP session";
+	next;
+    }
+
+    my $v = new SNMP::Varbind (["dskIndex"]);
+    $session->getnext ($v);
+
+    while (!$session->{"ErrorStr"} && $v->tag eq "dskIndex") {
+	my @q = $session->get ([
+	    ["dskPath", $v->iid],	# 0
+	    ["dskDevice", $v->iid],	# 1
+	    ["dskMinimum", $v->iid],	# 2
+	    ["dskMinPercent", $v->iid],	# 3
+	    ["dskTotal", $v->iid],	# 4
+	    ["dskAvail", $v->iid],	# 5
+	    ["dskUsed", $v->iid],	# 6
+	    ["dskPercent", $v->iid],	# 7
+	    ["dskPercentNode", $v->iid],# 8
+	    ["dskErrorFlag", $v->iid],	# 9
+	    ["dskErrorMsg", $v->iid],	# 10
+	]);
+
+	last if ($session->{"ErrorStr"});
+
+        if ($q[9] > 0) {
+	    $RETVAL = 1;	    
+	    my ($t, $u, $a) = map { int($_/1024) } @q[4, 6, 5];
+    	    push (@failures, $host);
+            push (@longerr, "$host:$q[0]($q[1]) total=$t used=$u($q[7]%) free=$a err=$q[10]");
+        }
+
+	$session->getnext ($v);
+    }
+
+    if ($session->{"ErrorStr"}) {
+    	push (@failures, $host);
+	push (@longerr, "$host returned an SNMP error: " . $session->{"ErrorStr"});
+    }
+}
+
+if (@failures) {
+    print join (", ", @failures), "\n", "\n";
+    print join ("\n", @longerr), "\n";
+}
+
+exit $RETVAL;

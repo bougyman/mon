@@ -1,0 +1,19 @@
+Subject: 
+         yet another http/https monitor
+   Date: 
+         Mon, 20 Mar 2000 21:39:13 -0500
+   From: 
+         Daniel Hagerty <hag@linnaean.org>
+     To: 
+         <mon@linux.kernel.org>
+
+
+
+
+    None of the http monitors did quite what I needed, and I didn't
+feel like doing much wheel reinventing.
+
+    Uses LWP, so it gets lots of features with little work.  Tested to
+be useful for http, https, and ftp.
+
+    Hope it's useful.

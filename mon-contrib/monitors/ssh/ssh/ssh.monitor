@@ -1,0 +1,62 @@
+#!/usr/bin/perl
+#
+# Connect to a remote SSH server using the 'ssh' command.
+#
+# $Id: ssh.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+#   Written by Steven F. Siirila, sfs@umn.edu.
+#
+#   Copyright (c) 2000 Regents of the University of Minnesota.
+#   All rights reserved.
+#
+#   Permission to use, copy, modify, and distribute this software and
+#   documentation without fee is hereby granted, provided that the
+#   University of Minnesota copyright notices and this permission notice
+#   appear in all copies, and that the name University of Minnesota not
+#   be used in advertising or publicity pertaining to this software and
+#   documentation without specific, written prior permission.
+# 
+#   The University of Minnesota makes no representations about the
+#   suitability of this software and documentation for any purpose.
+#   It is provided ``as is'' without express or implied warranty.
+#
+
+foreach $host (@ARGV) {
+    system("fping -q -r 3 -t 2000 $host 2>/dev/null");
+    $status = $? / 256;
+    next if $status;            # ignore hosts which are not pingable
+    $errmsg = `ssh $host /usr/bin/true 2>&1`;
+    chomp($errmsg);
+    $rc = $?;
+    if ($rc == 0) {
+        next;
+    } elsif ($rc == 0xff00) {
+        &alert("ssh command failed");
+    } elsif ($rc > 0x80) {
+        $rc >>= 8;
+        &alert("exited with status $rc");
+    } elsif ($rc & 0x80) {
+        $rc &= ~0x80;
+        &alert("exited with coredump from signal $rc");
+    } else {
+        &alert("exited with signal $rc");
+    }
+}
+
+exit 0 unless %failures;
+
+print join(' ', sort keys %failures), "\n";
+
+foreach $id (sort keys %failures) {
+    print $failures{$id};
+}
+
+exit 1;
+
+
+sub alert {
+    my($msg) = @_;
+    $failures{$host} .= "${host}:";
+    $failures{$host} .= $errmsg if $errmsg;
+    $failures{$host} .= "$msg\n";
+}

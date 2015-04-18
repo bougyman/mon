@@ -1,0 +1,349 @@
+#!/usr/local/bin/perl -w
+#
+# NAME
+#  gen-hosts
+#
+#
+# SYNOPSIS
+#  gen-hosts [-hFMv] [-f /path/to/hostfile] [-c /path/to/mon.cf] 
+#            [-C /path/to/cf-to-hosts] [-s /path/to/hosts-stub-file]
+#            [-p max pct difference in hostfile entries]
+#
+#
+# OPTIONS
+#  -h  Prints out a help/usage message.
+#
+#  -F  Force a rebuild of the hostfile, even if the number of
+#      entries in the new hostfile differs by more than the 
+#      specified allowable maximum percent difference.
+#      If you run this script out of cron, don't use the -F option,
+#      it will give you a world of hurt if your nameserver isn't 
+#      responding at the time you're doing your cf-to-hosts run.
+#
+#  -M  The specified mon config file (in the -c option) should
+#      be pre-processed by m4.
+#
+#  -v  Verbose mode. Print a lot of information about what
+#      gen-hosts is doing.
+#
+#  -C  Path to the cf-to-hosts script.
+#      Default is /usr/lib/mon/util/cf-to-hosts
+#
+#  -p  Maximum percentage difference in hostfile entries.
+#      Must be a number from 0 to 100.
+#
+#  -c  Path to the mon config file you would like to process.
+#      Default is /etc/mon.cf
+#
+#  -f  Path to the host file you wish to overwrite.
+#      Default is /etc/hosts
+#
+#  -s  Path to the host file stub you wish to use.
+#      Default is /etc/hosts.stub
+#
+#
+# DESCRIPTION
+#  cf-to-hosts, which ships with mon, is a very useful utility
+#  for creating a hosts file from a mon config file, eliminating
+#  your dependence on DNS being up for mon to work at all. If you 
+#  have ever lost your DNS server while mon is running and you
+#  haven't been running cf-to-hosts, you know what I'm talking 
+#  about. If you haven't, consider yourself lucky and keep reading.
+#
+#  The problem is that most people don't run cf-to-hosts ever, 
+#  and if they do, it's on an "as remembered" basis. Running
+#  cf-to-hosts on an as-remembered basis only can also get
+#  you in trouble as hosts are renamed in DNS, and not picked
+#  up in mon. Suddenly the web server you were pinging turns out
+#  now to be someone's desktop PC!
+#
+#  You can run cf-to-hosts out of cron to regenerate the hosts file
+#  every night, but what if DNS is down while we're running 
+#  cf-to-hosts? That would also be bad...
+#
+#  gen-hosts attempts to help you use cf-to-hosts by "wrapping" it
+#  nicely and also providing some consistency checking. With 
+#  gen-hosts, you can easily and safely regenerate your hosts 
+#  file both interactively and from cron.
+#
+#  gen-hosts builds a hosts file from 2 pieces:
+#   1) A stub file, default named "/etc/hosts.stub", containing
+#      any host information that you want to have for basic system 
+#      operation.
+#   2) A dynamic portion, which is generated using cf-to-hosts, 
+#      containing all of the hosts referred to in the specified 
+#      mon config file
+#
+#  Then gen-hosts copies this newly built host file over the old one,
+#  and yes, there's some locking so gen-hosts jobs won't conflict.
+#  Nothing's going to stop other superusers from mucking up the
+#  hosts file though, so be sure all admins are aware that that
+#  hand-editing the hosts file on the mon server should not be done!
+#
+#  This script should be run as root, for obvious reasons.
+#
+#
+# USAGE NOTES
+#  1) Create a host file "stub", the default name for this is 
+#     /etc/hosts.stub, but you can pick whatever you want and specify
+#     it via the -s option. The contents of this file should be
+#     the bare minimum, mon-independent hostfile entries you need,
+#     for example, localhost, loghost, and perhaps a YP server or the 
+#     like. A sample host stub file is included in the distribution.
+#  2) It's a good idea to run this script:
+#     a) When your mon configuration changes (just in case), and
+#     b) Regularly, via cron, to catch DNS changes
+#  3) If you're running this script from cron, don't use the -F option!
+#
+#
+# SEE ALSO
+#  cf-to-hosts, found in mon:
+#   http://www.kernel.org/software/mon/
+#
+#
+# AUTHOR
+#  Andrew Ryan <andrewr@nam-shub.com>
+#  Copyright 2000, Andrew Ryan
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+#------------------------------------------------------------------
+# $Id: gen-hosts,v 1.1.1.1 2005/02/18 17:52:21 trockij Exp $
+#------------------------------------------------------------------
+#
+
+
+use strict;
+use Getopt::Std;
+
+use vars qw /$opt_h $opt_F $opt_M $opt_s $opt_c $opt_C $opt_f $opt_v $opt_p/;
+
+getopts('hFMvs:c:C:f:p:') || &printUsage;
+
+&printUsage if $opt_h;
+
+sub printUsage {
+    print <<EOF;
+Usage:
+gen-hosts [-hFMv] [-f /path/to/hostfile] [-c /path/to/mon.cf]
+          [-C /path/to/cf-to-hosts] [-s /path/to/hosts-stub-file]
+          [-p max pct difference in hostfile entries]
+
+EOF
+    exit 1;
+}
+
+# This is the file where we keep the hostfile stub
+my $host_stub_file = $opt_s || "/etc/hosts.stub";
+# This is the path to cf-to-hosts
+my $cf_to_hosts = $opt_C || "/usr/lib/mon/util/cf-to-hosts";
+# Whether or not to use m4 with cf-to-hosts
+my $use_m4 = $opt_M ? "-M" : "";
+# Location of the mon config file
+my $mon_cf = $opt_c || "/etc/mon.cf";
+# Location of hosts file on system
+my $hosts_file = $opt_f || "/etc/hosts";
+# Percent change of hostfile entries beyond which to raise an alarm
+my $percent_change_max = $opt_p || 10;
+
+#
+# Check to make sure $opt_p is sane
+#
+if ( ($percent_change_max < 0) || ($percent_change_max > 100) ) {
+    print STDERR "Max percent change '$percent_change_max' must be a number between 1 and 100.\nExiting.";
+    exit 1;
+}
+
+
+my (@old_hosts_file, @new_hosts_file, @new_hosts_file_stub, @union, @intersection, @difference, $element, %count, $percent_difference);
+
+my $begin_cf_to_hosts_marker = "# BEGIN cf-to-hosts";
+
+#
+# Read in the host stub and exit if it is not found
+#
+if ( open( STUB , "<$host_stub_file") ) {
+    #
+    # Read in the file verbatim
+    #
+    while (<STUB>) {
+	push(@new_hosts_file_stub , $_);
+    }
+    close STUB;
+} else {
+    print STDERR "Unable to open host stub file '$host_stub_file': $!\n";
+    print STDERR "Exiting.\n";
+    exit 1;
+}
+
+#
+# Check to make sure mon cf file is found and is readable
+#
+unless ( -r $mon_cf) {
+    print STDERR "mon config file '$mon_cf' not readable: $!\n";
+    print STDERR "Exiting.\n";
+    exit 1;
+}
+
+
+#
+# Check to make sure cf-to-hosts is found and is executable
+#
+unless ( -r $cf_to_hosts) {
+    print STDERR "cf-to-hosts program '$cf_to_hosts' not found or not executable: $!\n";
+    print STDERR "Exiting.\n";
+    exit 1;
+}
+
+#
+# Read in old hosts file to parse it and find out how many hosts 
+# were placed in it by cf-to-hosts
+#
+if (open(HOSTS , "< $hosts_file") ) {
+    while (<HOSTS>) {
+	#
+	# Look through the hosts file until the marker denoting the
+	# beginning of the cf-to-hosts section is found.
+	# Then assume that everything after that in the hosts file
+	# is from cf-to-hosts.
+	#
+	if ( /^$begin_cf_to_hosts_marker$/ ) { #we found the beginning of the cf-to-hosts section
+	    while (<HOSTS>) {
+		push(@old_hosts_file , $_);
+	    }
+	}
+    }
+    close HOSTS;
+} else {
+    print STDERR "Unable to open hosts file $hosts_file: $!\n";
+    exit 1;
+}
+
+
+
+
+#
+# Run cf-to-hosts and put the results in a variable
+#
+if ( open( CFTOHOSTS , "$cf_to_hosts $use_m4 $mon_cf | ") ) {
+    while (<CFTOHOSTS>) {
+	push(@new_hosts_file , $_);
+    }
+    if (close CFTOHOSTS) {  #check for proper completion of the command
+	print "cf-to-hosts command '$cf_to_hosts $use_m4 $mon_cf' completed OK\n" if $opt_v;
+    } else {
+	print STDERR "cf-to-hosts command '$cf_to_hosts' returned error '$!', exiting.\n";
+	exit 1;
+    }
+} else {
+    print STDERR "Unable to run cf-to-hosts $cf_to_hosts: $!\n";
+    exit 1;
+}
+
+
+#
+# Figure out the difference between the old hosts file and the new 
+# (not yet committed) hosts file
+#
+@union = @intersection = @difference = ();
+%count = ();
+foreach $element (@old_hosts_file, @new_hosts_file) { $count{$element}++ }
+foreach $element (keys %count) {
+    push @union, $element;
+    push @{ $count{$element} > 1 ? \@intersection : \@difference }, $element;
+}
+
+
+
+#
+# Compute the percentage difference between the old and new configs
+#
+$percent_difference = scalar(@old_hosts_file) > 0 ? scalar(@difference) / scalar(@old_hosts_file) * 100 : 100 ;
+if ( $percent_difference > $percent_change_max ) {
+    if ($opt_F) {  #Go ahead, we don't care if the files are too different
+	printf("New config is %.1f%% different (%d entries) from the original,\n  but force mode was selected, continuing.\n", $percent_difference, scalar(@difference)) ;
+    } else {  #Stop, files are too different
+	printf STDERR ("New config is %.1f%% different (%d entries) from the original,\n  and the allowable maximum is %d%%\n", $percent_difference, scalar(@difference), $percent_change_max);
+	print STDERR "If this is OK, re-run the script with the -F option to ignore this error.\n";
+	exit 1;
+    }
+} else {
+    printf("New config is only %.1f%% different (%d entries) from the original, continuing.\n", $percent_difference, scalar(@difference)) if $opt_v;
+}
+
+
+#
+# Check for an existing lock on the hosts file
+#
+if (-e "$hosts_file.lock") {
+    print STDERR "A lockfile '$hosts_file.lock' was found.\nAnother gen-hosts job is likely running.\nPlease try again in a few moments, or delete this file if you\n  are sure that it no gen-hosts job is currently running.\n";
+    exit 1;
+} else {
+    print "No existing host lock file found.\n" if $opt_v;
+}
+
+
+#
+# Lock the hosts file
+#
+if ( open(HLOCK , ">$hosts_file.lock") ) {
+    print "Created lockfile $hosts_file.lock\n" if $opt_v;
+    close HLOCK;
+} else {
+    print STDERR "Unable to create lockfile $hosts_file.lock: $!\nExiting.\n";
+    exit 1;
+}
+
+
+#
+# Commit the new hosts file
+#
+if ( open(NEWHOSTS , ">$hosts_file") ) {
+    # Print the stub first
+    print NEWHOSTS @new_hosts_file_stub;
+
+    # Then print out the delimiter
+    print NEWHOSTS <<EOF;
+#
+# Anything below this line will be blown away the next time cf-to-hosts
+# is run! 
+#
+# Please see the script $0 for more information about cf-to-hosts
+$begin_cf_to_hosts_marker
+EOF
+
+    # Now print the new config
+    print NEWHOSTS @new_hosts_file;
+
+    #close out
+    close NEWHOSTS;
+    print "New hosts file committed OK\n" if $opt_v;
+} else {  #something went wrong (maybe you're not root?)
+    print STDERR "Unable to open host file $hosts_file for writing:$!\n";
+    exit 1;
+}    
+
+
+
+#
+# Unlock the hosts file
+#
+if ( unlink("$hosts_file.lock") ) {
+    print "Removed lock file $hosts_file.lock\n" if $opt_v;
+} else {
+    print STDERR "Unable to remove lockfile $hosts_file.lock: $!\n";
+    print STDERR "You must remove this file manually.\n";
+    exit 1;
+}

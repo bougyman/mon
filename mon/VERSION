@@ -1,0 +1,10 @@
+$Name:  $
+
+$Log: VERSION,v $
+Revision 1.2  2004/11/15 14:45:16  vitroth
+Pulling lots of changes from the 1.0.0pre* branch into the HEAD, to prepare
+to tag mon-1.1pre1
+
+Revision 1.1.1.1.2.1  2004/06/12 18:17:57  trockij
+added some rcs tags to identify the file versions
+

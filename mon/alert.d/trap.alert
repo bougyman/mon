@@ -1,0 +1,78 @@
+#!/usr/bin/perl
+#
+# Trap alert, for use with mon-0.38pre* and greater.
+#
+# Specify user and pass via MON_TRAP_USER (-U) and MON_TRAP_PASS (-P)
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: trap.alert,v 1.3 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use Mon::Client;
+use Socket;
+
+getopts ("s:g:h:t:l:o:uU:P:T:");
+
+
+$summary=<STDIN>;
+chomp $summary;
+
+$detail = "";
+while (<STDIN>) {
+    $detail .= $_;
+}
+chomp $detail;
+
+$t = time;
+
+$USER = ($ENV{"MON_TRAP_USER"} || $opt_U) || "";
+$PASS = ($ENV{"MON_TRAP_PASS"} || $opt_P) || "";
+$OPST = defined $ENV{"MON_OPSTATUS"} ? $ENV{"MON_OPSTATUS"} : 0;
+
+if ($opt_o) {
+    $OPST = int ($opt_o);
+}
+
+foreach $op (keys %Mon::Client::OPSTAT) {
+  $OPSTATUS = $op if ($Mon::Client::OPSTAT{$op} == $OPST);
+}
+
+$c = new Mon::Client (
+		      port => getservbyname ('mon', 'udp') || 2583,
+		      );
+
+$c->user($USER) if ($USER);
+$c->password($PASS) if ($PASS);
+foreach $host (@ARGV) {
+  $c->host($host);
+		  
+  $res = $c->send_trap( group => $ENV{MON_GROUP},
+			service => $ENV{MON_SERVICE},
+			retval => $ENV{MON_RETVAL},
+			opstatus => $OPSTATUS,
+			summary => $summary,
+			detail => $detail,
+		      );
+  print STDERR "Error sending trap to $host\n" if (!$res);
+  print STDERR "Error is: ". $c->error() . "\n" if (!$res);
+
+}
+
+exit;

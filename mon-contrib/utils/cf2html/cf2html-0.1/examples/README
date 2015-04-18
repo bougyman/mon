@@ -1,0 +1,7 @@
+This directory contains 2 example cf2html-produced files, 
+one from the example.cf shipped with mon, and the other 
+from the example.m4 shipped with mon. 
+
+While they are pretty sparse and don't show off all of
+cf2html's features, they should provide a good indicator
+of what the basic format looks like.

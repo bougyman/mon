@@ -1,0 +1,105 @@
+#!/usr/bin/perl
+#
+# SNMP monitoring of HP JetDirect-equipped printers
+#
+# returns 1 if an actual printer failure is indicated by SNMP,
+# or 2 if it cannot communicate with the printer.
+#
+# Jim Trocki
+#
+# $Id: hpnp.monitor,v 1.1.1.1 2004/06/09 05:18:05 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Long;
+
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i", "lpq");
+
+die "no host arguments\n" if (@ARGV == 0);
+
+$RET = 0;
+@ERRS = ();
+
+$COMM = $opt{"community"} || "public";
+$TIMEOUT = $opt{"timeout"} * 1000 * 1000 || 2000000;
+$RETRIES = $opt{"retries"} || 5;
+
+@DESC = ("offline", "paper problem", "needs human intervention",
+    "peripheral error", "paper out", "paper jam", "toner low");
+
+
+foreach $host (@ARGV) {
+    undef $s;
+    if (!defined($s = new SNMP::Session (DestHost => $host,
+    		Timeout => $TIMEOUT, Community => $COMM,
+		"Version" => 2,
+		Retries => $RETRIES))) {
+	print "cannot create SNMP session to $host\n";
+	$RET = ($RET == 1) ? 1 : 2;
+	next;
+    }
+
+    undef $vars;
+    $vars = new SNMP::VarList (
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.1', 0],	# line state
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.2', 0],	# paper state
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.3', 0],	# human intervention
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.6', 0], # gdStatusPeripheralError
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.8', 0], # gdStatusPaperOut
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.9', 0], # gdStatusPaperJam
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.2.10', 0], # gdStatusTonerLow
+    	['.1.3.6.1.4.1.11.2.3.9.1.1.3', 0], # gdStatusDisplay
+    );
+
+    if (!defined ($s->get($vars))) {
+	push (@hosts, $host);
+    	push (@ERRS, "$host unreachable\n\n");
+	$RET = ($RET == 1) ? 1 : 2;
+	next;
+    }
+
+    $display = ${$vars}[7]->val;
+
+    $h = 0;
+    @H = ();
+    for ($i = 0; $i< 6; $i++) {
+	if (${$vars}[$i]->val) {
+	    push (@H, @DESC[$i]);
+	    $RET = 1;
+	    $h = 1;
+	}
+    }
+
+    if ($h) {
+    	push (@hosts, $host);
+    }
+
+    if (@H > 0) {
+	push (@ERRS, "$host\n" . "-" x length($host) . "\n" .
+		join ("\n", @H, "\n"));
+	push (@ERRS, "display reads:\n$display\n\n");
+    }
+}
+
+if (@hosts > 0) {
+    print join (" ", sort @hosts), "\n";
+    print "\n";
+    print @ERRS;
+}
+
+exit $RET;

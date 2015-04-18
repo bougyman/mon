@@ -1,0 +1,160 @@
+#!/usr/bin/perl
+
+# readdir.monitor
+# Return a list of directories that contains more than given files numbers
+
+# For use with "mon" or stand alone.
+#
+
+#
+# Usage : my-mailqueue.monitor [options] [dir1[:num1] dir2[:num2] ...]
+# 
+# --number    n      : the maximum file number allowed
+# --regex     string : a regex expression to match
+# --debug            : print some debug information (do not use this with mon)
+#                      but just in command line to understand everything :-)
+# dir1 dir2          : list of directory to check
+
+# Examples:
+#
+# Do nothing (nothing to check)
+# $ ./my-readdir.monitor
+#
+# Checks if:
+# /var/spool/mqueue contains more than 50 files (50 is a default value)
+#
+# $ ./my-readdir.monitor /var/spool/mqueue/
+#
+# Checks if:
+# /var/spool/mqueue contains more than 14 files
+#
+# $ ./my-readdir.monitor /var/spool/mqueue/:14
+#
+# Check if :
+# /var/spool/mqueue          contains more than 14 files
+# /var/spool/lp/requests     contains more than  7 files
+#
+# $ ./my-readdir.monitor /var/spool/mqueue/:14 /var/spool/lp/requests:7
+#
+
+# Check if :
+# /var                       contains more than 34 files
+# /var/spool                 contains more than 34 files
+# /bin                       contains more than 65 files
+#
+# $ ./my-readdir.monitor --number=34 /var /var/spool /bin:65
+#
+
+# Check if :
+# /var/spool/mqueue          contains more than 3 files which name
+#                            begins with "df"
+#
+# $ ./my-readdir.monitor --number=3 --regex "^df" /var/spool/mqueue
+#
+
+# The regex can be every perl regex.
+
+
+
+# this program exits with the $maxlogNumberFound in log based 2 fashion.
+# file number found = 1 * number Allowed,  log = 1
+# file number found = 2 * number Allowed,  log = 2
+# file number found = 4 * number Allowed,  log = 3
+#                   .
+#                   .
+#                   .
+#                  2^n * $numberAllowed, log = n+1
+#
+# Reverse:
+# if the return status is N, that means that the directories
+# contains more (or equal) than 2^(N-1) *  allowed files number
+#    and   less            than 2^N     *  allowed files number
+
+# The worse situation is return (in case of several directories)
+
+# 
+#    Gilles LAMIRAL, lamiral@mail.dotcom.fr
+#
+#
+#    Copyright (C) 1998, Gilles LAMIRAL
+
+#    This program  is free  software;  you can redistribute it  and/or
+# modify it   under the terms  of  the GNU  General Public  License as
+# published by the Free  Software Foundation; either  version 2 of the
+# License, or (at your option) any later version.
+
+#    This program is  distributed in the hope that  it will be useful,
+# but  WITHOUT ANY WARRANTY;  without   even the implied  warranty  of
+# MERCHANTABILITY  or FITNESS FOR A PARTICULAR  PURPOSE.   See the GNU
+# General Public License for more details.
+
+#    You should have received a copy of the GNU General Public License
+# along  with this program;   if  not,  write  to  the  Free  Software
+# Foundation, Inc., 59 Temple Place,  Suite 330, Boston, MA 02111-1307
+# USA #
+
+
+use Getopt::Long;
+use DirHandle;
+
+
+GetOptions(
+	"number:i"	=> \$globalNumberAllowed,
+	"debug"		=> \$debug,
+	"regex:s"	=> \$regex
+	);
+
+$globalNumberAllowed = ($globalNumberAllowed) ? $globalNumberAllowed : "50";
+
+@failures = ();
+$maxlogNumberFound = 0;
+
+foreach $dir (@ARGV) {	
+	my ($dirHandle, @filesList, @filesListFiltered, $numberFound);
+	($dir, $numberAllowed) = split (/:/, $dir, 2);
+	$numberAllowed = ($numberAllowed) ? $numberAllowed : $globalNumberAllowed;
+	($debug) and print "directory checked      : $dir\n";
+	($debug) and print "   number of file allowed : $numberAllowed\n";
+	
+	$dirHandle = new DirHandle "$dir";
+	if (defined $dirHandle) {
+		# reads the directory and filters "." and ".." files 
+		@filesList = grep !/^\.\.?$/, $dirHandle->read();
+		$dirHandle->close();
+		if ($regex) {
+			foreach $file (@filesList) {
+				push(@filesListFiltered, $file) if ($file =~ /$regex/);
+			}
+			@filesList = @filesListFiltered;
+		}
+		$numberFound = scalar(@filesList);
+		#($debug) and print "@filesList\n";
+		($debug) and print "   number of files	  : $numberFound\n";
+		if ($numberFound >= $numberAllowed) {
+			push (@failures, sprintf ("%s:%s", $dir, $numberFound));
+			$logNumberFound = 1+(log($numberFound / $numberAllowed)/log(2));
+			($debug) and print "   1+(log($numberFound/$numberAllowed)/log(2)) = ", $logNumberFound,"\n";
+			if ($logNumberFound > $maxlogNumberFound) {
+				$maxlogNumberFound = $logNumberFound;
+			}
+	    }
+	}else{
+		warn "Could not open $dir : $!\, warn at";
+		push (@failures, sprintf ("%s:%s", $dir, "COULD_NOT_OPEN"));
+	};
+}
+
+if (@failures == 0) {
+	exit 0;
+}
+($debug) and print "\nSummary:";
+
+print join (" ", sort @failures), "\n";
+
+if ($maxlogNumberFound >= 1) {
+	($debug) and print "maxlogNumberFound (exit status) =$maxlogNumberFound\n";
+	$exitStatus = int($maxlogNumberFound);
+}else{
+	$exitStatus = 1;
+}
+exit($exitStatus);

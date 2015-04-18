@@ -1,0 +1,14 @@
+Subject: gnats.alert v0.1
+To: mon@linux.kernel.org
+
+Attached you will find my humble contribution for the mon user
+community, a gnats alert.  It may also be downloaded from
+http://www.serreyn.com/software/gnats.alert/
+
+
+
+The idea is to open a gnats ticket if there is a network problem. 
+
+My intent is to update this as gnats 4 comes out of beta. 
+
+Please report any problems to ted@serreyn.com.

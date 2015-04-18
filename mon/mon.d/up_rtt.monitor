@@ -1,0 +1,304 @@
+#!/usr/bin/perl
+#
+# mon monitor to check for circuit up and measure RTT
+#
+#
+# Jon Meek - 09-May-1998
+#
+# Requires Perl Modules "Time::HiRes" and "Statistics::Descriptive"
+#
+#
+#
+# $Id: up_rtt.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $
+#
+#    Copyright (C) 1998, Jon Meek, meekj@ieee.org
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# mon config file watch entry:
+
+#watch frame-relay
+#	service up_rtt
+#	interval 5m
+#       monitor up_rtt.monitor -T 2 -l /my/log_directory/logs/wan/fr_rtt_YYYYMM.log
+#       period wd {Sun-Sat}
+#         alert mail.alert meekj
+#         alertevery 1h
+
+# A new log file will be created each month in the above example the files will
+# be of the form fr_rtt_199810.log
+# The YYYYMM format is the only date string possible in the current version
+
+use Getopt::Std;
+use Socket;
+use IO::Socket;
+use Time::HiRes qw( gettimeofday tv_interval );
+use Statistics::Descriptive;
+
+getopts ("drt:T:l:U:");
+
+# -d  Debug mode
+# -p
+# -t n     Number of seconds to wait for a packet to be echoed back
+# -T n     Alarm if the minimum measured RTT is greater than n seconds
+# -l file  Log file name with optional YYYYMM part that will be transformed to current month
+# -U num   Number of UDP packets to send
+# -r       Log individual raw RTTs
+
+$TimeOut = $opt_t || 10;     # Timeout in seconds
+$NUM_UDP_TRYS = $opt_U || 5; # Number of UDP packets to send
+
+
+#  Solaris              MSG_WAITALL 0x40  /* Wait for complete recv or error */
+#linux/socket.h:#define MSG_WAITALL 0x100 /* Wait for a full request */
+#    $RecvRet = recv($S, $Echo, $DataLength, 64); # Solaris & older versions of Linux
+
+#$RecvFlags = 0;   # May work on all systems due to small packets used here
+#$RecvFlags = 64;  # Hardcode for Solaris
+#$RecvFlags = 256; # Hardcode for Linux 2.2.x
+
+$RecvFlags = &MSG_WAITALL; # Requires that h2ph was run on the appropriate include directory
+
+print "MSG_WAITALL: $RecvFlags\n" if $opt_d;
+
+@Failures = ();
+
+@Hosts = @ARGV; # Host names are left on the command line after Getopt
+
+$GoodPackets = 0;
+
+foreach $TargetHost (@Hosts) {
+
+  undef @RawRTT;
+
+    $stat = Statistics::Descriptive::Full->new();
+
+    $TimeOfDay = time;
+
+    $ReturnedPackets = &UDPcheck($TargetHost); # Try UDP echo first
+
+    if ($ReturnedPackets == 0) { # If the UDP ping failed, then try TCP
+	($ReturnedPackets, $RTT) = &TCPcheck($TargetHost);
+
+	$ResultString{$TargetHost} = sprintf "%d %s %0.4f T",
+	$TimeOfDay, $TargetHost, $RTT;
+
+	if ($opt_d) {
+	    print "$ResultString{$TargetHost}\n";
+	}
+
+    } else {
+
+	$min = $stat->min();
+	$mean = $stat->mean();
+	$max = $stat->max();
+	$count = $stat->count();
+
+	if ($opt_r && (defined @RawRTT)) {
+	  $ResultString{$TargetHost} = sprintf "%d %s",
+	    $TimeOfDay, $TargetHost;
+	  foreach $rtt (@RawRTT) {
+	    $ResultString{$TargetHost} .= sprintf " %0.4f", $rtt;
+	  }
+	} else {
+	  $ResultString{$TargetHost} = sprintf "%d %s %0.4f %0.4f %0.4f %d",
+	    $TimeOfDay, $TargetHost, $min, $mean, $max, $count;
+	}
+
+	if ($opt_T) { # Check minimum RTT for alarm limit
+	    if ($min > $opt_T) {
+	      print "Minimum RTT pushing $host\n" if $opt_d;
+	      push (@Failures, $TargetHost);
+	    }
+	}
+
+	if ($opt_d) {
+	    print "$ResultString{$TargetHost}\n";
+	}
+    }
+}
+
+# Write results to logfile, if -l
+
+if ($opt_l) {
+
+    $LogFile = $opt_l;
+    ($sec,$min,$hour,$mday,$Month,$Year,$wday,$yday,$isdst) =
+        localtime($TimeOfDay);
+    $Month++;
+    $Year += 1900;
+    $YYYYMM = sprintf('%04d%02d', $Year, $Month);
+    $LogFile =~ s/YYYYMM/$YYYYMM/; # Fill in current year and month
+
+    open(LOG, ">>$LogFile") || warn "$0 Can't open logfile: $LogFile\n";
+    foreach $host (sort keys %ResultString) {
+	print LOG "$ResultString{$host}\n";
+    }
+    close LOG;
+}
+
+if (@Failures == 0) { # Indicate "all OK" to mon
+  print "\n--------- No Failures ---------\n" if $opt_d;
+  exit 0;
+}
+
+print "\n--------- Have Failures - mon Data Below ---------\n" if $opt_d;
+
+@SortedFailures = sort @Failures;
+print "@SortedFailures\n";
+
+foreach $host (@SortedFailures) {
+    print "$ResultString{$host}\n";
+}
+print "\n";
+
+exit 1; # Indicate failure to mon
+
+#
+# Subroutines below
+#
+
+sub UDPcheck { # Send multiple UDP packets
+    my($TargetHost) = @_;
+    my($DroppedPackets, $GoodPackets);
+
+    $DroppedPackets = 0;
+    $GoodPackets = 0;
+    $dt = -1; # Will report -1 on failure
+
+    $S = new IO::Socket::INET (PeerAddr => $TargetHost,
+			       PeerPort => 7,
+			       Proto => 'udp',
+			       );
+    do {
+	&udpLeaveError($TargetHost, "Can't open UDP socket to $TargetHost\n");
+	return 0;
+    } unless ($S);
+
+    $TimeNow = time;
+
+    for ($i = 1; $i <= $NUM_UDP_TRYS; $i++) {
+	$Out = "UDP$i"; # Number the packets
+#       $Out .= ' 'x52; # Make a 56+ byte packet
+	$DataLength = length($Out);
+	$Echo = '';     # Clear input buffer
+
+	$t1 = [gettimeofday];
+	$BytesSent = send($S, $Out, 0); # Send the data
+
+	$SIG{ALRM} = \&ReadTimeOut;
+	eval {
+	    alarm($TimeOut);
+	    $RecvRet = recv($S, $Echo, $DataLength, $RecvFlags);
+	    $t2 = [gettimeofday];
+	    alarm(0);
+	};
+
+	if ($@ =~ /Read Timeout/) {
+	    $DroppedPackets++;
+	    if ($opt_d) {
+		print " Dropped packet $i, waited $TimeOut s\n";
+	    }
+	} else {
+
+	    $dt = tv_interval ($t1, $t2);
+	    if ($Echo eq $Out) {
+		$stat->add_data($dt);
+		push(@RawRTT, $dt);
+		if ($opt_d) {
+		    print "$i - $DataLength - $dt -$Echo-\n";
+		}
+		$GoodPackets++;
+	    } else {
+		if ($opt_d) {
+		    print "$i - $DataLength - $dt Bad Packet\n";
+		}
+	    }
+	}
+    }
+    $S->close();
+    return $GoodPackets;
+}
+
+sub TCPcheck { # Send a single TCP packet
+
+    my($TargetHost) = @_;
+    my($DroppedPackets, $GoodPackets, $dt);
+
+    $GoodPackets = 0;
+    $i = 1;
+    $dt = -1; # Will report -1 on failure
+
+    $S = new IO::Socket::INET (PeerAddr => $TargetHost,
+			       PeerPort => 7,
+			       Proto => 'tcp',
+			       );
+    do {
+      &tcpLeaveError($TargetHost, "Can't open TCP socket to $TargetHost\n");
+      return $GoodPackets, $dt;
+    } unless ($S);
+
+    $Out = "TCP$i";
+    $DataLength = length($Out);
+
+    $t1 = [gettimeofday];
+    $BytesSent = send($S, $Out, 0); # Send the data
+
+    $SIG{ALRM} = \&ReadTimeOut;
+    eval {
+	alarm($TimeOut);
+	$RecvRet = recv($S, $Echo, $DataLength, $RecvFlags);
+	$t2 = [gettimeofday];
+	alarm(0);
+    };
+
+    if ($@ =~ /Read Timeout/) {
+	$DroppedPackets++;
+	if ($opt_d) {
+	    print " No Echo from TCP packet $i, waited $TimeOut s\n";
+	}
+    } else {
+
+	$dt = tv_interval ($t1, $t2);
+	if ($Echo eq $Out) {
+	    if ($opt_d) {
+		print "TCP $i - $DataLength - $dt -$Echo-\n";
+	    }
+	    $GoodPackets++;
+	} else {
+	    if ($opt_d) {
+		print "TCP $i - $DataLength - $dt Bad Packet\n";
+	    }
+	}
+    }
+
+    $S->close();
+    return $GoodPackets, $dt;
+}
+
+sub udpLeaveError { # Don't call this one a failure, TCP might work
+    my ($host, $reason) = @_;
+    print "udpLeaveError $host\n" if $opt_d;
+}
+
+sub tcpLeaveError { # If we get here, it was a failure
+    my ($host, $reason) = @_;
+    print "tcpLeaveError pushing $host\n" if $opt_d;
+    push (@Failures, $host);
+}
+
+sub ReadTimeOut { # For alarm/timeout signal
+    die 'Read Timeout';
+}

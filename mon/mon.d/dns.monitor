@@ -1,0 +1,519 @@
+#!/usr/bin/perl
+#
+# Copyright (C) 1998 David Eckelkamp
+# Copyright (C) 2002-2006 Carnegie Mellon University
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# $Id: dns.monitor,v 1.3 2006/09/05 12:52:37 vitroth Exp $
+#
+=head1 NAME
+
+dns.monitor - Monitor DNS servers for the "mon" system
+
+=head1 SYNOPSIS
+
+B<dns.monitor> 
+
+
+=over 12
+
+( [ I<-zone zone [-zone zone ...]> 
+
+
+=over 4
+
+
+I<-master server [-master server ...]>
+
+I<[-serial_threshold num]> 
+
+I<[-failsingle]> ]
+
+=back
+
+| [ I<-caching_only> 
+
+=over 4
+
+I<-query record[:type[:value]] [-query record[:type[:value]] ...]> ] )
+
+=back
+
+I<[-tcp]> 
+
+I<[-retry num]> 
+
+I<[-retransmit num]> 
+
+I<[-timeout num]> 
+
+I<[-debug num]>
+
+I<server [server ...]>
+
+=back
+
+=head1 DESCRIPTION
+
+B<dns.monitor> will make several DNS queries to verify that a server is
+operating correctly
+
+In normal mode, B<dns.monitor> will compare the zones between a master
+server and one or more slave servers.  The I<zone> argument is the
+zone to check. There can be multiple I<zone> arguments. The I<master>
+argument is the master server for the I<zone>.  There can be multiple
+I<master> arguments.  The master server(s) will be queried for the
+base information.  If the I<serial_threshold> argument is provided,
+the serials collected from the I<master> servers are checked to be
+within I<serial_threshold>.  The greatest serial of all of the
+I<master> servers is chosen for comparison.  Then each I<server> will
+be queried to verify that it has the correct answers.  If the
+I<serial_threshold> argument is provided, the slave servers must
+return a zone whose serial number is no more than the threshold from
+the serial number of the zone on the master.  (Zone serial numbers may
+not be identical during zone propagation, or on Dynamic DNS zones
+which may be updated hundreds or thousands of times an hour) It is
+assumed that each I<server> is supposed to be authoritative for the
+I<zone>. The I<-tcp> option will cause lookups to be done via TCP
+instead of the default UDP.
+
+In caching mode, specified via the I<-caching_only> switch,
+B<dns.monitor> will perform a set of DNS queries to one or more
+servers.  The I<query> argument is the query to perform.  The query
+may have an optional query type specified as I<:type> on the end of
+the query.  I.e your.zone.com:MX will cause B<dns.monitor> to fetch
+the MX records for your.zone.com.  There can be multiple I<query>
+arguments.  The query type may also have an optional result specified
+as I<:value> on the end of the query (type must also be specified).
+Each I<server> will be contacted to verify that it returns a valid
+response to the query.  If a query result is specified B<dns.monitor>
+will return an error is the DNS query returns an answer which differs
+from the supplied result.  If you wish to use B<dns.monitor> to verify
+that a caching DNS server is actually fetching fresh data from other
+servers successfully, it is recommended that the DNS records you query
+should have very short TTLs.
+
+The exit code of B<dns.monitor> will be the highest number of servers
+which failed on a single zone/query, 0 if no problems occurred, or -1
+if an error with the script arguments was detected.  If all of the
+I<master> servers fail, the return code will be 252.  If using the
+I<failsingle> option and any I<master> server fails, the return code
+will be 251.
+
+=head1 AUTHOR
+
+The script was originally written by David Eckelkamp <davide@tradewave.com>
+
+The script was modified to support Caching DNS servers, configurable
+retry/timeout parameters, multiple DNS Master servers, and
+configurable Zone serials by David Nolan <vitroth@cmu.edu> and Jason
+Carr <jcarr@andrew.cmu.edu> from Carnegie Mellon University.
+
+=cut
+    
+use strict;
+use Getopt::Long;
+use English;
+use File::Basename;
+use Net::DNS::Resolver;
+use Net::DNS::Packet;
+use Net::DNS::RR;
+use Data::Dumper;
+
+my($Program) = basename($0);
+my(@Zones)   = ();
+my(@Queries)   = ();
+my(@Master)  = ();
+my($SerialThreshold) = (0);
+my($CachingServer) = (0);
+my($UseTCP) = (0);
+my ($retries, $retrans, $timeout) = ( 2, 5, undef );
+my $debug = 0;
+my $failsingle = 0;
+
+my(%OptVars) = (
+		"master" => \@Master,
+		"zone" => \@Zones,
+                "serial_threshold" => \$SerialThreshold,
+	        "caching_only" => \$CachingServer,
+		"query" => \@Queries,
+		"retry" => \$retries,
+		"retransmit" => \$retrans,
+		"timeout" => \$timeout,
+		"tcp" => \$UseTCP,
+		"debug" => \$debug,
+		"failsingle" => \$failsingle
+	       );
+
+if (!GetOptions(\%OptVars, "master=s@", "zone=s@", "serial_threshold=s", "caching_only", "tcp", "query=s@", "retry=i", "retransmit=i", "timeout=i", "debug", "failsingle")) {
+    print STDERR "Problems with Options, sorry\n";
+    exit -1;
+}
+if ( $#ARGV < 0 ) {
+    print STDERR "$Program: at least one server must be specified\n";
+    usage();
+    exit -1;
+}
+if (!$CachingServer) {
+    if (!defined(@Master)) {
+        print STDERR "$Program: The zone master server must be specified\n";
+	usage();
+        exit -1;
+    }
+    if ( !defined(@Zones) ) {
+        print STDERR "$Program: At least one zone must be specified\n";
+	usage();
+        exit -1;
+    }
+} else {
+    if ( !defined(@Queries) ) {
+        print STDERR "$Program: At least one query must be specified\n";
+	usage();
+        exit -1;
+    }
+}
+
+
+if (!$CachingServer) {
+    my($err_cnt) = 0;
+    my($bad_servers, $reason, $failcount, @FailedZones, @FailedServers, @Reasons);
+    my($zone, $line, $i);
+    foreach $zone (@Zones) {
+	($bad_servers, $reason, $failcount) = dns_verify($zone, \@Master, \@ARGV);
+	if (defined($bad_servers)) {
+	    $err_cnt = $failcount if ($failcount > $err_cnt);
+	    push(@FailedZones, $zone);
+	    push(@FailedServers, $bad_servers);
+	    push(@Reasons, $reason);
+	}
+    }
+    
+    @FailedServers=split(' ',join(" ",@FailedServers));
+    my (@UniqFailedServers, %saw);
+    @saw{@FailedServers} = ();
+    @UniqFailedServers = keys %saw;
+    
+    if ($err_cnt > 0) {
+	print join(" ", @UniqFailedServers); 
+	print "\n";
+	
+	# Now print the detail lines
+	for ($i=0; $i<=$#FailedZones; $i++) {
+	    print "Zone '$FailedZones[$i]': failed servers: $FailedServers[$i]\n";
+	    print "Diagnostics:\n";
+	    foreach $line (split("\n", $Reasons[$i])) {
+		print "     $line\n";
+	    }
+	    print "\n";
+	}
+    }
+
+    exit $err_cnt;
+} else {
+    my($err_cnt) = 0;
+    my($bad_servers, $reason, $failcount, @FailedQuerys, @FailedServers, @Reasons);
+    my($query, $type, $line, $i, $target);
+    foreach (@Queries) {
+	($query, $type, $target) = split /:/;
+	$type = 'A' if ($type eq "");
+	($bad_servers, $reason, $failcount) = dns_test($query, $type, $target, @ARGV);
+	if (defined($bad_servers)) {
+	    $err_cnt = $failcount if ($failcount > $err_cnt);
+ 	    push(@FailedQuerys, "$query $type") if (!$target);
+ 	    push(@FailedQuerys, "$query $type == $target $type") if ($target);
+	    push(@FailedServers, $bad_servers);
+	    push(@Reasons, $reason);
+	}
+    }
+    
+    @FailedServers=split(' ',join(" ",@FailedServers));
+    my (@UniqFailedServers, %saw);
+    @saw{@FailedServers} = ();
+    @UniqFailedServers = keys %saw;
+    
+    if ($err_cnt > 0) {
+	print join(" ", @UniqFailedServers); 
+	print "\n";
+	
+	# Now print the detail lines
+	for ($i=0; $i<=$#FailedQuerys; $i++) {
+	    print "Query '$FailedQuerys[$i]': failed servers: $FailedServers[$i]\n";
+	    print "Diagnostics:\n";
+	    foreach $line (split("\n", $Reasons[$i])) {
+		print "     $line\n";
+	    }
+	    print "\n";
+	}
+    }
+
+    exit $err_cnt;
+}
+
+    
+# dns_verify($zone, \@master, \@Servers)
+
+# This subroutine takes 3 or more arguments. The first argument is the name of
+# the DNS zone/domain to check.  The second argument is the name of the DNS
+# server you consider to be the master of the given zone. The subroutine
+# will make a DNS query to the the master to get the SOA for the zone and
+# extract the serial number.  The third and rest of the arguments are taken as
+# names of slave DNS servers.  Each server will be queried for the SOA of the
+# given zone and the serial number will be checked against that found in the
+# SOA record on the master server. By default the zone serials must be 
+# the same.  This may be overridden by the serial_threshold command line 
+# argument.
+
+# The return value is a 3 element list. The first element is a space delimited
+# string containing the names of the slave servers that did not match the
+# master zone.  The second element is a string containing the diagnostic
+# output that should explain the problem encountered.  The third element is a count 
+# of how many servers failed, which will be used as the exit code.
+
+sub dns_verify {
+    # First verify that we have enough arguments.
+    my($Zone) = shift;
+    my(@Master) = @{shift()};
+    my(@Servers) = @{shift()};
+    my($result) = undef;
+    my(@failed, $res, $soa_req, $Serial, $error_cnt, $server);
+
+    my(%serials) = ();
+    my(%errors) = ();
+
+    # Query the $Master for the SOA of $Zone and get the serial number.
+    $res = new Net::DNS::Resolver;
+    $res->usevc(1) if ($UseTCP);
+    $res->defnames(0);		# don't append default zone
+    $res->recurse(0);		# no recursion
+    $res->retry($retries);		# retries before failure
+    $res->retrans($retrans);    # retransmission interval
+    $res->udp_timeout($timeout); # set udp timeout
+    $res->tcp_timeout($timeout); # set tcp timeout
+
+    $error_cnt=0;
+
+    # Loop through each master server
+    foreach my $qs (@Master) {
+	$res->nameservers($qs);
+	$soa_req = $res->query($Zone, "SOA");
+	if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
+	    $error_cnt++;
+	    $errors{$qs} = sprintf("SOA query for $Zone from $qs failed %s\n", $res->errorstring);
+	    if ($res->errorstring eq 'NOERROR') {
+		$errors{$qs} .= sprintf("    Empty answer received.  (No zone on server?)\n")
+	    }
+	    if ($failsingle) { return ($qs, $errors{$qs}, 251); }
+	    next;
+	}
+	unless ($soa_req->header->aa) {
+	    $error_cnt++;
+	    $errors{$qs} = sprintf("$qs is not authoritative for $Zone\n");
+	    if ($failsingle) { return ($qs, $errors{$qs}, 251); }
+	    next;
+	}
+	unless ($soa_req->header->ancount == 1) {
+	    $error_cnt++;
+	    $errors{$qs} = sprintf("Too many answers for SOA query to %s for %s\n", $qs, $Zone);
+	    if ($failsingle) { return ($qs, $errors{$qs}, 251); }
+	    next;
+	}
+	unless (($soa_req->answer)[0]->type eq "SOA") {
+	    $error_cnt++;
+	    $errors{$qs} = printf("Query for SOA for %s from %s failed: " . "return type = %s\n", $Zone, $qs, ($soa_req->answer)[0]->type);
+	    if ($failsingle) { return ($qs, $errors{$qs}, 251); }
+	    next;
+	}
+
+	$serials{$qs} = ($soa_req->answer)[0]->serial;
+    }
+
+
+    if ($debug >= 2) {
+	print Data::Dumper->Dump([\%serials], ['serials']);
+    }
+
+	
+    if ($error_cnt == scalar @Master) {
+	# all masters errored
+	return("", values %errors, 251);
+    }
+	
+    my $maxvalue = undef;
+    my $minvalue = undef;
+    my $maxkey   = undef;
+    my $minkey   = undef;
+
+    foreach my $key (keys %serials) {
+	if ($serials{$key} > $maxvalue) {
+	    $maxvalue = $serials{$key};
+	    $maxkey = $key;
+	}
+
+	if (($serials{$key} < $minvalue) || (!defined $minkey)) {
+	    $minvalue = $serials{$key};
+	    $minkey = $key;
+	}
+    }	
+	
+    if (abs($maxvalue - $minvalue) > $SerialThreshold) {
+	return ($minkey, "\nQuery to $minkey about $Zone failed\n" .
+		"Serial number = $minvalue, should have been $maxvalue\n", 252)
+    }
+	
+    $Serial = $maxvalue;
+
+    return ("", "\nNo SOA Serial found for $Zone!?!?", 252) if (!$Serial);
+
+    # Now, foreach server given on the command line, get the serial number from
+    # the SOA and compare it to the master.
+    $error_cnt = 0;
+    foreach $server (@Servers) {
+	$res = new Net::DNS::Resolver;
+	$res->usevc(1) if ($UseTCP);
+	$res->defnames(0);		# don't append default zone
+	$res->recurse(0);		# no recursion
+	$res->retry($retries);		
+	$res->retrans($retrans);
+	$res->udp_timeout($timeout);
+	$res->tcp_timeout($timeout);
+
+	$res->nameservers($server);
+	$soa_req = $res->query($Zone, "SOA");
+	if (!defined($soa_req) || ($soa_req->header->ancount <= 0)) {
+	    $error_cnt++;
+	    push(@failed, $server);
+	    $result .= sprintf("\nSOA query for $Zone from $server failed %s\n",
+			       $res->errorstring);
+	    if ($res->errorstring eq 'NOERROR') {
+		$result .= sprintf("    Empty answer received.  (No zone on server?)\n");
+	    }
+	    next;
+	}
+	unless($soa_req->header->aa 
+	       && $soa_req->header->ancount == 1 
+	       && ($soa_req->answer)[0]->type eq "SOA" 
+	       && ((abs(($soa_req->answer)[0]->serial - $Serial)) <= $SerialThreshold)) {
+	    $error_cnt++;
+	    push(@failed, $server);
+	    $result .= sprintf("\nQuery to $server about $Zone failed\n" . 
+			       "Authoritative = %s\n" . 
+			       "Answer count = %d\n" . 
+			       "Answer Type = %s\n" .
+			       "Serial number = %s, should have been %s\n" ,
+			       $soa_req->header->aa ? "yes" : "no",
+			       $soa_req->header->ancount,
+			       ($soa_req->answer)[0]->type,
+			       ($soa_req->answer)[0]->serial, 
+			       $Serial);
+	    next;
+	}
+    }
+    if ($error_cnt == 0) {
+	return(undef, undef, undef);
+    } else {
+	return("@failed", $result, $error_cnt);
+    }
+}
+
+
+# dns_test($query, $type, $target, $server, ...)
+
+# This subroutine takes 4 or more arguments. The first argument is the name of
+# the DNS record to query.  The second argument is the type of the DNS
+# query to perform. The third argument is the name of a second DNS record to query,
+# whose results should match the first query.  The fourth and rest of the arguments are 
+# taken as names of caching DNS servers.  Each server will be queried for the 
+# given record and type
+
+# The return value is a 3 element list. The first element is a space delimited
+# string containing the names of the servers that failed to respond to the
+# query.  The second element is a string containing the diagnostic
+# output that should explain the problem encountered.  The third element is the
+# count of how many servers failed, which will be used as the exit code.
+
+sub dns_test {
+    # First verify that we have enough arguments.
+    my($Query, $type, $target, @Servers) = @_;
+    my($result) = undef;
+    my(@failed, $res, $req, $treq, $Serial, $error_cnt, $server);
+
+    # Now, foreach server given on the command line, 
+    # make the query
+    $error_cnt = 0;
+    foreach $server (@Servers) {
+        $res = new Net::DNS::Resolver;
+        $res->defnames(0);              # don't append default zone
+        $res->retry($retries);          # 2 retries before failure
+        $res->retrans($retrans);
+        $res->udp_timeout($timeout);
+        $res->tcp_timeout($timeout);
+        $res->nameservers($server);
+        $req = $res->query($Query, $type);
+        if (!defined($req) || ($req->header->ancount <= 0)) {
+            $error_cnt++;
+            push(@failed, $server);
+            $result .= sprintf("\n$type query for $Query from $server failed %s\n",
+                               $res->errorstring);
+            next;
+          } elsif ($target) {
+            $treq = $res->query($target, $type);
+            my $status = 0;
+            foreach my $qans ($req->answer) {
+              print STDERR $qans->string."\n" if ($debug);
+              print STDERR $qans->rdatastr."\n" if ($debug);
+              foreach my $tans ($treq->answer) {
+                print STDERR "target\n" if ($debug);
+                print STDERR $tans->string."\n" if ($debug);
+                print STDERR $tans->rdatastr."\n" if ($debug);
+                if ($tans->rdatastr eq $qans->rdatastr) {
+                  print STDERR "match found\n" if ($debug);
+                  $status = 1;
+                  last;
+                }
+              }
+              last if ($status);
+            }
+            if (!$status) {
+              $error_cnt++;
+              push @failed, $server;
+              $result .= "Query $Query:$type failed to match $target\n";
+            }
+          }
+      }
+    if ($error_cnt == 0) {
+        return(undef, undef, undef);
+    } else {
+        return("@failed", $result, $error_cnt);
+    }
+}
+
+sub usage {
+  print STDERR <<END_USAGE;
+Usage: dns.monitor -zone zone [-zone zone ...] 
+                   -master master 
+                   [-serial_threshold num] 
+                   server [server ...]
+   or: dns.monitor -caching_only 
+                   -query record[:type] [-query record[:type] ...] 
+                   server [server ...]
+Optional Arguments for either mode:
+       -retry num
+       -retransmit num
+       -timeout num
+       -debug num
+       
+END_USAGE
+}

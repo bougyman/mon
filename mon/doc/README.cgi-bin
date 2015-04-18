@@ -1,0 +1,29 @@
+$Id: README.cgi-bin,v 1.3 2005/04/17 07:42:27 trockij Exp $
+
+mon.cgi
+-------
+    mon.cgi is the more advanced web interface to mon, maintained by
+    Andrew Ryan <andrewr@nam-shub.com>.
+
+minotaur
+--------
+    minotaur is maintained by Gilles Lamiral. You may obtain it from
+    here:
+
+    http://www.linux-france.org/prj/minotaure/
+
+
+monshow.cgi
+-----------
+
+    monshow can be found in the client/ directory. Put it into your
+    cgi-bin directory, rename it monshow.cgi, and it should run via your
+    web server's CGI mechanism. Upon startup, this script looks for a
+    configuration file named "/etc/mon/monshowrc", or ".monshowrc" in
+    the working directory. An example monshowrc is in the etc/ direcory.
+    Read the man page for more information.
+
+
+Jim Trocki
+Transmeta Corporation
+trockij@arctic.org

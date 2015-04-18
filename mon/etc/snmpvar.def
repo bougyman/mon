@@ -1,0 +1,697 @@
+#
+# sample snmpvar.def. you should configure this to meet your
+# own needs.
+#
+# Definitions of variables to be monitored using snmpvar.monitor
+#
+#
+
+# generic host (router/switch/...)
+
+Variable IF_OPERSTAT
+  OID			.1.3.6.1.2.1.2.2.1.8
+  Description		ifOperStatus
+  DefaultEQ	1
+  Decode	1	up
+  Decode	2	down
+  Decode	3	testing
+  Decode	4	unknown
+  Decode	5	dormant
+
+# generic router
+
+Variable BGP_PEERSTATE
+  OID			.1.3.6.1.2.1.15.3.1.2
+  Description		bgpPeerState
+  DefaultEQ	6
+  Decode	1	idle
+  Decode	2	connect
+  Decode	3	active
+  Decode	4	opensent
+  Decode	5	openconfirm
+  Decode	6	established
+
+
+
+# generic Host Resources MIB implementation
+
+Variable HR_DEVICE_STATUS
+  OID		.1.3.6.1.2.1.25.3.2.1.5.
+  Description	Device Status
+  DefaultEQ	2
+  Decode	1	unknown
+  Decode	2	running
+  Decode	3	warning
+  Decode	4	testing
+  Decode	5	down
+
+
+# some variables from a Windows NT "perfmib" configuration
+# see ms-perfmib directory for NT side configuration
+
+Variable WINNT_CPU_TOTAL
+  OID            .1.3.6.1.4.1.311.1.1.3.1.1.1.9.0
+  Description    CPU Load Total
+  Unit           %
+  
+Variable WINNT_CPU_SYS
+  OID            .1.3.6.1.4.1.311.1.1.3.1.1.1.11.0
+  Description    CPU Load System
+  Unit           %
+
+Variable WINNT_MEM_COMMITTED
+  OID            .1.3.6.1.4.1.311.1.1.3.1.1.2.2.0
+  Description    Committed Memory
+  Scale          / 1024 / 1024
+  # the Scale expression is used as  (eval($rawval . $scale))
+  Unit           MB
+  
+Variable WINNT_MEM_AVAILABLE
+  OID            .1.3.6.1.4.1.311.1.1.3.1.1.2.1.0
+  Description    Available Memory
+  Scale          / 1024 /1024
+  Unit           MB
+
+Variable WINNT_LOGICAL_C_FREE
+  OID            .1.3.6.1.4.1.311.1.1.3.1.1.6.1.4.6.48.58.48.58.67.58
+  Description    Free Disk Space on drive C
+  Unit           MB
+
+Variable WINNT_LOGICAL_D_FREE
+  OID            .1.3.6.1.4.1.311.1.1.3.1.1.6.1.4.6.48.58.48.58.68.58
+  Description    Free Disk Space on drive D
+  Unit           MB
+
+
+
+# Dell PowerEdge 2550 Server Instrumentation
+
+Variable PE2550_FAN_SYS_RPM
+  OID            .1.3.6.1.4.1.674.10892.1.700.12.1.6.1.
+  Description    System Fan Speed
+  DefaultIndex	 1 2 3
+  Unit           rpm
+  DefaultMin	 	600
+  DefaultMax	 	6000
+  DefaultMaxValid	10000
+  DefaultGroup   Environment
+
+
+Variable PE2550_FAN_DISK_RPM
+  OID            .1.3.6.1.4.1.674.10892.1.700.12.1.6.1.4
+  Description    Disk Fan Speed
+  Unit           rpm
+  DefaultMin	 	6000
+  DefaultMax	 	14000
+  DefaultMaxValid	15000
+  DefaultGroup   Environment
+
+
+Variable PE2550_TEMP_CPU
+  OID            .1.3.6.1.4.1.674.10892.1.700.20.1.6.1.
+  Description    CPU Temperature
+  DefaultIndex	1 2
+  Unit           C
+  Scale          / 10.0
+  DefaultMax	50
+  DefaultGroup   Environment
+
+
+Variable PE2550_TEMP
+  OID            .1.3.6.1.4.1.674.10892.1.700.20.1.6.1.
+  Description    Temperature
+  DefaultIndex	3 4 5
+  FriendlyName	3	Motherboard
+  FriendlyName	4	Backplane 1 
+  FriendlyName	5	Backplane 2
+  Unit           C
+  Scale          / 10.0
+  DefaultMax	40
+  DefaultGroup   Environment
+
+
+Variable PE2550_PSU_STATUS
+  DefaultIndex   1 2
+  OID            .1.3.6.1.4.1.674.10892.1.600.12.1.5.1.
+  Description    Power Supply Status
+  DefaultEQ	3
+  Decode	 1	other
+  Decode	 2	unknown
+  Decode	 3	OK
+  Decode	 4	noncrit
+  Decode	 5	critical
+  Decode	 6	nonrecoverable
+  DefaultGroup   Power
+
+
+
+# Dell PowerEdge 4300 Server Instrumentation
+
+Variable PE4300_TEMP_CPU
+  OID            .1.3.6.1.4.1.674.10891.300.1.5.2.2.1.
+  Description    CPU Temperature
+  DefaultIndex	1 2
+  Scale          / 10.0
+  Unit           C
+  DefaultMax	40
+  DefaultGroup   Environment
+
+Variable PE4300_TEMP
+  OID            .1.3.6.1.4.1.674.10891.300.1.5.2.2.1.
+  Description    Temperature
+  DefaultIndex	3 4 5 6
+  FriendlyName	3	@Motherboard
+  FriendlyName	4	@Ambient
+  FriendlyName	5	@Backplane 1
+  FriendlyName	6	@Backplane 2
+  Scale          / 10.0
+  Unit           C
+  DefaultMax	40
+  DefaultGroup   Environment
+
+
+Variable PE4300_5V_CURRENT
+  OID            .1.3.6.1.4.1.674.10891.303.1.5.2.5.1.
+  Description    DC Current (+5V)
+  DefaultIndex	1 4 7
+  Scale          / 1000.0
+  Unit           A
+  DefaultMax		25
+  DefaultMaxValid	100
+  DefaultGroup   Power
+
+Variable PE4300_12V_CURRENT
+  OID            .1.3.6.1.4.1.674.10891.303.1.5.2.5.1.
+  Description    DC Current (+12V)
+  DefaultIndex	2 5 8
+  Scale          / 1000.0
+  Unit           A
+  DefaultMax		10
+  DefaultMaxValid	100
+  DefaultGroup   Power
+
+Variable PE4300_3V_CURRENT
+  OID            .1.3.6.1.4.1.674.10891.303.1.5.2.5.1.
+  Description    DC Current (+3V)
+  DefaultIndex	3 6 9
+  Scale          / 1000.0
+  Unit           A
+  DefaultMax		10
+  DefaultMaxValid	100
+  DefaultGroup   Power
+
+Variable PE4300_FAN_CPU_RPM
+  OID            .1.3.6.1.4.1.674.10891.301.1.5.2.3.1.
+  Description    CPU Fan Speed
+  Unit           rpm
+  DefaultIndex	 1 2
+  DefaultMin		1000
+  DefaultMax		5000
+  DefaultMaxValid	10000
+  DefaultGroup   Environment
+
+# really the same as above, other index ranges only; different description
+# one could also make it an array and use FriendlyName in the .cf file
+Variable PE4300_FAN_DISK_RPM
+  OID            .1.3.6.1.4.1.674.10891.301.1.5.2.3.1.
+  Description    Disk Fan Speed
+  Unit           rpm
+  DefaultIndex   3 4 5
+  DefaultMin		1000
+  DefaultMax		5000
+  DefaultMaxValid	10000
+  DefaultGroup   Environment
+
+Variable PE4X00_PSU_STATUS
+  DefaultIndex   1 2 3
+  OID            .1.3.6.1.4.1.674.10891.304.1.4.2.6.1.
+  Description    Power Supply Status
+  DefaultEQ	3
+  Decode	 1	other
+  Decode	 2	unknown
+  Decode	 3	OK
+  Decode	 4	noncrit
+  Decode	 5	critical
+  Decode	 6	nonrecoverable
+  DefaultGroup   Power
+
+Variable PE4X00_EXT_DISK1_PSU_STATUS
+  DefaultIndex   1 2
+  OID            .1.3.6.1.4.1.674.10891.304.1.4.2.6.2.
+  Description    ExtStorage 1 PSU Status
+  DefaultEQ	3
+  Decode	 1	other
+  Decode	 2	unknown
+  Decode	 3	OK
+  Decode	 4	noncrit
+  Decode	 5	critical
+  Decode	 6	nonrecoverable
+  DefaultGroup   Power
+
+
+
+# Dell PowerEdge 6350 Server Instrumentation
+
+Variable PE6350_TEMP_CPU
+  OID            .1.3.6.1.4.1.674.10891.300.1.5.2.2.1.
+  Description    CPU Temperature
+  DefaultIndex	1 2 3 4
+  Scale          / 10.0
+  Unit           C
+  DefaultMax	55
+  DefaultGroup   Environment
+
+
+Variable PE6350_TEMP
+  OID            .1.3.6.1.4.1.674.10891.300.1.5.2.2.1.
+  Description    Temperature
+  DefaultIndex	5 6 7
+  FriendlyName	5	@Motherboard
+  FriendlyName	6	@Ambient
+  FriendlyName	7	@Backplane
+  Scale          / 10.0
+  Unit           C
+  DefaultMax	40
+  DefaultGroup   Environment
+
+Variable PE6350_TEMP_EXT_DISK1
+  OID            .1.3.6.1.4.1.674.10891.300.1.5.2.2.2.1
+  Description    ExtStorage 1 Temperature
+  Scale          / 10.0
+  Unit           C
+  DefaultGroup   Environment
+
+Variable PE6350_FAN_RPM
+  OID            .1.3.6.1.4.1.674.10891.301.1.5.2.3.1.
+  Description    Fan Speed
+  DefaultIndex	 1 2 3 4
+  Unit           rpm
+  DefaultMin		1000
+  DefaultMax		5000
+  DefaultMaxValid	10000
+  DefaultGroup   Environment
+
+Variable PE6350_FAN_RPM_EXT_DISK1
+  OID            .1.3.6.1.4.1.674.10891.301.1.5.2.3.2.
+  Description    ExtStorage 1 Fan Speed
+  DefaultIndex	 1 2 3
+  Unit           rpm
+  DefaultMin		1000
+  DefaultMax		5000
+  DefaultMaxValid	10000
+  DefaultGroup   Environment
+
+
+
+# Dell PowerEdge 4200 Server Instrumentation
+
+Variable PE4200_TEMP_CPU
+  OID		.1.3.6.1.4.1.674.10891.300.1.5.2.2.1.
+  Description	CPU Temperature
+  DefaultIndex	1 2
+  Scale		/ 10.0
+  Unit		C
+  DefaultMax	40
+  DefaultGroup	Environment
+
+
+Variable PE4200_TEMP
+  OID		.1.3.6.1.4.1.674.10891.300.1.5.2.2.1.
+  Description	Temperature
+  DefaultIndex	3 4 5 6
+  FriendlyName	3	@Ambient
+  FriendlyName	4	@Panel
+  FriendlyName	5	@Backplane Top
+  FriendlyName	6	@Backplane Bottom
+  Scale		/ 10.0
+  Unit		C
+  DefaultMax	35
+  DefaultGroup	Environment
+
+
+Variable PE4200_PSU_5V_CURRENT
+  OID            .1.3.6.1.4.1.674.10891.303.1.5.2.5.1.
+  Description    DC Current (+5V)
+  DefaultIndex	1 2
+  FriendlyName	1	@Top PSU
+  FriendlyName	2	@Bottom PSU
+  Scale          / 1000.0
+  Unit           A
+  DefaultMax		10
+  DefaultMaxValid	50
+  DefaultGroup   Power
+
+Variable PE4200_PSU_3V_CURRENT
+  OID            .1.3.6.1.4.1.674.10891.303.1.5.2.5.1.
+  Description    DC Current (+3.3V)
+  DefaultIndex	3 4
+  FriendlyName	3	@Top PSU
+  FriendlyName	4	@Bottom PSU
+  Scale          / 1000.0
+  Unit           A
+  DefaultMax	 	5
+  DefaultMaxValid 	50
+  DefaultGroup   Power
+
+Variable PE4200_PSU_12V_CURRENT
+  OID            .1.3.6.1.4.1.674.10891.303.1.5.2.5.1.
+  Description    DC Current (+12V)
+  DefaultIndex	5 6
+  FriendlyName	5	@Top PSU
+  FriendlyName	6	@Bottom PSU
+  Scale          / 1000.0
+  Unit           A
+  DefaultMax		10
+  DefaultMaxValid	50
+  DefaultGroup   Power
+
+Variable PE4200_FAN_RPM
+  OID            .1.3.6.1.4.1.674.10891.301.1.5.2.3.1.
+  Description    Fan Speed
+  Unit           rpm
+  DefaultIndex	 1 3 4 5
+# Fan #2 is a standby unit
+  FriendlyName	1	@Chassis 1
+  FriendlyName	2	@Chassis 2
+  FriendlyName	3	@Chassis 3
+  FriendlyName	4	@Top PSU
+  FriendlyName	5	@Bottom PSU
+  DefaultMin	 	1000
+  DefaultMax	 	5000
+  DefaultMaxValid	10000
+  DefaultGroup   Environment
+
+
+# AMI MegaRAID (aka Dell PERC) RAID controller instrumentation
+
+Variable MEGARAID_C0_LOGICAL_STATUS
+  OID            .1.3.6.1.4.1.3582.1.1.2.1.3.0.
+  Description    RAID Ctl0 Volume Status
+  DefaultEQ	2
+  Decode	0	offline
+  Decode	1	degraded
+  Decode	2	normal
+  Decode	3	initialize
+  Decode	4	checkconsistency
+
+Variable MEGARAID_C1_LOGICAL_STATUS
+  OID		.1.3.6.1.4.1.3582.1.1.2.1.3.1.
+  Description	RAID Ctl1 Volume Status
+  DefaultEQ	2
+  Decode	0	offline
+  Decode	1	degraded
+  Decode	2	normal
+  Decode	3	initialize
+  Decode	4	checkconsistency
+
+Variable MEGARAID_C0_CH0_PHYS_STATUS
+  OID		.1.3.6.1.4.1.3582.1.1.3.1.4.0.0.
+  Description	Ctl0Ch0 Phys Drive Status
+  DefaultEQ	3
+  Decode	1	ready
+  Decode	3	online
+  Decode	4	failed
+  Decode	5	rebuild
+  Decode	6	hotspare
+  Decode	20	nondisk
+  
+Variable MEGARAID_C1_CH0_PHYS_STATUS
+  OID		.1.3.6.1.4.1.3582.1.1.3.1.4.1.0.
+  Description	Ctl1Ch0 Phys Drive Status
+  DefaultEQ	3
+  Decode	1	ready
+  Decode	3	online
+  Decode	4	failed
+  Decode	5	rebuild
+  Decode	6	hotspare
+  Decode	20	nondisk
+  
+Variable MEGARAID_C1_CH1_PHYS_STATUS
+  OID		.1.3.6.1.4.1.3582.1.1.3.1.4.1.1.
+  Description	Ctl1Ch1 Phys Drive Status
+  DefaultEQ	3
+  Decode	1	ready
+  Decode	3	online
+  Decode	4	failed
+  Decode	5	rebuild
+  Decode	6	hotspare
+  Decode	20	nondisk
+
+  
+
+# APC SmartUPS monitoring (using PowerNet SNMP agents or SNMP adapter boards)
+  
+Variable APCUPS_LINEVOLT_MAX
+  OID            .1.3.6.1.4.1.318.1.1.1.3.2.2.0
+  Description    Recent Max Line Voltage
+  Unit           V
+  DefaultMax	245
+  DefaultGroup   Power
+  
+Variable APCUPS_LINEVOLT_MIN
+  OID            .1.3.6.1.4.1.318.1.1.1.3.2.3.0
+  Description    Recent Min Line Voltage
+  Unit           V
+  DefaultMin	205
+  DefaultGroup   Power
+
+Variable APCUPS_LOAD
+  OID            .1.3.6.1.4.1.318.1.1.1.4.2.3.0
+  Description    Output Load
+  Unit           %
+  DefaultMax	90
+  DefaultGroup   Power
+
+Variable APCUPS_BATT_TEMP
+  OID            .1.3.6.1.4.1.318.1.1.1.2.2.2.0
+  Description    Battery Temperature
+  Unit           C
+  DefaultMax	45
+  DefaultGroup   Environment
+
+# external sensors connected to a MeasureUPS board
+
+Variable APCUPS_EXT_TEMP
+  OID            .1.3.6.1.4.1.318.1.1.2.1.1.0
+  Description    Temperature
+  Unit           C
+  DefaultGroup   Environment
+
+Variable APCUPS_EXT_HUMID
+  OID            .1.3.6.1.4.1.318.1.1.2.1.2.0
+  Description    Humidity
+  Unit           %
+  DefaultMin	10
+  DefaultMax	90
+  DefaultGroup   Environment
+
+Variable APCUPS_EXT_SWITCH_STAT
+  OID            .1.3.6.1.4.1.318.1.1.2.2.2.1.5
+  Description    Contact
+  Decode	1	unknown
+  Decode	2	OK
+  Decode	3	FAULT
+
+Variable APCUPS_OUTPUT_STAT
+  OID		.1.3.6.1.4.1.318.1.1.1.4.1.1.0
+  Description	UPS Status
+  DefaultEQ	2
+  Decode	1     unknown
+  Decode	2     Online
+  Decode	3     On Battery
+  Decode	4     On Smart Boost
+  Decode	5     Timed Sleeping
+  Decode	6     Software Bypass
+  Decode	7     Off
+  Decode	8     Rebooting
+  Decode	9     Switched Bypass
+  Decode	10    Hardware Failure Bypass
+  Decode	11    Sleeping Until Power Return
+  Decode	12    On Smart Trim
+  DefaultGroup  Power
+
+
+
+
+
+# Compaq ProLiant Server Instrumentation
+
+Variable PROLIANT_TEMP_STATUS
+  OID		.1.3.6.1.4.1.232.6.2.6.3.0
+  Description   Temperature Status
+  DefaultEQ	2
+  Decode	1	Other
+  Decode	2	OK
+  Decode	3	Degraded
+  Decode	4	FAILED
+  DefaultGroup  Environment
+
+Variable PROLIANT_FAN_STATUS
+  OID		.1.3.6.1.4.1.232.6.2.6.7.1.9.0.
+  Description   Fan Status
+  DefaultEQ	2
+  Decode	1	Other
+  Decode	2	OK
+  Decode	3	Degraded
+  Decode	4	FAILED
+  DefaultGroup  Environment
+
+Variable PROLIANT_PSU_STATUS
+  OID		 .1.3.6.1.4.1.232.6.2.9.3.1.5.0.
+  Description	Power Supply Status
+  DefaultIndex	1 2
+  DefaultEQ	1
+  Decode	1       OK
+  Decode        2	Failure
+  Decode	3	BIST Failure
+  Decode	4	Fan Failure
+  Decode	5	Temp Failure
+  Decode	6	Interlock Open
+  DefaultGroup  Power
+
+Variable CPQARRAY_LOG_STATUS
+  OID		.1.3.6.1.4.1.232.3.2.3.1.1.4.1.
+  Description	RAID Volume Status
+  DefaultIndex	1
+  DefaultEQ	2
+  Decode	1	Other
+  Decode	2	OK
+  Decode	3       FAILED
+  Decode	4       Unconfigured
+  Decode	5       Recovering
+  Decode	6	Ready For Rebuild
+  Decode	7	Rebuilding
+  Decode	8	Wrong Drive
+  Decode	9	Bad Connect
+  Decode	10	Overheating
+  Decode	11	Shutdown
+  Decode	12	expanding
+  Decode	13	Not Available
+  Decode	14	Queued For Expansion
+
+Variable CPQARRAY_PHYS_STATUS
+  OID		.1.3.6.1.4.1.232.3.2.5.1.1.6.1.
+  Description   Phys Drive Status
+  DefaultEQ	2
+  Decode	1	Other
+  Decode	2	OK
+  Decode	3	Failed
+  Decode	4	Predictive Failure
+
+
+
+# IBM 8272 Token Ring switch
+
+Variable IBM8272_LINK_STATE
+  OID            .1.3.6.1.4.1.2.6.66.1.2.2.1.1.15.
+  Description    Link State
+  DefaultEQ	1
+  Decode         1	up
+  Decode	 2	down
+
+Variable IBM8272_TEMP_SYS
+  OID            .1.3.6.1.4.1.2.6.66.1.2.1.2.11.0
+  Description    Switch Temperature
+  DefaultEQ	1
+  Decode         1	normal
+  Decode	 2	HIGH
+  DefaultGroup   Environment
+
+
+
+# Nokia IP series firewall appliance
+
+Variable NOKIA_IP_CHASSIS_TEMP
+  OID            .1.3.6.1.4.1.94.1.21.1.1.5.0
+  Description    Chassis Temperature
+  DefaultEQ	1
+  Decode         1	normal
+  Decode	 2	OVERTEMP
+  DefaultGroup   Environment
+
+Variable NOKIA_IP_FAN_STAT
+  OID            .1.3.6.1.4.1.94.1.21.1.2.1.1.2.
+  Description    Fan Status
+  DefaultEQ	1
+  Decode         1	running
+  Decode	 2	DEAD
+  DefaultGroup   Environment
+
+Variable NOKIA_IP_PSU_STAT
+  OID            .1.3.6.1.4.1.94.1.21.1.3.1.1.3.
+  Description    PSU Status
+  DefaultEQ	1
+  Decode         1	running
+  Decode	 2	DEAD
+  DefaultGroup   Environment
+
+Variable NOKIA_IP_PSU_TEMP
+  OID            .1.3.6.1.4.1.94.1.21.1.3.1.1.2.
+  Description    Chassis Temperature
+  DefaultEQ	1
+  Decode         1	normal
+  Decode	 2	OVERTEMP
+  DefaultGroup   Environment
+
+
+
+# Mail Server (custom extension scripts in UCD SNMP agent)
+
+Variable LINUX_MAILQUEUE
+    OID			.1.3.6.1.4.1.2021.8.1.101.1
+    Description		Mail Queue Length
+# see sample in ucd-snmp subdir in snmpvar.monitor distribution
+
+
+
+# cisco router
+# ciscoEnvMonTemperatureState 
+
+Variable CISCO_TEMP_STATE
+  OID		.1.3.6.1.4.1.9.9.13.1.3.1.6.
+  Description	Chassis Temperature
+  DefaultIndex	1
+  DefaultEQ	1
+  Decode	1	normal
+  Decode	2	Warning
+  Decode	3	CRITICAL
+  Decode	4	SHUTDOWN
+  Decode	5	not present
+  DefaultGroup  Environment
+
+
+Variable CISCO_MEM_POOL_FREE
+  OID           .1.3.6.1.4.1.9.9.48.1.1.1.6.
+  Description Memory Pool Free Bytes
+  DefaultIndex  1 2
+  FriendlyName  1 CPU
+  FriendlyName  2 I/O
+  
+  
+# HP switch
+# hpicfSensorStatus
+
+Variable HP_ICF_FAN_STATE
+  OID		.1.3.6.1.4.1.11.2.14.11.1.2.6.1.4.1
+  Description	Fan Status
+  DefaultEQ	4
+  Decode	1	unknown
+  Decode	2	bad
+  Decode	3	warning
+  Decode	4	good
+  Decode	5	not present
+  DefaultGroup  Environment
+
+Variable HP_ICF_PSU_STATE
+  OID		.1.3.6.1.4.1.11.2.14.11.1.2.6.1.4.
+  Description	PSU Status
+  DefaultEQ	4
+  Decode	1	unknown
+  Decode	2	bad
+  Decode	3	warning
+  Decode	4	good
+  Decode	5	not present
+  DefaultGroup	Power
+
+
+

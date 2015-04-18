@@ -1,0 +1,70 @@
+#!/usr/bin/perl 
+#
+# Use SNMP to get disk failures from a NetApp.
+#
+# USAGE
+#  [--community=<SNMP COMMUNITY>] [--timeout=<seconds>] [--retries=<count>] host1 host2 ...
+
+# sample invocation in mon.cf, with local MIB directory for the Netapp MIB
+# NETWORK-APPLIANCE-MIB.txt (copy from /etc/mib/netapp.mib on filer):
+#    service diskfree
+#    description test disk failure on Netapp filers
+#    depend SELF:ping
+#    MIBDIRS=/usr/local/share/snmp/mibs
+#    interval 7m
+#    monitor netappdiskfail.monitor
+
+#
+# This requires the UCD SNMP library and G.S. Marzot's Perl SNMP
+# module.
+#
+
+use strict;
+
+use SNMP;
+use Getopt::Long;
+
+$ENV{"MIBS"} = 'RFC1213-MIB:NETWORK-APPLIANCE-MIB';
+
+my %opt = ();
+
+GetOptions (\%opt, "community=s", "timeout=i", "retries=i");
+
+die "no host arguments\n" if (@ARGV == 0);
+
+my $RET = 0;
+my @ERRS = ();
+my %HOSTS = ();
+
+my $COMM = $opt{"community"} || "public";
+my $TIMEOUT = $opt{"timeout"} || 2; $TIMEOUT *= 1000 * 1000;
+my $RETRIES = $opt{"retries"} || 5;
+
+my $sess;
+
+foreach my $host (@ARGV) {
+    if (!defined($sess = new SNMP::Session (DestHost => $host,
+    		Timeout => $TIMEOUT, Community => $COMM,
+		Retries => $RETRIES,
+		Version => 1))) {
+	$RET = 1;
+	$HOSTS{$host} ++;
+	push (@ERRS, "could not create session to $host: " . $SNMP::Session::ErrorStr);
+	next;
+    }
+
+    if ($sess->get('diskFailedCount.0') > 0) {
+	$HOSTS{$host} ++;
+	push (@ERRS, "Disk failure - " . $sess->get('diskFailedCount.0') . " failed disk(s).");
+	push (@ERRS, $sess->get('diskFailedMessage.0'));
+	$RET = 1;
+    }
+}
+
+if ($RET) {
+    print join(" ", sort keys %HOSTS), "\n\n", join("\n", @ERRS), "\n";
+}
+
+exit $RET;
+
+

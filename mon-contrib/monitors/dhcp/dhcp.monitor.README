@@ -1,0 +1,16 @@
+# This script will verify that a DHCP server is operating.
+#
+# usage: dhcp.monitor [host ...]
+#
+# Uses Net::DHCP::Watch to send a DHCP inform message to each of the servers
+# listed on the command line, and then waits up to 30 seconds for a response.
+#
+# The script will determine your mon server's mac address and IP by parsing the
+# output of 'ifconfig eth0'.  You may need to modify that logic for your
+# operating system.
+#
+# Depending on your OS, you may need to have your mon server *not* be using DHCP
+# for its own interface management, as some DHCP implementations will bind the
+# DHCP port and refuse to allow Net::DHCP:Watch to generate and receive its own
+# requests.
+

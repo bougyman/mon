@@ -1,0 +1,200 @@
+#!/usr/bin/perl
+#
+# Use try to connect to a SMTP server over SSL, and
+# wait for the right output.  Can also warn about cert expiration.
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "smtp.monitor" by
+# David Nolan, vitroth+mon@cmu.edu
+#
+# Which was adapted from "http.monitor" by
+# Jim Trocki, trockij@transmeta.com
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: smtp-ssl.monitor,v 1.1 2005/08/20 17:54:09 vitroth Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use Net::SSLeay::Handle qw/shutdown/;
+use English;
+use Time::ParseDate;
+
+getopts ("p:t:T:w:");
+$PORT = $opt_p || 465;
+$TIMEOUT = $opt_t || 30;
+$THRESHOLD = $opt_T || 0;
+$EXPIREWARN = $opt_w ;       # How long in advance to warn about cert expiration.  0 means don't warn
+$EXPIREWARN = 0 if (!defined $EXPIREWARN); # Don't warn by default
+
+@failures = ();
+
+foreach $host (@ARGV) {
+
+    if (! &smtpGET($host, $PORT)) {
+	push (@failures, $host);
+    }
+}
+
+if (@failures == 0) {
+  exit 0;
+}
+
+print join (" ", sort @failures), "\n";
+
+foreach $msg (@details)
+{
+    print "$msg\n";
+}
+
+if (@failures <= $THRESHOLD) {
+    exit @failures;
+}
+
+exit 255;
+
+
+sub smtpGET {
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port) = @_;
+    my($ServerOK, $TheContent);
+    my ($OurHostname);
+
+    $ServerOK = 0;
+
+    $TheContent = '';
+
+    $Path = '/';
+
+###############################################################
+    eval {
+
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+	tie(*S2, "Net::SSLeay::Handle", $Server, $Port);
+
+	$in = <S2>;
+
+	$in = <S2> while $in =~ /^220-/;
+	if ($in !~ /^220 /) {
+	    alarm 0;
+	    push(@details, "${Server}: $in");
+	    return 0;
+	}
+
+	$OurHostname = &hostname;
+	print S2 "HELO $OurHostname\r\n";
+
+	$in = <S2>;
+	$in = <S2> while $in =~ /^250-/;
+	if ($in !~ /^250 /) {
+	    alarm 0;
+	    push(@details, "${Server}: $in");
+	    return 0;
+	}
+
+	print S2 "quit\r\n";
+
+	$in = <S2>;
+	if ($in !~ /^221 /) {
+	    alarm 0;
+	    push(@details, "${Server}: $in");
+	    return 0;
+	}
+
+	$ServerOK = 1;
+
+	alarm 0; # Cancel the alarm
+
+	if ($EXPIREWARN) {
+
+	  my $ssl = Net::SSLeay::Handle::_get_ssl(\*S2);
+	  my $cert = Net::SSLeay::get_peer_certificate($ssl);
+	  my $servercertname = Net::SSLeay::X509_NAME_oneline(Net::SSLeay::X509_get_subject_name($cert));
+	  my $signingcertname = Net::SSLeay::X509_NAME_oneline(Net::SSLeay::X509_get_issuer_name($cert));
+	  my $notafter = Net::SSLeay::P_ASN1_UTCTIME_put2string (Net::SSLeay::X509_get_notAfter($cert));
+	  my $notbefore = Net::SSLeay::P_ASN1_UTCTIME_put2string (Net::SSLeay::X509_get_notBefore($cert));
+	  my $na_time = parsedate($notafter);
+	  my $nb_time = parsedate($notbefore);
+	  my $now = time;
+	  my $later = $now + (86400 * $EXPIREWARN);
+	  print STDERR "XXXXX\nnotbefore $notbefore\nnotafter $notafter\nna_time $na_time\nnb_time $nb_time\nnow $now\nlater $later\n" if $opt_v;
+	  if ( $now < $nb_time ) {
+	    push @details,"$Server: Certificate not valid until $notbefore\ncertificate: $servercertname\nCA certificate: $signingcertname";
+	    $ServerOK = 0;
+	  }
+	  if ($now > $na_time) {
+	    push @details,"$Server: Certificate expired as of $notafter\ncertificate: $servercertname\nCA certificate: $signingcertname";
+	    $ServerOK = 0;
+	  } elsif ($later > $na_time ) {
+	    push @details,"$Server: Certificate will expire at $notafter\ncertificate: $servercertname\nCA certificate: $signingcertname";
+	    $ServerOK = 0;
+	  }
+	}
+
+	shutdown(\*S2, 1);
+	close(S2);
+
+    };
+
+    if ($EVAL_ERROR) {
+      if ($EVAL_ERROR =~ /^Timeout Alarm/) {
+	push(@details, "${Server}: Connection timed out");
+	return 0;
+      } else {
+	push(@details, "${Server}: $EVAL_ERROR");
+	return 0;
+      }
+    }
+    return $ServerOK;
+
+}
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    local($OtherHostname, $Port) = @_;
+    local($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+	  $ThisAddr, $that);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    my $that = sockaddr_in ($Port, $OtherHostAddr);
+
+    $result = socket(S, &PF_INET, &SOCK_STREAM, $proto) || return undef;
+
+    $result = connect(S, $that) || return undef;
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+    return 1;                               # success
+}

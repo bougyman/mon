@@ -1,0 +1,69 @@
+snapdelete.alert is an alert script for mon that will automatically
+delete the oldest snapshot off of a NetApp filer volume.  This is useful
+in the situation where the snapshots are kept around for convenience and
+regularly fill up enough to cause problems using the volume.  It requires
+Theo Van Dinter's enhanced netappfree.monitor script, and rsh-like access to
+the filer to execute the necessary snapshot commands. (rsh is available from
+the filer by default ("options rsh.enable" and etc/hosts.equiv), but SSH may
+be available if the filer has SecureAdmin enabled.  YMMV.)
+
+Tested against OnTap 5.2.x, should work on later versions as well.
+
+To install, simply place the alert script in the mon alerts directory.
+The alert can be added to the mon config like any other alert, but it has a
+few optional parameters that you may want to use:
+
+	-M	This specifies that if a valid snapshot isn't available for
+		deletion (they're all gone already, etc.), a mail should
+		be sent out saying as much with a list of currently
+		available snapshots.
+
+	-m <mail address>
+		This is a comma-seperated list of email addresses which
+		should be contacted when a snapshot is deleted or (using
+		-M) if no snapshot is eligible for deletion.
+
+	-o <snap types>
+		This is a comma-seperated list of snapshot types
+		(weekly, nightly, hourly) which specifies an order
+		of deletion.  ie: if "-o weekly,nightly,hourly" is
+		specified, weekly snapshots are all removed first, then
+		nightly snapshots, then hourly snapshots.  The default,
+		if "-o" isn't specified, is to delete the oldest valid
+		snapshot available.
+
+	-r <rsh path/parameters>
+		The default command for use against the NetApps is rsh (since
+		it's available by default).  If you need to change the path
+		or parameters ("/usr/bin/rsh -l root" by default), use "-r".
+		For instance, on HPUX, the command is "remsh" instead of
+		"rsh".
+
+	-v <snap types>
+		This is a comma-seperated list of snapshot types which are
+		allowed to be removed.	For instance, if the configuration
+		has "-v weekly,nightly", only weekly and nightly snapshots
+		are considered for removal.  The default, if "-v" isn't
+		specified is "weekly,nightly,hourly".
+
+When configured, the mon configuration will look like:
+
+watch toasters
+	service snapfreespace
+	description Check snapshot space on toasters
+	interval 5m
+	monitor netappfree.monitor -community=sysmon \
+		-config=/usr/lib/mon/etc/netappsnapfree.cf
+	period wd {Sun-Sat}
+		alert snapdelete.alert -m it-alert@company.com
+
+This will run netappfree.monitor every 5 minutes and check on the snapshot
+space-only (per the netappsnapfree.cf file).  If any snapshot areas are
+running low on space, snapdelete.alert is called and will mail
+it-alert@company.com when a snapshot is deleted.  If there are no snapshots
+to delete, we'll assume that another service (not shown) to check volume
+space will alert if the snapshots get too large.
+
+FYI: I haven't tested it, but the alert should handle a single
+netappfree.monitor run for the volumes and snapshots.  The alert script will
+ignore non-snapshot details from the monitor.

@@ -1,0 +1,65 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<html>
+<head>
+<meta name="GENERATOR" content="SGML-Tools 1.0.9">
+<title>Le manuel utilisateur de l'interface web Minotaure:
+Principes</title>
+<link href="minotaur-user-fr-3.html" rel="next">
+<link href="minotaur-user-fr-1.html" rel="previous">
+<link href="minotaur-user-fr.html#toc2" rel="contents">
+</head>
+<body>
+<a href="minotaur-user-fr-3.html">Page suivante</a> <a href= 
+"minotaur-user-fr-1.html">Page pr&eacute;c&eacute;dente</a> <a
+href="minotaur-user-fr.html#toc2">Table des mati&egrave;res</a> 
+
+<hr>
+<h2><a name="s2">2. Principes</a></h2>
+
+<p>Minotaure est un logiciel client pour le server MON. MON est un
+outil de supervision &eacute;crit par Jim Trocki.</p>
+
+<p>Le logiciel MON est un ordonnanceur g&eacute;n&eacute;ral qui
+ex&eacute;cute des tests p&eacute;riodiquement sur un ensemble de
+services et d&eacute;clenche des alarmes en cas de d&eacute;tection
+de probl&egrave;me.</p>
+
+<p>L'ordonnanceur peut &ecirc;tre interrog&eacute; suivant un
+protocole simple (en mode texte) sur un port
+pr&eacute;d&eacute;fini (2583).</p>
+
+<p>L'interface est bas&eacute; sur ce protocole. Le script CGI
+(Common Gateway Interface) interroge l'ordonnanceur et
+pr&eacute;sente les r&eacute;sultat sous le standard HTML. Par
+souci d'efficacit&eacute;, de simplicit&eacute;, de
+compatibilit&eacute; et de stabilit&eacute;, les java, javascript,
+frame, et autres avatars du web ne sont pas utilis&eacute;s.</p>
+
+<p>Pour comprendre l'interface Web, il faut penser &agrave; la
+hi&eacute;rarchie suivante:</p>
+
+<ul>
+<li>L'ordonnanceur surveilles des groupes.</li>
+
+<li>Les groupes sont constitu&eacute;s d'items.</li>
+
+<li>Ces items peuvent &ecirc;tre des machines
+pr&eacute;sent&eacute;es par leur nom ou leur adresse IP, ou tout
+autre chose, des r&eacute;pertoires par exemple.</li>
+
+<li>Sur chaque groupe d'items, l'ordonnanceur surveille un ou
+plusieurs services. Chaque service est test&eacute; par un logiciel
+appel&eacute; un moniteur.</li>
+
+<li>Pour chaque service, l'ordonnanceur peut d&eacute;clencher une
+ou plusieurs alarmes, quand un probl&egrave;me est
+detect&eacute;.</li>
+</ul>
+
+<hr>
+<a href="minotaur-user-fr-3.html">Page suivante</a> <a href= 
+"minotaur-user-fr-1.html">Page pr&eacute;c&eacute;dente</a> <a
+href="minotaur-user-fr.html#toc2">Table des mati&egrave;res</a>
+</body>
+</html>
+

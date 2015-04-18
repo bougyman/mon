@@ -1,0 +1,9 @@
+$Name:  $
+
+$Log: VERSION,v $
+Revision 1.1.1.1  2004/06/18 14:25:16  trockij
+from monperl-1-0-pre1
+
+Revision 1.2  2004/06/14 12:57:48  trockij
+updated the version and "where to get more information" in the README
+

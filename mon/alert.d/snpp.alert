@@ -1,0 +1,59 @@
+#!/usr/bin/perl -w
+#
+# snpp.alert - Pure perl SNPP client
+#
+#    Copyright (C) 1998, Michael Alan Dorman
+#
+#    snpp.alert is based on the alert.template distributed by mon.
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# $Id: snpp.alert,v 1.2 2007/07/17 18:05:10 aschwer Exp $
+#
+use strict;
+use vars qw /$opt_g $opt_q $opt_s $opt_t $opt_u/;
+use Getopt::Std;
+use Net::SNPP;
+
+getopts ("s:g:h:t:l:q:u");
+
+my $opt_q ||= 'localhost';
+
+#
+# the first line is summary information, adequate to send to a pager
+# or email subject line
+#
+#
+# the following lines normally contain more detailed information,
+# but this is monitor-dependent
+#
+# see the "Alert Programs" section in mon(1) for an explanation
+# of the options that are passed to the monitor script.
+#
+my $summary = <STDIN>;
+chomp $summary;
+
+my $t = localtime ($opt_t);
+my ($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+my $snpp = Net::SNPP->new ($opt_q) or die;
+
+my $ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+$snpp->send ( Pager => [ @ARGV ], Message => "$ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)" );
+
+$snpp->quit;

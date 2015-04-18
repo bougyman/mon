@@ -1,0 +1,12 @@
+$Id: README,v 1.2 2005/04/17 07:42:27 trockij Exp $
+
+muxpect is not yet complete. It is a work-in-progress.
+
+The purpose is to have a monitor which can multiplex TCP connections on
+the same port to multiple destinations and do chat-style interaction on
+them all in parallel. Given this functionality, many of the TCP-based
+monitors in mon.d can be replaced by this code, making things much
+more efficient.
+
+Jim Trocki
+trockij@arctic.org

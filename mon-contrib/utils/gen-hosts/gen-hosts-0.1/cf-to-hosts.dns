@@ -1,0 +1,215 @@
+#!/usr/bin/perl
+#
+# Convert hostgroup entries in a mon configuration file
+# into a local hosts file
+#
+# Jim Trocki, trockij@transmeta.com
+#
+# $Id: cf-to-hosts.dns,v 1.1.1.1 2005/02/18 17:52:21 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+use strict;
+
+sub resolve_hosts;
+sub print_hosts;
+sub read_cf;
+
+use Getopt::Std;
+use Net::DNS;
+use Socket;
+
+my %resolved;
+
+my %opt;
+getopts ("hMv", \%opt);
+
+if ($opt{"h"})
+{
+    print <<EOF;
+usage: cf-to-hosts [-hMv] mon.cf
+  -h    print this usage message
+  -M    pre-process with m4
+  -v    verbose output
+
+EOF
+    exit;
+}
+
+my $f = shift;
+
+die "supply config file\n" if ($f eq "");
+
+if ((my $e = read_cf ($f)) ne "")
+{
+    die "error reading $f: $e\n";
+}
+
+print_hosts;
+
+exit;
+
+
+sub print_hosts
+{
+    foreach my $host (keys %resolved)
+    {
+    	print "$resolved{$host}\t$host\n";
+    }
+}
+
+
+sub resolve_hosts
+{
+    my ($hosts) = @_;
+
+    my $err = 0;
+
+    my ($query , $res, $rr, $host, $ip);
+
+    foreach $host (split (/\s+/, $hosts))
+    {
+	next if (defined $resolved{$host});
+
+	$res = new Net::DNS::Resolver;
+	$query = $res->search("$host");
+	if ($query) {
+	    foreach $rr ($query->answer) {
+		next unless $rr->type eq "A";
+		$resolved{$host} = $rr->address ;
+		print STDERR "Host '$host' resolved to $resolved{$host}\n" if $opt{"v"};
+	    }
+	}
+	else {
+	    print STDERR "DNS query failed for $host: ", $res->errorstring, "\n";
+	    print STDERR "Trying gethostbyname for '$host'...";
+
+	    $ip = gethostbyname ($host);
+	    
+	    if (defined ($ip))
+	    {
+		$resolved{$host} = inet_ntoa ($ip);
+		print STDERR "ok, resolved to $resolved{$host} (you might want to put this in DNS)\n";
+	    }
+	    else
+	    {
+		print STDERR "could not look up '$host'\n";
+		$err++;
+	    }
+
+	}
+
+    }
+
+    $err;
+}
+
+sub find_m4 {
+    # tries a trivial (null) invocation of m4, just to see
+    # if m4 and its associated shared libs are accessible
+    # from our current environment.
+    #
+    # inputs: void
+    # outputs: result code from m4 invocation
+    my $m4_status = system("m4 < /dev/null");
+    my $m4_exit_value = $? >> 8;
+    return $m4_exit_value;
+}
+
+sub read_cf
+{
+    my $f = shift;
+
+    if ($opt{"M"} || $f =~ /\.m4$/i)
+    {
+	my $m4_exit_value = &find_m4;
+	if ($m4_exit_value > 0) {
+	    print STDERR "m4 exited with error code $m4_exit_value, cannot parse config file $f\n";
+	    exit 1;
+	} else {
+	    open (IN, "m4 $f |") || return "$!";
+	}
+    }
+
+    else
+    {
+	open (IN, "$f") || return "$!";
+    }
+
+    my $linepart = "";
+    my $l = "";
+    my $acc_line = undef;
+    my $ingroup = 0;
+
+    for (;;)
+    {
+	last if (!defined ($linepart = <IN>));
+
+	next if $linepart =~ /^\s*#/;
+
+	#
+	# accumulate multi-line lines (ones which are \-escaped)
+	#
+	if (!defined $acc_line) { $linepart =~ s/^\s*//; }
+
+	if ($linepart =~ /^(.*)\\\s*$/)
+	{
+	    $acc_line .= $1;
+	    chomp $acc_line;
+	    next;
+	}
+
+	else
+	{
+	    $acc_line .= $linepart;
+	}
+
+	$l = $acc_line;
+	$acc_line = undef;
+
+	chomp $l;
+	$l =~ s/^\s*//;
+	$l =~ s/\s*$//;
+
+	$linepart = "";
+
+	if ($l eq "")
+	{
+	    $ingroup = 0;
+	    next;
+	}
+
+	if ($l =~ /^hostgroup\s+(\S+)\s+(.*)/)
+	{
+		$ingroup = 1;
+		resolve_hosts ($2);
+		next;
+	}
+	
+	elsif ($ingroup)
+	{
+	    resolve_hosts ($l);
+	    next;
+	}
+    }
+
+    if (!close (IN)) { #there was an error running m4 or reading from pipe/file
+	print STDERR "Error opening config file: $!";
+	return 1;
+    }
+
+    return "";
+}

@@ -1,0 +1,22 @@
+radius.monitor.detailcheck README
+=================================
+
+	This is an anal-retentive check of radius to ensure that not only
+are your servers online, but that they are returning expected av pairs. This
+is a good extra additional check to be doing because configuration mistakes
+or database problems may create problems for radius that don't show up as
+a simple 'access-reject'. 
+
+	Since mon only passes simple command line params, and because we
+need more extensive configuration, you need to modify the script's
+configuration vars to suit your installation. The general idea is that you
+set it up with as many unique av pairs as you can, with values that do not
+match anything you're likely to ever legitimately assign elsewhere, and then
+this script checks to make sure that all av pairs are returned and ONLY
+these pairs are seen else it reports. 
+
+	Mike Ireton
+	WillitsOnline
+	Feb 13 2008
+
+

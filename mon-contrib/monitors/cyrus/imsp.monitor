@@ -1,0 +1,150 @@
+#!/usr/bin/perl
+#
+# Use try to connect to an IMSP server, and
+# wait for the right output.
+#
+# For use with "mon".
+#
+# Arguments are "-p port -t timeout host [host...]"
+#
+# Adapted from "imap.monitor" by 
+# David Nolan, vitroth+mon@cmu.edu
+#
+# Which was adapted from "http.monitor" by
+# Jim Trocki, trockij@transmeta.com
+#
+# http.monitor written by
+#
+# Jon Meek
+# American Cyanamid Company
+# Princeton, NJ
+#
+# $Id: imsp.monitor,v 1.1 2005/08/20 15:24:50 vitroth Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+getopts ("p:t:");
+$PORT = $opt_p || 406;
+$TIMEOUT = $opt_t || 30;
+
+@failures = ();
+%details;
+
+foreach $host (@ARGV) {
+
+    if (! &imspGET($host, $PORT)) {
+	push (@failures, $host);
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print join (" ", sort @failures), "\n";
+
+foreach (sort @failures) {
+  if (exists $details{$_}) {
+    print "$_: $details{$_}\n";
+  }
+}
+
+exit scalar @failures;
+
+
+sub imspGET {
+    use Socket;
+    use Sys::Hostname;
+
+    my($Server, $Port) = @_;
+    my($ServerOK, $TheContent);
+
+    $ServerOK = 0;
+
+    $TheContent = '';
+
+    $Path = '/';
+
+###############################################################
+    eval {
+
+	local $SIG{ALRM} = sub { die "Timeout Alarm" };
+	alarm $TIMEOUT;
+	$result = &OpenSocket($Server, $Port); # Open a connection to the server
+	if ($result == 0) { # Failure to open the socket
+	    alarm 0;
+	    $details{$Server} = "Connection refused";
+	    return 0;
+	}
+
+	$in = <S>;
+	if ($in !~ /^\* (OK|PREAUTH|BYE)/) {
+	    alarm 0;
+            $details{$Server} = "No IMSP banner.  Not an IMSP server?";
+	    return 0;
+	}
+
+	print S "A1 LOGOUT\r\n";
+
+	while (defined($in=<S>)) {
+	    if ($in =~ /^A1 OK/) {
+		last;
+	    }
+	}
+
+	$ServerOK = 1;
+
+	close(S);
+	alarm 0; # Cancel the alarm
+
+    };
+
+    if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+        $details{$Server} = "Connection timed out after $TIMEOUT seconds\n";
+	return 0;
+    }
+    return $ServerOK;
+
+}
+
+sub OpenSocket {
+#
+# Make a Berkeley socket connection between this program and a TCP port
+#  on another (or this) host. Port can be a number or a named service
+#
+    local($OtherHostname, $Port) = @_;
+    local($OurHostname, $sockaddr, $name, $aliases, $proto, $type, $len,
+	  $ThisAddr, $that);
+    $OurHostname = &hostname;
+
+    ($name, $aliases, $proto) = getprotobyname('tcp');
+    ($name, $aliases, $Port) = getservbyname($Port, 'tcp') unless $Port =~ /^\d+$/;
+    ($name, $aliases, $type, $len, $ThisAddr) = gethostbyname($OurHostname);
+    ($name, $aliases, $type, $len, $OtherHostAddr) = gethostbyname($OtherHostname);
+
+    my $that = sockaddr_in ($Port, $OtherHostAddr);
+
+    $result = socket(S, &PF_INET, &SOCK_STREAM, $proto) || return undef;
+
+    $result = connect(S, $that) || return undef;
+
+    select(S); $| = 1; select(STDOUT);      # set S to be un-buffered
+    return 1;                               # success
+}

@@ -1,0 +1,77 @@
+#!/bin/sh
+#
+# This is for testing mon during development.
+#
+# Call this script with $1 set to a directory, and
+# $2 set to some text tag,
+# usually the name of the service you're testing.
+#
+# Put a file in $1 called "$1.seq", which is a space
+# separated list of words. On consecutive calls to
+# this script, the next word will be interpreted.
+#
+# If the word is "0" then this script exits with success.
+#
+# Otherwise, echo the word and exit with a failure
+#
+# You probably want to "rm -f $1/$2.count" the first
+# time you run this.
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: seq.monitor,v 1.2 2005/04/17 07:42:27 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+path=$1
+id=$2
+
+if [ -f "$path/$id.count" ]
+then
+    count=`cat $path/$id.count`
+else
+    count=0
+fi
+
+if [ ! -d "$path" ]
+then
+    echo "$path" not found
+    exit 1
+fi
+
+seq=`cat $path/$id.seq`
+set -- $seq
+max=$#
+
+if [ "$count" = "$max" ]
+then
+    count=0
+else
+    shift $count
+fi
+
+echo `expr $count + 1` > $path/$id.count
+
+if [ "$1" = 0 ]
+then
+    echo "success"
+    exit 0
+else
+    echo "failure:$1"
+    exit 1
+fi

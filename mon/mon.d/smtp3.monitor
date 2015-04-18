@@ -1,0 +1,560 @@
+#!/usr/bin/perl
+
+# Yet another smtp monitor using IO::Socket with timing and logging
+
+#
+# $Id: smtp3.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $
+#
+#    Copyright (C) 2001-2003, Jon Meek, meekj@ieee.org
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+=head1 NAME
+
+B<smtp3.monitor> - smtp monitor for mon with timing, logging, optional MX lookup, and diagnostic capability.
+
+=head1 DESCRIPTION
+
+A SMTP monitor using IO::Socket with connection response timing and
+optional logging. This test is reasonably complete. Following the
+greeting banner from the SMTP server the monitor client issues the
+HELO and MAIL commands then closes the session with a QUIT
+command. Early versions of this monitor simply looked at the initial
+greeting banner, but that did not detect certain temporary failure
+conditions.
+
+While configuring mon for this monitor keep in mind that a busy mail
+server may reject new connections.
+
+=head1 SYNOPSIS
+
+B<smtp3.monitor> [-d] [-l log_file_YYYYMM.log] [--timeout timeout_seconds] [--alarmtime alarm_time] [--mx] [--esmtp]  [--requiretls] [--nofail] [--from user@domain.com] [--to r1@d1.com,r2@d2.edu] [--size nnnnn] [--port nn] host host1 host2 ...
+
+=head1 OPTIONS
+
+=over 5
+
+=item B<-d> Debug/Diagnostic mode. Useful for manual command line use
+for diagnosing mail delivery problems. To determine if a mail destination
+will accept mail the --mx flag will useful.
+
+=item B<--timeout timeout> Connect timeout in seconds.
+
+=item B<--alarmtime alarm_timeout> Alarm if connect is successful but took
+longer than alarm_timeout seconds.
+
+=item B<-l log_file_template> /path/to/logs/smtp_YYYYMM.log
+Current year & month are substituted for YYYYMM, that is the only
+possible template at this time.
+
+=item B<--mx> Lookup the MX records for the domains/hosts and test
+them in preference order.  The first successful test will be
+considered a success for that domain. This was originally devised for
+manual command line use as a tool to verify that mail stuck in
+outbound queues really can not be delivered. It could be used with mon
+as well, however you are usually going to want to test ALL of your
+smtp servers, not just be sure that one of them is OK. --mx applies to
+all of the domains/hosts listed on the command line.
+
+=item B<--esmtp>
+
+Try ESMTP before SMTP.
+
+=item B<--requiretls>
+
+Check that STARTTLS is offered, fail if it is not. This option forces B<--esmtp>.
+
+=item B<--nofail>
+
+Never provide a failure return to mon. Useful in certain testing envrionments
+when logging.
+
+=item B<--port nnn>
+
+Specify a port to use. Defaults to 25.
+
+=back
+
+=head1 MON CONFIGURATION EXAMPLE
+
+ hostgroup smtp mail1.mymails.org mail2.mymails.org
+                mail3.mymails.org
+
+ watch smtp
+        service smtp_check
+        interval 5m
+        monitor smtp3.monitor --timeout 70 --alarmtime 30 -l /n/na1/logs/wan/smtp_YYYYMM.log
+        period wd {Sun-Sat}
+                alert mail.alert meekj@mymails.org
+                alertevery 1h summary
+
+
+=head1 LOG FILE FORMAT
+
+A normal log entry has the format:
+
+ measurement_time  smtp_host_name  connect_time
+
+A failed connection log entry contains:
+
+ measurement_time  smtp_host_name connect_time  smtp_code_and_greeting (or connect_error)
+
+Where:
+
+F<measurement_time> - Is the time of the connection attempt in seconds since 1970
+
+F<smtp_host_name> - Is the name of the smtp server that was tested. If
+--mx was selected then this field is servername=MX_record where
+MX_record is the mail domain (host) from the command line.
+
+F<connect_time> - Is the time from the connect request until the SMTP
+greeting appeared in seconds with 100 microsecond resolution. If the
+connection failed the time spent waiting for the connection will be a
+negative number.
+
+F<smtp_code_and_banner> - Should have the SMTP response code integer
+followed by the greeting banner if there was a problem.
+
+F<connect_error> - If present may indicate "Connect failed" meaning
+that the connect attempt failed immediately, possibly due to a DNS
+lookup error or because the server is not running any service on port
+25. The field may also be "Connect timeout" indicating that the
+connect failed after the set timeout period.
+
+=head1 BUGS
+
+It should be possible to specify --esmtp and --requiretls on a per-host basis.
+
+A SMTP temporary failure code could cause the monitor to retry the connection
+a certain number of times.
+
+It is not yet possible to specify the username / domain for the HELO and
+MAIL commands, but it would be very simple to add.
+
+=head1 REQUIRED NON-STANDARD PERL MODULES
+
+ IO::Socket
+ Time::HiRes
+ Net::DNS (only if --mx option will be used)
+
+If you do not have Time::HiRes you can choose to comment out the lines
+that refer to F<gettimeofday> and F<tv_interval> but several features will be lost.
+
+=head1 AUTHOR
+
+Jon Meek, meekj@ieee.org
+
+=cut
+use English;
+use Sys::Hostname;
+use Getopt::Long;
+use IO::Socket;
+use Time::HiRes qw( gettimeofday tv_interval );
+
+$RCSid = q{$Id: smtp3.monitor,v 1.2 2004/11/15 14:45:19 vitroth Exp $ };
+
+$ESMTP = 0;
+$RequireTLS = 0;
+
+GetOptions ('mx' => \$UseMX,
+	    'd' => \$opt_d,
+	    'esmtp' => \$ESMTP,
+	    'requiretls' => \$RequireTLS,
+	    'timeout=i' => \$TimeOut,
+	    't=i' => \$TimeOut,
+	    'alarmtime=i' => \$opt_T,
+	    'T=i' => \$opt_T,
+	    'logfile=s' => \$opt_l,
+	    'l=s' => \$opt_l,
+	    'nofail' => \$NoFail,
+	    'size=i' => \$MessageSize,
+	    'port=i' => \$Port,
+	    'from=s' => \$FromAddress,
+	    'to=s' => \$ToAddresses,
+	   );
+
+$ESMTP = 1 if $RequireTLS;
+
+if ($UseMX) { # Will need Net::DNS Module, but don't require the module if it won't be used
+  eval "use Net::DNS";
+  do {
+    warn "Couldn't load Net::DNS: $@";
+    undef $UseMX;
+  } unless ($@ eq '');
+  $Resolver = new Net::DNS::Resolver;
+}
+
+$Port = 'smtp(25)' unless $Port;
+$TimeOut = 30 unless $TimeOut; # Default timeout in seconds
+$dt = 0;                 # Initialize connect time variable
+
+@Failures = ();          # Initialize failure list
+
+$TimeOfDay = time;       # Current time
+print "TimeOfDay: $TimeOfDay\n" if $opt_d;
+
+#
+# Get the process username and the hostname of the monitor machine
+#
+$MonitorUsername = getpwuid($UID);
+$MonitorHostname = hostname;
+$host_address = gethostbyname($MonitorHostname);
+$MonitorHostname = gethostbyaddr($host_address, AF_INET);
+
+$FromAddress = qq{$MonitorUsername\@$MonitorHostname} unless $FromAddress;
+
+print " From:    $FromAddress\n" if $opt_d;
+print " TimeOut: $TimeOut\n" if $opt_d;
+
+#
+# Check each host, or MX record
+#
+foreach $host (@ARGV) {
+  print "Check: $host\n" if $opt_d;
+#
+# Get the MX records, if we need them
+#
+  if ($UseMX) {
+    undef %MXval;
+    undef @MXorder;
+    @mx = mx($Resolver, $host);
+    if (@mx) {
+      foreach $rr (@mx) {
+	$preference = $rr->preference;
+	$mxrecord = $rr->exchange;
+	$MXval{$mxrecord} = $preference;
+      }
+    } else {
+      print "can't find MX records for $host: ", $Resolver->errorstring, "\n" if $opt_d;
+      push(@Failures, $host);    # Call it a failure
+      $FailureDetail{$host} = "Can't find MX records";
+      next;
+    }
+#
+# Sort the MX records into preference order
+#
+    print "MX records for $host:\n" if $opt_d;
+    foreach $k (sort {$MXval{$a} <=> $MXval{$b}} keys %MXval) {
+      $Arecord = ''; # Clear for this MX
+      push(@MXorder, $k);
+      if ($opt_d) {		# If in debug/verbose mode lookup A record
+	$name = $k . '.';	# Append dot for absolute lookup
+	if ($packet = $Resolver->search($name)) {
+	  @answer = $packet->answer;
+	  foreach $rr (@answer) {
+	    $address = '';
+	    $name = $rr->name;
+	    $type = $rr->type;
+	    $address = $rr->address if ($type eq 'A');
+	    $Arecord .= "$type: $address  "; # Append, in case some other records are found
+	  }
+	} else {
+	  $arecord = "Could not find A record for $name";
+	}
+      }
+      printf " %3d - %s  %s\n", $MXval{$k}, $k, $Arecord if $opt_d;
+    }
+  }
+#
+# Now actually do the smtp check
+#
+  if ($UseMX && @mx) { # Check MX records, stop after first success
+    foreach $mx (@MXorder) {
+      $HostPlusMX = "$host=$mx";
+      push(@HostNames, $HostPlusMX);
+      $TestTime{$HostPlusMX} = time;
+      print "Checking $HostPlusMX\n" if $opt_d;
+      $result = &CheckSMTP($HostPlusMX);
+      last if ($result);
+    }
+
+  } else {             # Regular host check
+    push(@HostNames, $host);
+    $TestTime{$host} = time;
+    $result = &CheckSMTP($host);
+  }
+}
+
+if ($opt_d) {
+  foreach $host (sort @HostNames) {
+    print "$TestTime{$host} $host $ConnectTime{$host} $InitialBanner{$host}\n";
+#    ($shortfail, $rest) = split(/\n/, $InitialBanner{$host}, 2);
+#    print "$TestTime{$host} $host $ConnectTime{$host} $shortfail\n";
+  }
+}
+
+# Write results to logfile, if -l
+
+if ($opt_l) {
+  # Determine logfile name, usually based on year/month
+  $LogFile = $opt_l;
+  ($sec,$min,$hour,$mday,$Month,$Year,$wday,$yday,$isdst) =
+    localtime($TimeOfDay);
+  $Month++;
+  $Year += 1900;
+  $YYYYMM = sprintf('%04d%02d', $Year, $Month);
+  $LogFile =~ s/YYYYMM/$YYYYMM/; # Fill in current year and month
+
+  open(LOG, ">>$LogFile") || warn "$0 Can't open logfile: $LogFile\n";
+  foreach $host (sort @HostNames) {
+    $FailureDetail{$host} =~ s/\n/ /g; # Put it on one line, but result may be too long
+    $FailureDetail{$host} =~ s/ $//;   # Trim final space
+#    ($shortfail, $rest) = split(/\n/, $FailureDetail{$host}, 2);
+#    print LOG "$TestTime{$host} $host $ConnectTime{$host} $shortfail\n";
+    print LOG "$TestTime{$host} $host $ConnectTime{$host} $FailureDetail{$host}\n";
+  }
+  close LOG;
+}
+
+if (@Failures == 0) { # Indicate "all OK" to mon
+  exit 0;
+}
+
+#
+# Otherwise we have one or more failures
+#
+@SortedFailures = sort @Failures;
+
+print "@SortedFailures\n";
+
+foreach $host (@SortedFailures) {
+    print "$host $ConnectTime{$host} $FailureDetail{$host}\n";
+}
+print "\n";
+
+exit 0 if $NoFail; # Never indicate failure if $NoFail is set
+exit 1;            # Indicate failure to mon
+
+sub CheckSMTP {
+  my $host = shift;
+  my $t1, $t2, $dt, $mx_name, $stripped_host;
+  my $Failure = 0; # Flag to indicate failure for return code
+                   # return 0 may not be working inside eval
+
+  my $buflength = 1024;
+
+  if ($host =~ /=/) { # Have MX data
+    ($mx_name, $stripped_host) = split(/=/, $host);
+  } else {
+    $stripped_host = $host;
+  }
+
+  #
+  # Use eval/alarm to handle timeout
+  #
+  eval {
+    local $SIG{ALRM} = sub { die "timeout\n" }; # Alarm handler
+
+    alarm($TimeOut);		# Do a SIG_ALRM in $TimeOut seconds
+    $t1 = [gettimeofday];	# Start connection timer, then connect
+    my $sock = IO::Socket::INET->new(PeerAddr => $stripped_host,
+				     PeerPort => $Port,
+				     Proto    => 'tcp');
+
+    if (defined $sock) {	# Connection succeded
+
+      $in = '';
+      $bytes = sysread($sock, $in, $buflength); # Handle multi-line banners
+      $InitialBanner{$host} = $in;
+
+      $t2 = [gettimeofday];	# Stop clock
+      print " Banner: $InitialBanner{$host}\n" if $opt_d;
+
+      if ($InitialBanner{$host} !~ /^220/) { # Consider "220 Service ready" to be only valid
+	push(@Failures, $host);	# Note failure
+	if (length($InitialBanner{$host}) == 0) { # Note empty banner
+	  $InitialBanner{$host} = 'null';
+	}
+	$FailureDetail{$host} = "BANNER: " . $InitialBanner{$host}; # Save failure banner
+	$ConnectTime{$host} = -1;
+	# last;
+	$Failure = 1;
+	print "QUIT\r\n" if $opt_d;
+	print $sock "QUIT\r\n";	# Shutdown connection
+	close $sock;
+	return 0;
+      }
+
+      if ($ESMTP) { # Try EHLO first
+	print "EHLO $MonitorHostname\r\n" if $opt_d;
+	print $sock "EHLO $MonitorHostname\r\n";
+
+	$in = '';
+	$bytes = sysread($sock, $in, $buflength); # Handle multi-line banners
+	$EhloResponse{$host} = $in;
+
+	print " EHLO resp: $EhloResponse{$host}\n" if $opt_d;
+	if ($EhloResponse{$host} !~ /^250/) { # Consider "250 Requested mail action okay, completed" to be only valid
+	  push(@Failures, $host);	# Note failure
+	  print "EHLO Failure!\n" if $opt_d;
+	  $FailureDetail{$host} = "EHLO: " . $EhloResponse{$host}; # Save failure banner
+	  #last;
+	  $Failure = 1;
+	  print "QUIT\r\n" if $opt_d;
+	  print $sock "QUIT\r\n";	# Shutdown connection
+	  close $sock;
+	  return 0 if $RequireESMTP;
+	}
+
+	if ($RequireTLS && ($EhloResponse{$host} !~ /STARTTLS/)){ # Check TLS advertisement
+	  push(@Failures, $host);	# Note failure
+	  $FailureDetail{$host} = "STARTTLS Not Offered ";
+	  print "STARTTLS Not Offered!\n" if $opt_d;
+	  print $sock "QUIT\r\n";	# Shutdown connection
+	  close $sock;
+	  return 0;
+	}
+
+      }
+
+      if (!$ESMTP or ($ESMTP && $Failure)) {
+	print $sock "HELO $MonitorHostname\r\n";
+
+	$in = '';
+	$bytes = sysread($sock, $in, $buflength); # Handle multi-line banners
+	$HeloResponse{$host} = $in;
+
+	print " HELO resp: $HeloResponse{$host}\n" if $opt_d;
+	if ($HeloResponse{$host} !~ /^250/) { # Consider "250 Requested mail action okay, completed" to be only valid
+	  push(@Failures, $host);	# Note failure
+	  print "HELO Failure!\n" if $opt_d;
+	  $FailureDetail{$host} = "HELO: " . $HeloResponse{$host}; # Save failure banner
+	  #last;
+	  $Failure = 1;
+	  print "QUIT\r\n" if $opt_d;
+	  print $sock "QUIT\r\n";	# Shutdown connection
+	  close $sock;
+	  return 0;
+	}
+      }
+
+      $FromLine = qq{MAIL From:<$FromAddress>};
+      if ($MessageSize) {
+	$FromLine .= qq{ SIZE=$MessageSize};
+      }
+      $FromLine .= qq{\r\n};
+      print $FromLine if $opt_d;
+      print $sock $FromLine;
+
+      chomp($MailResponse{$host} = <$sock>);
+      print " MAIL resp: $MailResponse{$host}\n" if $opt_d;
+      if ($MailResponse{$host} !~ /^250\s+/) { # Consider "250 Requested mail action okay, completed" to be only valid
+	push(@Failures, $host);	# Note failure
+	$FailureDetail{$host} = "MAIL: " . $MailResponse{$host}; # Save failure banner
+	#last;
+	$Failure = 1;
+	print "QUIT\r\n" if $opt_d;
+	print $sock "QUIT\r\n";	# Shutdown connection
+	close $sock;
+	return 0;
+      }
+
+      if ($ToAddresses) { # Addresses given on command line
+	(@to_addrs) = split(/,/, $ToAddresses);
+	foreach $to (@to_addrs) {
+	  $RcptCommand = qq{RCPT TO:<$to>};
+	  print "$RcptCommand\r\n" if $opt_d;
+	  print $sock "$RcptCommand\r\n";
+	  chomp($RcptResponse = <$sock>);
+	  print " RCPT resp: $RcptResponse\n" if $opt_d;
+	}
+      }
+
+      print "QUIT\r\n" if $opt_d;
+      print $sock "QUIT\r\n";	# Shutdown connection
+      close $sock;
+
+      $dt = tv_interval ($t1, $t2); # Compute connection time
+      $ConnectTime{$host} = sprintf("%0.4f", $dt); # Format to 100us resolution
+
+      if ($opt_T) {		# Check for slow response
+	if ($dt > $opt_T) {
+	  push(@Failures, $host); # Call it a failure
+	  $FailureDetail{$host} = "Slow Connect";
+	  $Failure = 1;
+	  return 0;
+	}
+      }
+
+    } else {			# Connection failed
+      $t2 = [gettimeofday];	# Stop clock
+      $dt = tv_interval ($t1, $t2); # Compute connection time
+      $ConnectTime{$host} = sprintf("-%0.4f", $dt); # Format to 100us resolution, -val if failure
+      print " Connect to $host failed\n" if $opt_d;
+      push(@Failures, $host);	# Save failed host
+      $FailureDetail{$host} = "Connect failed";
+      $Failure = 1;
+      return 0;
+    }
+  };
+  alarm(0);			# Stop alarm countdown
+  if ($@ =~ /timeout/) {	# Detect timeout failures
+    $t2 = [gettimeofday];	# Stop clock
+    $dt = tv_interval ($t1, $t2); # Compute connection time
+    $ConnectTime{$host} = sprintf("-%0.4f", $dt); # Format to 100us resolution, -val if timeout
+    push(@Failures, $host);
+    print " Connect to $host timed-out\n" if $opt_d;
+    $FailureDetail{$host} = "Connect timeout";
+    $Failure = 1;
+    return 0;
+  }
+
+  if ($Failure) { # Important when an MX record list is being checked
+    return 0;
+  } else {
+    return 1;
+  }
+}
+
+__END__
+
+SMTP Reply Codes From RFC-821 - may use in the future
+
+  211 System status, or system help reply
+  214 Help message
+      [Information on how to use the receiver or the meaning of a
+       particular non-standard command; this reply is useful only
+       to the human user]
+  220 <domain> Service ready
+  221 <domain> Service closing transmission channel
+  250 Requested mail action okay, completed
+  251 User not local; will forward to <forward-path>
+
+  354 Start mail input; end with <CRLF>.<CRLF>
+
+  421 <domain> Service not available,
+      closing transmission channel
+      [This may be a reply to any command if the service knows it
+       must shut down]
+  450 Requested mail action not taken: mailbox unavailable
+      [E.g., mailbox busy]
+  451 Requested action aborted: local error in processing
+  452 Requested action not taken: insufficient system storage
+
+  500 Syntax error, command unrecognized
+      [This may include errors such as command line too long]
+  501 Syntax error in parameters or arguments
+  502 Command not implemented
+  503 Bad sequence of commands
+  504 Command parameter not implemented
+  550 Requested action not taken: mailbox unavailable
+      [E.g., mailbox not found, no access]
+  551 User not local; please try <forward-path>
+  552 Requested mail action aborted: exceeded storage allocation
+  553 Requested action not taken: mailbox name not allowed
+      [E.g., mailbox syntax incorrect]
+  554 Transaction failed
+

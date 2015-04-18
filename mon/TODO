@@ -1,0 +1,85 @@
+$Id: TODO,v 1.2 2004/11/15 14:45:16 vitroth Exp $
+
+-add short a "radius howto" to the doc/ directory.
+
+-make traps authenticate via the same scheme used to obscure
+ the password in RADIUS packets
+
+-descriptions defined in mon.cf should be 'quoted'
+
+-document command section and trap section in authfile
+
+-finish support for receiving snmp traps
+
+-output to client should be buffered and incorporated into the I/O loop.
+ There is the danger that a sock_write to a client will block the server.
+
+-finish muxpect
+
+-make "chainable" alerts
+
+-make alerts nonblocking, and handle them in a similar fashion to
+ monitors. i.e., serialize per-service (or per-period) alerts.
+
+-document "clear" client command
+
+-Document trap authentication.
+
+-Document traps.
+
+-fix client opstatus parsing by converting clients to use Mon::Client
+
+-Make monitors parallelize their tasks, similar to fping.monitor. This
+ is an important scalability problem.
+
+-make changes to tkined so that it can query a mon server and
+ update the graphical map accordingly.
+
+-re-vamp the host disabling. 1) store them in a table with a timeout
+ on each so that they can automatically re-enable themselves so
+ people don't forget to re-enable them manually. 2) don't do
+ the disabling by "commenting" them out of the host groups.
+ We still want them to be tested for failure, but just disable
+ alerts that have to do with the disabled hosts.
+ When a host is commented out, accept a "reason" field that
+ is later accessible so that you can tell why someone disabled
+ the host.
+
+-allow checking a service at a particular time of day, maybe using
+ inPeriod.
+
+-maybe make a command that will disable an alert for a certain amount
+ of time (maybe implement this as an at(1) job??)
+
+-make it possible to disable just one of multiple alarms in a service
+
+-make a logging facility which forks and execs external logging
+ daemons and writes to them via some ipc such as unix domain socket.
+ mon should be sure that one of each type of these loggers is running
+ at all times. configure the logging either globally or for each
+ service. write both the success and failure status to the log in
+ some "list opstatus" type format. each logger can do as it wishes
+ with the data (e.g. stuff it into rrdtool, mysql, cat it to a file, etc.)
+
+
+    # global setting
+    logger = file
+
+    watch stuff
+	service http
+	    logger file -p _LOGDIR_
+	    ...
+	service fping
+	    # this will use the global logger setting
+	    ...
+	service
+	    # this will override the global logger setting
+	    logger none
+	    ...
+
+
+ common options to logger:
+    -d dir	path to logging dir
+    -f file	name of log file
+    -g, -s	group, service
+

@@ -1,0 +1,140 @@
+#!/usr/bin/perl -w
+#
+# try to connect to a particular
+# port on a bunch of hosts. For use with "mon".
+#
+# Arguments are "[-p port] [-t timeout] [-r local-port] host [host...]"
+#
+# David Nolan, vitroth@cmu.edu
+# based on tcp.monitor by Jim Trocki, trockij@transmeta.com
+#
+# $Id: udp.monitor,v 1.1 2005/02/19 17:43:21 vitroth Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use Socket;
+use Sys::Hostname;
+
+my %opt;
+getopts ("p:r:t:", \%opt);
+
+my $PORT = $opt{"p"} || 23;
+my $TIMEOUT = $opt{"t"} || 10;
+my $RECVPORT = $opt{"r"};
+
+my @failures = ();
+my @detail = ();
+
+my $ALARM = 0;
+
+foreach my $host (@ARGV) {
+    my $pro = getprotobyname ('udp');
+
+    if (!defined $pro) {
+    	die "could not getprotobyname\n";
+    }
+
+    if (!defined socket (S, PF_INET, SOCK_DGRAM, $pro)) {
+    	die "could not create socket: $!\n";
+    }
+
+    my $a = inet_aton ($host);
+    if (!defined $a) {
+    	push @failures, $host;
+	push @detail, "$host could not inet_aton";
+	close (S);
+	next;
+    }
+
+    my $sin = sockaddr_in ($PORT, $a);
+    if (!defined $sin) {
+	push @failures, $host;
+	push @detail, "$host could not sockaddr_in";
+    	close (S);
+	next;
+    }
+
+    if (defined $RECVPORT) {
+        $iaddr = gethostbyname(hostname());
+        $paddr = sockaddr_in($RECVPORT, $iaddr); 
+        $res = bind(S, $paddr);
+        if (!$res) {
+            push @failures, $host;
+            push @detail, "$host: Could not bind to local port $RECVPORT";
+            close (S);
+            next;
+        }
+    } 
+
+    my ($r, $from);
+
+    eval {
+	local $SIG{"ALRM"} = sub { die "alarm\n" };
+
+	alarm $TIMEOUT;
+
+	send (S, "", 0, $sin);
+	$from = recv(S, $r, 1, 0);
+	alarm 0;
+    };
+
+    if ($@) {
+	push @failures, $host;
+
+    	if ($@ eq "alarm\n") {
+	    push @detail, "$host timeout";
+
+	} else {
+	    push @detail, "$host interrupted syscall: $!";
+	}
+
+	close (S);
+	next;
+    }
+
+
+    if (!defined $r) {
+	push @failures, $host;
+	push @detail, "$host no udp response packet received: $!";
+	close (S);
+	next;
+    }
+
+    my ($fromport, $fromaddr) = sockaddr_in($from);
+    if ($fromport != $PORT || $fromaddr ne $a) {
+      push @failures, $host;
+      my $fromhost = gethostbyaddr($fromaddr, AF_INET);
+      push @detail, "response received from $fromhost:$fromport, instead of $host:$PORT";
+      next;
+    }
+
+    if (!defined close (S)) {
+    	push @failures, $host;
+	push @detail, "$host could not close socket: $!";
+	next;
+    }
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print join (" ", sort @failures), "\n";
+print "\n", join ("\n", @detail), "\n";
+
+exit 1;

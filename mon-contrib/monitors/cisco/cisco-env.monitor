@@ -1,0 +1,214 @@
+#!/usr/bin/perl
+#
+# Monitor Cisco device for certain environmental conditions via snmp
+# On devices that export this data, this script will detect and report:
+#  - power supply failures
+#  - fan blade failures
+#  - temperature alarms
+#  - chassis minor/major alarms
+#
+# Can parse monitor-auth.cf for snmp community string, or read from command line
+#
+# Arguments are:
+#
+# [-C monitor-auth.cf] [-c community] host [host ...]
+#
+#
+# cisco-env.monitor written by
+# Carnegie Mellon University, Computing Services
+#
+#
+# Copyright (c) 2004 Carnegie Mellon University. All rights reserved.
+#
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+#
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the
+#    documentation and/or other materials provided with the distribution.
+#
+# 3. The name "Carnegie Mellon University" must not be used to endorse or
+#    promote products derived from this software without prior written
+#    permission. For permission or any legal details, please contact:
+#      Office of Technology Transfer
+#      Carnegie Mellon University
+#      5000 Forbes Avenue
+#      Pittsburgh, PA 15213-3890
+#      (412) 268-4387, fax: (412) 268-7395
+#      tech-transfer@andrew.cmu.edu
+#
+# 4. Redistributions of any form whatsoever must retain the following
+#    acknowledgment: "This product includes software developed by Computing
+#    Services at Carnegie Mellon University (http://www.cmu.edu/computing/)."
+#
+# CARNEGIE MELLON UNIVERSITY DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
+# SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS,
+# IN NO EVENT SHALL CARNEGIE MELLON UNIVERSITY BE LIABLE FOR ANY SPECIAL,
+# INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM
+# LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE
+# OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
+# PERFORMANCE OF THIS SOFTWARE.
+
+
+#
+# $Id: cisco-env.monitor,v 1.1 2005/08/20 18:14:32 vitroth Exp $
+#
+
+use SNMP;
+use Getopt::Std;
+use IO::File;
+
+use strict;
+
+my ($community, $timeout, %failures, %opts);
+getopts("c:t:C:", \%opts);
+$community = $opts{'c'};
+$timeout = ($opts{'t'} || 3) * 1000 * 1000;
+my $RETVAL = 0;
+
+my %communities;
+my $group=$ENV{MON_GROUP};
+my $service=$ENV{MON_SERVICE};
+my $file = $ENV{MON_CFBASEDIR}."/monitor-auth.cf";
+my $cf;
+if ($cf = new IO::File "<$file") {
+  while (<$cf>) {
+    chomp;
+    if (/^(\S+):readcommunity\s*=\s*(\S+)$/) {
+      $communities{$1}=$2;
+    }
+  }
+  $community ||= $communities{"$group:$service"};
+  $community ||= $communities{"$group:*"};
+  $community ||= $communities{"*:$service"};
+  $community ||= $communities{"*:*"};
+
+}
+
+$community ||= 'public';
+
+foreach my $host (@ARGV) {
+    my $session = new SNMP::Session(DestHost => $host,
+                                 Community => $community, 
+                                 Timeout => $timeout,
+				 Retries => 2,
+				 UseNumeric => 1,
+				 UseLongNames => 2);
+    if (!defined ($session)) {
+    	$RETVAL = ($RETVAL == 1) ? 1 : 2;
+	$failures{$host} = "$host: could not get SNMP session";
+	next;
+    }
+
+    my $desc = $session->get([".1.3.6.1.2.1.1.1.0"]);
+    if (!$desc) {
+      $RETVAL = 1;
+      $failures{$host} = "$host: cannot contact snmpd";
+      next;
+    }
+
+    my %Capture = ('ps1status' => {'oid' => '.1.3.6.1.4.1.9.5.1.2.4.0',
+				  'desc' => 'Power Supply 1',
+				  'res' => {'1' => 'ok', '2' => 'ok', 
+				  	    '3' => 'minor fault', '4' => 'major fault'},
+				  },
+		   'ps2status' => {'oid' =>'.1.3.6.1.4.1.9.5.1.2.7.0',
+				  'desc' => 'Power Supply 2',
+                                  'res' => {'1' => 'ok', '2' => 'ok', 
+                                            '3' => 'minor fault', '4' => 'major fault'},
+				  },
+		   'fanstatus' => {'oid' => '.1.3.6.1.4.1.9.5.1.2.9.0',
+				  'desc' => 'Fan Tray',
+                                  'res' => {'1' => 'ok', '2' => 'ok', 
+                                            '3' => 'minor fault', '4' => 'major fault'},
+				  },
+		   'tempstatus' => {'oid' => '.1.3.6.1.4.1.9.5.1.2.13.0',
+				    'desc' => 'Temperature Status',
+                                  'res' => {'1' => 'ok', '2' => 'ok', 
+                                            '3' => 'minor fault', '4' => 'major fault'},
+				   },
+		   'minoralarm' => {'oid' => '.1.3.6.1.4.1.9.5.1.2.11.0',
+				    'desc' => 'Chassis Minor Alarm',
+				    'res' => {'1' => 'ok', '2' => 'activated'},
+				   },
+		   'majoralarm' => {'oid' => '.1.3.6.1.4.1.9.5.1.2.12.0',
+				    'desc' => 'Chassis Major Alarm',
+				    'res' => {'1' => 'ok', '2' => 'activated'},
+				   },
+
+			# 1- normal, 5- notPresent
+		   'env-tempstatus' => {'oid' => '.1.3.6.1.4.1.9.9.13.1.3.1.6',
+					'desc' => 'Temperature State',
+					'res' => {'1' => 'ok', '2' => 'warning', '3' => 'critical',
+						  '4' => 'shutdown', '5' => 'ok', '6' => 'notFunctioning'},
+					'type' => 'walk',
+					},
+		   'env-fanstate' => {'oid' => '.1.3.6.1.4.1.9.9.13.1.4.1.3',
+				      'desc' => 'Fan State',
+				      'res' => {'1' => 'ok', '2' => 'warning', '3' => 'critical',
+						'4' => 'shutdown', '5' => 'ok', '6' => 'notFunctioning'},
+				      'type' => 'walk',
+				     },
+		   'env-psstate' => {'oid' => '.1.3.6.1.4.1.9.9.13.1.5.1.3',
+			 	     'desc' => 'Power Supply State',
+				     'res' => {'1' => 'ok', '2' => 'warning', '3' => 'critical',
+                                                '4' => 'shutdown', '5' => 'ok', '6' => 'notFunctioning'},
+                                      'type' => 'walk',
+                                     },
+		);
+
+    foreach my $K (keys %Capture) {
+      my @Results;
+      if ($Capture{$K}->{'type'} eq 'walk') {
+        @Results = l_snmpwalk_values($session, $Capture{$K}->{'oid'});
+      }else{
+        push(@Results, $session->get($Capture{$K}->{'oid'}));
+      }
+      foreach my $Res (@Results) {
+        if (defined $Capture{$K}->{'res'}->{$Res}) {
+  	  if ($Capture{$K}->{'res'}->{$Res} ne 'ok') {
+	    $RETVAL = 1;
+   	    $failures{$host} .= '; ' unless ($failures{$host} eq '');
+	    $failures{$host} .= $Capture{$K}->{'desc'}." ".
+			        $Capture{$K}->{'res'}->{$Res};
+          }
+        }
+      }
+    }
+
+}
+
+print join (" ", sort keys %failures), "\n\n" if (scalar keys %failures);
+foreach my $host (sort keys %failures) {
+    print $host.': '.$failures{$host}, "\n";
+}
+
+exit $RETVAL;
+
+sub l_snmpwalk_values {
+  my ($session, $oid) = @_;
+
+  my $rootlen = length($oid);
+
+  $session->{ErrorStr} = '';
+  
+  my $var = new SNMP::Varbind(["$oid"]);
+  my $val = $session->getnext($var);
+  my $name = $var->[$SNMP::Varbind::tag_f].".".$var->[$SNMP::Varbind::iid_f];
+  my %walk;
+
+  while (!$session->{ErrorStr} && substr($name, 0, $rootlen) eq $oid){
+    my $value=$var->[$SNMP::Varbind::val_f];
+
+    $walk{"$name"} = $value;
+    $val = $session->getnext($var);
+    $name=$var->[$SNMP::Varbind::tag_f];
+    $name.=".$var->[$SNMP::Varbind::iid_f]" if $var->[$SNMP::Varbind::iid_f];
+  }  #while
+
+  return values %walk;
+}
+

@@ -1,0 +1,83 @@
+#!/usr/bin/perl
+#
+# mail.alert - Mail alert for mon
+#
+# The first line from STDIN is summary information, adequate to send
+# to a pager or email subject line.
+#
+# -f from@addr.x   set the smtp envelope "from" address
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: mail.alert,v 1.3 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+$RCSID='$Id: mail.alert,v 1.3 2005/04/17 07:42:26 trockij Exp $';
+use Getopt::Std;
+use Text::Wrap;
+
+getopts ("S:s:g:h:t:l:f:u");
+
+$summary=<STDIN>;
+chomp $summary;
+
+$summary = $opt_S if (defined $opt_S);
+
+$mailaddrs = join (',', @ARGV);
+$mailfrom = "-f $opt_f -F $opt_f" if (defined $opt_f);
+
+$ALERT = $opt_u ? "UPALERT" : "ALERT";
+
+$t = localtime($opt_t);
+($wday,$mon,$day,$tm) = split (/\s+/, $t);
+
+open (MAIL, "| /usr/lib/sendmail -oi -t $mailfrom") ||
+    die "could not open pipe to mail: $!\n";
+print MAIL <<EOF;
+To: $mailaddrs
+Subject: $ALERT $opt_g/$opt_s: $summary ($wday $mon $day $tm)
+X-Mailer: $0
+
+EOF
+
+print MAIL wrap ("", "", "Summary output        : $summary"), "\n";
+
+print MAIL <<EOF;
+
+Group                 : $opt_g
+Service               : $opt_s
+Time noticed          : $t
+Secs until next alert : $opt_l
+EOF
+
+print MAIL wrap ("", "\t\t\t", "Members               : $opt_h"), "\n";
+
+print MAIL <<EOF;
+
+Detailed text (if any) follows:
+-------------------------------
+EOF
+
+#
+# The remaining lines normally contain more detailed information,
+# but this is monitor-dependent.
+#
+while (<STDIN>) {
+    print MAIL;
+}
+close (MAIL);

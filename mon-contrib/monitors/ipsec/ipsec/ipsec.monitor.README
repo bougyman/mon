@@ -1,0 +1,32 @@
+This monitor works under linux (kernel 2.4.0 upwards) with the freeswan implementation
+of ipsec. See http://www.freeswan.org for more information about it.
+
+The monitor checks if an ipsec tunnel to remote network is established. It does so via
+the "ipsec look" command. Simply create a hostgroup ipsec in your mon.cf and feed it
+with networks, for example:
+
+hostgroup ipsec		192.168.36.0/24 192.168.126.32/27
+
+This will check if there's a tunnel to the networks 192.168.36.0/24 and 192.168.126.32/27
+
+Notice: ipsec must be in $PATH otherwise nothing will work.
+
+# Copyright (C) 2001 Wiktor Wodecki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+# $Id: ipsec.monitor.README,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $
+#
+

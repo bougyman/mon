@@ -1,0 +1,300 @@
+#!/usr/bin/perl
+
+=head1 NAME
+
+mysql-replication.monitor - Monitor MySQL Replication for the "mon" system.
+
+=head1 SYNOPSIS
+
+mysql-replicaiton.monitor
+
+=over
+
+--slave-user=username --slave-pass=password --slave-port=#
+
+[ --master-host=hostname --master-user=username --master-pass=password --master-port=# ] 
+
+[ --binlogs=# --slave-seconds=# --real-seconds=# --debug ] hostname(s) ... 
+
+=back
+
+=head1 DESCRIPTION
+
+mysql-replication.monitor will connect to the slave host(s) and potentially the master to compare values to provided thresholds.
+
+=over
+
+=item slave-user
+
+User name to use when connecting to the slave host(s).
+
+=item slave-pass
+
+Password to use when connecting to the slave host(s).
+
+=item slave-port
+
+Port number to use when connecting to the slave host(s).
+
+=item master-host
+
+Host name of the master host.
+
+=item master-user
+
+User name to use when connecting to the master host.
+
+=item master-pass
+
+Password to use when connecting to the master host.
+
+=item master-port
+
+Port number to use when connecting to the master host.
+
+=item binlogs
+
+Number of binary logs behind a master a slave is allowed to be before alarming.
+
+This requires that you provide the 'master-*' variables.
+
+=item slave-seconds
+
+The number of seconds behind a master a slave thinks it is before alarming. This is the Seconds_Behind_Master you see when
+you do a 'SHOW SLAVE STATUS\G' on a slave; which is actually how far behind the SQL thread is compared to the binary logs 
+it has locally; this does not help if your slave does not have the most up to date binary log from the master. See the link
+below for more information:
+
+http://dev.mysql.com/doc/refman/5.0/en/replication-faq.html#qandaitem-16-3-4-3
+
+=item real-seconds
+
+This is the number of seconds behind a master a slave actually is before alarming. This is a far more pedantic approach to
+monitoring lag in your slaves then the 'slave-seconds' option, but may also be overkill for some sites. With this option set
+the monitor will actually update a table on the master with a time stamp and compare that same time stamp on the slave(s); 
+if the two time stamps differ by more then the ammount specified here, then an alarm will be generated.
+
+To use this you will need to create a database named 'replication', allow your 'master-user' to connect to it and update a 
+table called 'heartbeat'. The SQL commands below should help get you started:
+
+CREATE DATABASE replication;
+
+CREATE TABLE heartbeat (unix_time INTEGER NOT NULL);
+
+GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl-check'@'monitoring-host-name' IDENTIFIED BY 'pa$$word';
+
+GRANT SELECT,UPDATE ON replication.heartbeat to 'repl-check'@'monitoring-host-name';
+
+INSERT INTO HEARTBEAT (unix_time) VALUES (1205778309);
+
+This requires that you provide the 'master-*' variables.
+
+=item debug
+
+Will print out some helpful messages of what the monitor is doing while it's doing it.
+
+=back
+
+There is a section of the code that you can uncomment and set your variables there so that you do not have to pass
+everything on the command line.
+
+If you only provide the slave information, then only the status of the SQL and IO threads, and 'slave-seconds' can
+be checked.
+
+Providing master information will allow you to check the above and 'binlogs' and 'real-seconds'.
+
+A sample GRANT statement follows to help get you started:
+
+GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl-check'@'monitoring-host-name' IDENTIFIED BY 'pa$$word';
+
+=head1 AUTHOR
+
+Augie Schwer, C<< <augie at schwer.us> >>
+
+http://www.schwer.us
+
+=head1 ACKNOWLEDGEMENTS
+
+I would like to thank Sonic.net for allowing me to release this to the public.
+
+=cut
+
+
+use strict;
+use DBI;
+use Getopt::Long;
+
+my @details=();
+my @failures=();
+my %options=();
+
+GetOptions( \%options, 
+		"slave-port=i", "slave-user=s", "slave-pass=s" , 
+		"master-host=s" , "master-user=s" , "master-pass=s" , "master-port=i" ,
+		"binlogs=i" , "slave-seconds=i" , "real-seconds=i" , "debug"
+		);
+
+#########################################################################
+# Set options here if you don't want to pass options on the command line.
+#$options{'slave-user'} 	||= "repl-check";
+#$options{'slave-pass'} 	||= 'pa$$word';
+#$options{'slave-port'} 	||= 3306; 
+#$options{'master-host'} 	||= 'localhost';
+#$options{'master-user'} 	||= "repl-check";
+#$options{'master-pass'} 	||= 'pa$$word';
+#$options{'master-port'} 	||= 3306; 
+#$options{'binlogs'} 		||= 3; 
+#$options{'slave-seconds'}	||= 3600; 
+#$options{'real-seconds'} 	||= 3600; 
+#########################################################################
+
+my $master;
+
+if ( (defined $options{'binlogs'}) or (defined $options{'real-seconds'}) )
+{
+	print "debug - Connecting to master with DSN : DBI:mysql:host=$options{'master-host'}:port=$options{'master-port'},$options{'master-user'},$options{'master-pass'} \n" if $options{'debug'};
+
+	my $dbh = DBI->connect( "DBI:mysql:host=$options{'master-host'}:port=$options{'master-port'}",$options{'master-user'},$options{'master-pass'}, { PrintError => 0 } );
+	if( ! $dbh ) {
+		print "$options{'master-host'}\n";
+	    	print "$options{'master-host'}: Could not connect to MySQL server on $options{'master-port'}: " . $DBI::errstr . "\n";
+		exit 1;
+	}
+
+	# Gather master replication information.
+
+	print "debug - Gathering master replication information.\n" if $options{'debug'};
+
+	my $sth = $dbh->prepare('SHOW MASTER STATUS');
+	$sth->execute;
+	$master = $sth->fetchrow_hashref;
+
+	if (defined $options{'real-seconds'})
+	{
+		$sth = $dbh->prepare('USE replication');
+		$sth->execute;
+
+		my $unix_time = time();
+		$sth = $dbh->prepare('UPDATE heartbeat SET unix_time = ?');
+		$sth->execute($unix_time);
+
+		$master->{'unix_time'} = $unix_time;
+
+		print "debug - Setting master 'unix_time' to $unix_time \n" if $options{'debug'};
+	}
+
+	$sth->finish();
+	$dbh->disconnect();
+}
+
+for my $host( @ARGV ) {
+	print "debug - Connecting to slave host $host with DSN : DBI:mysql:host=$host:port=$options{'slave-port'},$options{'slave-user'},$options{'slave-pass'}\n" if $options{'debug'};
+
+	my $dbh = DBI->connect( "DBI:mysql:host=$host:port=$options{'slave-port'}", $options{'slave-user'},$options{'slave-pass'}, { PrintError => 0 } );
+	if( ! $dbh ) {
+		push( @failures, $host);
+	    	push( @details, "$host: Could not connect to MySQL server on $options{'slave-port'}: " . $DBI::errstr . "\n");
+		next;
+	}
+
+	# Gather slave replication information.
+
+	print "debug - Gathering slave replication information.\n" if $options{'debug'};
+
+	my $sth = $dbh->prepare('SHOW SLAVE STATUS');
+	$sth->execute;
+	my $slave = $sth->fetchrow_hashref;
+
+	if (defined $options{'real-seconds'})
+	{
+		$sth = $dbh->prepare('USE replication');
+		$sth->execute;
+
+		$sth = $dbh->prepare('SELECT unix_time FROM heartbeat');
+		$sth->execute;
+
+		my ($unix_time) = $sth->fetchrow_array;
+
+		$slave->{'unix_time'} = $unix_time;
+
+		print "debug - Setting slave 'unix_time' to $unix_time \n" if $options{'debug'};
+	}
+
+	$sth->finish();
+	$dbh->disconnect();
+
+	# Check slave variables.
+
+	print "debug - Slave_IO_Running is $slave->{Slave_IO_Running}\n" if $options{'debug'};
+
+	if ( $slave->{Slave_IO_Running} ne 'Yes' )
+	{
+		push( @failures, $host);
+		push( @details, "$host: Slave IO thread is not running.\n");
+		next;
+	}
+
+	print "debug - Slave_SQL_Running is $slave->{Slave_SQL_Running}\n" if $options{'debug'};
+
+	if ( $slave->{Slave_SQL_Running} ne 'Yes' )
+	{
+		push( @failures, $host);
+		push( @details, "$host: Slave SQL thread is not running.\n");
+		next;
+	}
+
+	print "debug - Seconds_Behind_Master is $slave->{Seconds_Behind_Master}\n" if $options{'debug'};
+
+	if ( (defined $options{'slave-seconds'}) && ($slave->{Seconds_Behind_Master} > $options{'slave-seconds'}) )
+	{
+		push( @failures, $host);
+		push( @details, "$host: Slave is more than " . $options{'slave-seconds'} . " slave seconds behind master.\n");
+		next;
+	}
+
+	# Check master variables
+	if ( defined $options{'binlogs'} )
+	{
+		print "debug - master file is $master->{'File'}\n" if $options{'debug'};
+		print "debug - slave file is $slave->{'Master_Log_File'}\n" if $options{'debug'};
+
+		$master->{'File_No'} = $1 if ($master->{'File'} =~ /(\d+)$/);
+		$slave->{'File_No'} = $1 if ($slave->{'Master_Log_File'} =~ /(\d+)$/);
+
+		my $binlog_diff = $master->{'File_No'} - $slave->{'File_No'};
+		if ( $binlog_diff > $options{'binlogs'} )
+		{
+			push( @failures, $host);
+			push( @details, "$host: Slave is more than " . $options{'binlogs'} . " binary logs behind master.\n");
+			next;
+		}
+	}
+
+	if ( defined $options{'real-seconds'} )
+	{
+		print "debug - master 'unix_time' is $master->{'unix_time'}\n" if $options{'debug'};
+		print "debug - slave 'unix_time' is $slave->{'unix_time'}\n" if $options{'debug'};
+
+		my $realsec_diff = $master->{'unix_time'} - $slave->{'unix_time'};
+		if ( $realsec_diff > $options{'real-seconds'} )
+		{
+			push( @failures, $host);
+			push( @details, "$host: Slave is more than " . $options{'real-seconds'} . " real seconds behind master.\n");
+			next;
+		}
+	}
+}
+
+if (@failures)
+{
+    print join (" ", sort @failures), "\n";
+    print sort @details if (scalar @details > 0);
+
+    exit 1;
+
+}
+
+else
+{
+    exit 0;
+}

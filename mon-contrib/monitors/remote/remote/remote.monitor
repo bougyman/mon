@@ -1,0 +1,257 @@
+#!/usr/bin/perl -w
+#
+# Returns a mon server list that failed services
+# 
+# Usage : remote.monitor [options] [host1 host2 ...]
+#
+# --port    n      : the mon port
+#
+# --timeout n      : the timeout connexion (default 10 seconds)
+#
+# --summary        : flag to extend the summary of this monitor
+#                    return for each failed mon server the list of the
+#                    failed. Like : host1([g1:s1|s3][g4:s5]) ... 
+#
+# --bigsummary     : flag to extend the summary of this monitor
+#                    return for each failed mon server the list of the
+#                    failed. Like : host1([g1:s1{sum}|s3{sum}][g4:s5{sum}]) ... 
+#
+# --debug          : some debug information (do not use this with mon)
+#
+# --restrict  watch[:service]    : restrict test to specified watch
+#                                  [and service]
+#
+# --help           : prints this message.
+#
+# host1 host2      : list of remote MON servers to check
+#
+# Contributors :
+#    Gilles LAMIRAL, lamiral@mail.dotcom.fr
+#    Laurent COMBE, laurent.combe@free.fr
+#    Thomas MORIN, thomas.morin@webmotion.com
+#
+#    Copyright (C) 1999, Gilles LAMIRAL
+#
+#    This program  is free  software;  you can redistribute it  and/or
+# modify it under the terms  of  the GNU  General Public  License.
+
+# Variables:
+# @failures        failed hosts array.
+# @failuresDetails detailed failed hosts array.
+
+use Getopt::Long;
+use Mon::Client;
+
+GetOptions(
+               "port|p:i"     => \$port,
+               "timeout|t:i"  => \$timeout,
+               "summary"      => \$summary,
+	       "bigsummary"   => \$bigsummary,
+               "debug|d"      => \$debug,
+               "help|h"       => \$help,	       
+               "restrict|r:s"  => \$restrict,
+          );
+
+my $rcs = ' $Id: remote.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $ ' ;
+$rcs =~ m/,v (\d+\.\d+)/;
+$VERSION = ($1) ? $1 : "0.1";
+ 
+usage() and exit if ($help);
+
+$port    = ($port)    ? $port	 : "2583";
+$timeout = ($timeout) ? $timeout : "10";
+$summary = ($summary) ? $summary : $bigsummary;
+($restrict) and ($only_watch,$only_service) = split( /:/, ($restrict) );
+
+@failures = ();
+@failuresDetails = ();
+@extendsummary = ();
+
+foreach $host (@ARGV) {
+
+	my $begin = time;
+	eval {
+             local $SIG{ALRM} = sub { die "Timeout Alarm" };
+             alarm $timeout;
+             &getinfo($host, $port);
+             alarm 0; # Cancel the alarm
+	};
+        my $end = time;
+        my $timeResponse = $end - $begin;
+	if ($EVAL_ERROR and ($EVAL_ERROR =~ /^Timeout Alarm/)) {
+	    ($debug) and print "Timeout connection\n";
+	    $failuresDetails{${host}} = join("", "Timeout connection");
+	    push (@failures, ${host});
+	    push (@extendsummary, "${host}:TIMEOUT(${timeResponse})");
+	    next;
+	}
+
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+
+if ($summary) {
+     print "@extendsummary\n\n";
+} else {
+     print "@failures\n\n";
+}
+
+foreach $host (@failures) {
+     print
+     "Details for $host failure :\n",
+     "$failuresDetails{$host}\n\n";
+}
+
+# exit with the the error status on.
+exit(1);
+
+
+sub getinfo {
+     ($host, $port) = @_;
+     ($debug) and print "testing mon server $host :\n";
+     $cl = Mon::Client->new;
+     $cl->host ($host);
+     $cl->port ($port);
+
+     unless (defined ($cl->connect)) {
+          ($debug) and print "connection failed: ", $cl->error, "\n";
+          $failuresDetails{${host}} = join("", "Connection failed: ", $cl->error);
+          push (@failures, ${host});
+          push (@extendsummary, "${host}:CONNECT");
+          return;
+     }else{
+          ($debug) and print "connection succeeded\n";
+          ($debug) and print
+               "host      : ", $cl->host,    "\n",
+               "port      : ", $cl->port,    "\n",
+               "error     : ", $cl->error,   "\n",
+               ;
+
+          %s = $cl->list_opstatus;
+          ($debug) and print
+               "list_opstatus: ", %s,        "\n",
+               "error        : ", $cl->error,"\n",
+               ;
+
+          if ($cl->error) {
+               $failuresDetails{${host}} = join("", "list_opstatus failed:", $cl->error);
+               push (@failures, ${host});
+               push (@extendsummary, "${host}:list_opstatus");
+               next;
+          }
+	  
+          %d = $cl->list_disabled;
+          ($debug) and print
+               "list_disabled: ", %d,        "\n",
+               "error        : ", $cl->error,"\n",
+               ;
+
+          # parsing of %d
+          if ($debug) {
+               print "===\nlist_disabled detail:\n";
+               while ( ($category,$pwatch) = each %d ) {
+                    while( ($watch, $pvalue) = each %$pwatch ) {
+                         while( ($value) = each %$pvalue ) {
+                              print "$category,$watch,$value\n";
+                         }
+                    }
+               }
+               print "end of list_disabled detail\n===\n";
+          }
+	  
+          # error state host flag
+          my($hosterr) = 0;
+          my($hostwatch);
+
+          ($debug) and print "===\nlist_opstatus detail:\n";
+
+          foreach $watch (sort keys %s) {
+               my $watcherr = 0;
+               my $ext_service = "[$watch:";
+	  		
+               next if ( ($only_watch) && !( $watch eq ($only_watch) ));
+               foreach $service (sort keys %{$s{$watch}}) {
+                    my($opstatus);
+
+                    next if ( ($only_service) && !( $service eq ($only_service) ));
+                    # state service recuperation
+                    $opstatus = $s{$watch}{$service}{opstatus};
+                    ($debug) and print "$watch $service opstatus=$opstatus\n";
+
+                    #if no error (!= 0) then next
+                    next if ($opstatus != 0);
+
+                    #if this service is disabled then next
+                    next if (defined($d{services}{$watch}{$service}));
+				
+                    # at this point we've got a failure so get the last summary
+                    $last_summary = $s{$watch}{$service}{last_summary}; 
+
+                    # service failed and not disabled
+                    $hosterr++;
+                    $watcherr++;
+                    ($debug) and print "Watch $watch service $service failed\n";
+                    push (@failures, ${host}) unless (defined($failuresDetails{${host}}));
+                    $failuresDetails{${host}} .=
+                         "Watch $watch, service $service, failed ".
+                         "with summary : ${last_summary}\n";
+                    # save services
+                    if ($summary) {
+                         if ($bigsummary) {
+                              $ext_service .="${service}{${last_summary}}|";
+                         } else {
+                              $ext_service .="${service}|";
+                         }
+                    }
+               }
+               if ($watcherr) {
+                    chop($ext_service);
+                    $ext_service .= "]";
+                    $hostwatch .= $ext_service;
+               }
+          }
+          #modification of summary
+          if ($hosterr) {
+               push (@extendsummary, "$host($hostwatch)");
+          }
+          ($debug) and print "end of list_opstatus detail:\n===\n";
+     }
+     $cl->disconnect;
+
+}
+
+sub usage {
+	print <<EOF;
+remote.monitor release $VERSION
+
+Returns a mon server list that failed services
+
+Usage : remote.monitor [options] [host1 host2 ...]
+
+--port    n      : the mon port.
+
+--timeout n      : the timeout connexion per host (default 10 seconds).
+
+--summary        : flag to extend the summary of this monitor
+                   for each MON server, return  the list of group/services
+                   that failed. Like :
+                    host1([g1:s1|s3][g4:s5]) host2(...) ... 
+                   where g1 is a group (watch), s1 is a service, etc.
+
+--bigsummary     : flag to extend the summary of this monitor
+                   for each MON server, return  the list of group/services
+                   that failed. Like :
+                    host1([g1:s1{sum}|s3{sum}][g4:s5{sum}]) host2(...) ... 
+                   where g1 is a group (watch), s1 is a service,
+                   and sum is the last summary of the service.
+
+--debug          : some debug information (do not use this with MON).
+
+--help           : prints this message.
+
+host1 host2      : list of remote MON servers to check.
+EOF
+}

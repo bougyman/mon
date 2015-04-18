@@ -1,0 +1,69 @@
+#
+# snmpdiskspace.cf- configuration file for snmpdiskspace.monitor
+#
+# format:
+#
+# host filesys free ifree
+#
+# The monitor script uses a "first match" algorithm. So put your more
+# specific directives at top, and leave the more general directives
+# for the bottom.
+#
+#
+# host     Regex describing the name of the host(s). Remember to escape
+#	   dots if you're fully qualifying hostnames, e.g.,
+#	   some\.domain\.com, otherwise you might not be matching what
+#	   you think you're matching.
+#
+# filesys  Regex describing the filesystem to check, as represented 
+#	   in the relevant mib (after mangling by the monitor).
+#	   Remember to use regex syntax, and not file glob syntax.
+#
+# free     The amount of free space which will trigger a failure,
+#          expressed as "10", "10kb", "10MB", or "10GB" for
+#	   bytes, kilobytes, megabytes or gigabytes. The format
+#	   "10%" signifies percent of the total disk space. 
+#	   "0" turns of checking for the filesystem/disk.
+#
+# ifree    Percentage of free inodes, below which will trigger a failure.
+#          Expressed as "5%".  The host must support the UCD dskTable MIB.
+#
+#
+#   BE SURE TO TEST your configuration with the "--listall" option!
+#   This way, you will see exactly what filesystems are found by the script,
+#   and what their alarm thresholds will be.
+#
+#	   Examples:
+#	   *	*	5%
+#	   Give a warning when the free space goes below 5 %
+#	   (This is the default behavior of the monitor)
+#	   This should always be the last line in your config file
+#	   because it will match everything.
+#
+#	   *	*	5%	10%
+#          As above, but also warn if free inodes drops below 10%.
+#
+#	   ior	*	15%
+#	   On the host ior the limit is 15%
+#
+#	   poo	/	1gb
+#	   poo's root should have a full gig free
+#
+#	   www[1-4]	*	500mb
+#	   any partition on the machines www1, www2, www3, and ww4
+#	   should have at least 500mb free.
+#
+#	   *	/cdrom/.*	0
+# 	   anything that is mounted on /cdrom will be full anyway
+#	   At least for Solaris, you need a regex like this bec.
+#	   vold mounts each new CD on a new partition, and you
+#	   won't know its name until you put it into the drive.
+#
+#
+# Always ignore anything on cdrom partitions
+*	/cdrom.*	0
+*	/mnt	0
+#
+#
+# This line always should be last because it matches everything.
+*	*	5%

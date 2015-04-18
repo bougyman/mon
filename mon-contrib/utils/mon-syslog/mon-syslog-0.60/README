@@ -1,0 +1,110 @@
+Readme file for syslog.monitor
+$Id: README,v 1.1.1.1 2005/02/18 17:52:19 trockij Exp $
+
+INTRODUCTION
+
+This is a syslog monitor for mon (http://www.kernel.org/software/mon/) by
+Jim Trocki. The following assumes a basic understanding of how mon works.
+
+The main difference from the other monitors is that this one is constantly
+running and communicates with the mon server via Mon::Client over the
+network, instead of running under mon's supervision.
+
+It listens for syslog packets comeing in from the network, parse them,
+checks them against a rule set and reports to the mon server if necessary.
+
+This has the following advantages:
+
+- Since it is constantly running, it has much more options than a normal
+  alert.
+  It maintains a history for each match and checks how often they matched
+  within a specific period of time.
+- Communicating via traps with the mon server allows alerts to be triggered
+  instantly, and not only when the monitor is run.
+- The syslogd on the client hosts sends the message to the server directly,
+  there is no delay caused by the fact that the logfile is only checked
+  every xx seconds.
+- works with everything which supports sending syslog messages.
+  This is a definite advantage over SNMP traps, since not every
+  device/program can generate them.
+- As an added benefit, it provides centralised logging in a much more
+  sophisticated way than a normal syslogd.
+- Since it does not parse the logfile, it has access to the source ip of the
+  syslog packet.
+
+In general, it is quite cool(tm).
+
+REQUIREMENTS
+
+You need to have the following non-std Perl modules installed: (which are
+needed by mon itself too)
+
+     Time::HiRes
+	 Mon::Client
+
+DETAILS
+
+syslog.monitor accepts a single command line parameter, the name of the
+configuration file. All options are explained inside the configuration file,
+see syslog.conf as an example.
+
+At startup, the daemon retrieves a list of all watches from the mon server
+for which a service "syslog" is defined. We also read the hostgroup
+definition for this watch from the mon server. (The hostnames are resolved
+and the result is used to check if the incoming syslog packet is accepted
+and which host it came from, so you should make sure your hostnames resolve
+to all IPs from which your systems might send a syslog packet - on a Cisco,
+you might want to consider "logging source-interface loopack 0")
+
+This basically amounts to:
+
+  For every hostgroup you want syslog.monitor to accept and monitor syslog
+  packets, define a syslog service.
+
+This watch/service is where we later send our traps.
+
+For those hosts, add a line like
+
+*.*         @syslog.monitor.host.name
+
+to /etc/syslog.conf, or "logging sys.monitor.host.name" on a Cisco in global
+configuration mode.
+
+Configure syslog.monitor by editing syslog.conf and following the comments
+therein.
+
+Start mon.
+
+Start syslog.monitor.
+
+killall -HUP syslogd on the hosts you want to monitor.
+
+Read the logfiles and fix the problems. ;-)
+
+RELOADING THE CONFIGURATION FILE ON THE FLY
+
+If you send syslog.monitor a SIGHUP, it reloads the configuration file. It
+will also talk to the mon server again and retrieve the configuration. You
+cannot change the IP nor port the syslog.monitor is bound to though.
+
+WARNING: Due to an apparent bug in Perl, this feature is currently not
+         active. select() / signals don't appear to play too well.
+
+AUTHOR
+
+Please don't bother Jim with questions relating to this.
+
+If this should lead to global warming, code freeze or Elvis's revival, I
+accept absolutely no responsibility. However, I will gladly receive and
+incoporate bugfixes and fix sensible bug reports. Documentation updates and
+more examples are welcome!
+
+Lars Marowsky-Brée <lars@marowsky-bree.de>
+
+URL
+
+It appears we have made our way to
+ftp://ftp.kernel.org/pub/software/mon/contrib/ - please use a mirror, as
+described on http://www.kernel.org/. The latest version is also available
+from http://255.255.255.255.in-addr.de/mon-syslog.tgz .
+

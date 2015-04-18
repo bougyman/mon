@@ -1,0 +1,261 @@
+                             snmpvar.monitor               by P.Holzleitner
+
+What does it do?
+
+    snmpvar.monitor is a plug-in for the "mon" systems monitoring package
+    written by Jim Trockij (http://www.kernel.org/software/mon).
+    
+    Called by mon, it queries freely configurable values using SNMP,
+    compares them against specified limits and reports any violation.
+
+    Some parameters that can be monitored (just to give you an idea):
+
+      Equipment operational status (temperature, fan rotation)
+      UPS Status (line power / battery, minimum line voltage, load % ...)
+      Switch/Router status (interface up, BGP session up, ...)
+      Server status (redundant power supply OK, disk array OK, ...)
+      Status of services (process running, mail queue length, ...)
+      
+      
+License
+
+  GNU GPLv2 (http://www.fsf.org/licenses/gpl.txt) - See file COPYING
+
+  
+Quick Start:
+
+    * Make sure you have NET-SNMP libraries (http://www-net-snmp.org 
+      - Formerly UCD SNMP) and the Perl SNMP module installed 
+      (http://www.cpan.org/misc/cpan-faq.html)
+    * Copy snmpvar.mon to your mon.d directory
+    * Copy snmpvar.def to /etc/mon, add your own variables
+    * Copy snmpvar.cf to /etc/mon and edit to match your needs
+    * Test from mon.d directory with ./snmpvar.monitor -l host1 host2 ...
+    * Test again from mon.d directory with ./snmpvar.monitor host1 host2 ...
+    * Add watch/service to mon.cf, using snmpvar.monitor
+
+
+Commandline options:
+
+    --varconf=/path/to/snmpvar.def if neither /etc/mon nor /usr/lib/mon/etc
+    --config=/path/to/snmpvar.cf if neither /etc/mon nor /usr/lib/mon/etc
+    --community=your_SNMP_read_community if not 'public'
+
+    --groups=Power,Disks  test only a subset of variables for a host group
+
+    --timeout=n		SNMP GET timeout in seconds
+    --retries=n		number of times to retry the SNMP GET
+    --debug		tell what config is being useed
+    --mibs='mib1:mib2:mibn'	load specified MIBs
+    --list[=linesperpage]]	produce human-readable listing, not alarms
+
+   For every host name passed on the command line, snmpval.monitor looks
+   up the list of variables and corresponding limits in the configuration
+   file (snmpmon.cf).
+
+   If a --groups option is present, only those variables are checked
+   which are in one of the specified groups.  To specify more than one
+   group, separate group names with commas.  You can also exclude groups
+   by prefixing the group name(s) with '-'.  Don't mix in- and exclusion.
+   Examples:
+      --groups=Power        only vars in the Power group
+      --groups=Power,Env    vars in the Power or Env group
+      --groups=-Power,-Env  all vars except those in Power or Env groups
+      --groups=Power,-Env   won't work (only the exclusions)
+
+   For every such variable, it looks up the OID, description etc. from
+   the variable definition file (snmpvar.def).
+
+   This monitor looks for configuration files in the current directory,
+   in /etc/mon and /usr/lib/mon/etc.  Command line option --varconf 
+   overrides the location of the variable definition file, option
+   --config sets the configuration file name.
+
+   When invoked with the --list option, the output format is changed
+   into a more human-readable form used to check and troubleshoot the
+   configuration.  This option must not be used from within MON.
+
+
+Exit values:
+   0  if everything is OK
+   1  if any observed value is outside the specified interval
+   2  in case of an SNMP error (e.g. no response from host)
+
+
+Basic Troubleshooting:
+
+    use snmpvar.monitor --list option to see variable values
+    use snmpwalk your_hostname public .1 | less to verify SNMP agent
+
+
+The snmpvar.def File:
+
+    In this file we define variables that can be retrieved via SNMP.
+    In a way, the .def file is snmpvar.monitor's idea of a MIB.
+    
+    Entries consist of a "Variable variable-name" declaration
+
+      Variable PE4300_TEMP_MB
+
+    [NOTE: The variable name cannot be "Host" or "FriendlyName"]
+    followed by the mandatory specification of Object ID and Description:    
+    
+      OID            .1.3.6.1.4.1.674.10891.300.1.5.2.2.1.3
+      Description    Motherboard Temperature
+      
+    It is suggested that OIDs be entered numerically as shown above 
+    in order to eliminate the need for having the SNMP libraries compile
+    the relevant MIB files on every invocation of the monitor.
+    By default, this monitor loads no MIBs.  If you want to use symbolic
+    OIDs, use the --mibs commandline option to specify which MIBs you need.
+    
+    By the author's convention, an OID describing an array of values, like
+    ifOperStat which takes the interface number as an index, is written
+    with a trailing dot, while OIDs of scalars end in a number.  As of 
+    version 1.1.1, the monitor will insert the dot before the index if you
+    forgot it in the .def file.
+    
+   
+    Optional Elements of a Variable definition:
+      
+      DefaultIndex   3 4 5
+      
+    A list of indices to test by default.  Let's say the OID is .1.2.3. and
+    DefaultIndex is "18 22 36", then the monitor will retrieve the values of
+    .1.2.3.18, .1.2.3.22 and .1.2.3.36 when testing this variable, and will
+    compare them all against the limits.  Where necessary, the DefaultIndex
+    can be overridden for one host/variable combination, using the Index
+    statement in the .cf file.
+
+      FriendlyName	3	Disk Fan 1
+      
+    This lets you replace the standard display of "Variable [Index]",
+    e.g. "Fan Speed [5]", with individual labels for each index.
+    The FriendlyName option is typically specified in the .def file for
+    items that have the same name for every use, e.g. component names like
+    in the case of fans, power supplies etc.  The same option exists in
+    the .cf file to name a particular variable on a particular host, e.g.
+    to display a line name instead of an interface number on a router.
+    If the FriendlyName string begins with "@", the Description is
+    substituted for the "@".
+
+      Scale          / 10.0
+    
+    A formula to re-scale the value returned from the host.
+    The expression is appended to the raw value and the resulting expression
+    is evaluated by Perl.  The raw value is available as $rawval if necessary.
+      
+      Unit           C
+
+    Used in value display / messages,
+    
+      Decode	 1	unknown
+      Decode	 2	OK
+      Decode	 3	FAILURE
+
+    Values retrieved through SNMP are often enumerations of status codes.
+    The Decode statement lets you put text labels on these values.
+
+      DefaultGroup	Environment
+      
+    Defines that all, by default, instances of this variable go into the
+    specified group.  Individual overrides possible in .cf file.
+
+
+      DefaultMin  300
+      DefaultMax 2000
+      DefaultEQ  1000
+      DefaultNEQ 1000
+      
+    Default alarm limits.  See description of Min/Max/EQ/NEQ below.
+      
+
+The snmpvar.cf File:
+
+    In here, you "call up" the variables to be retrieved for a particular
+    host.
+
+    Entries consist of a "Host host-name" declaration followed by at least
+    one "variable-name [options ...]" line.
+    
+      Host ntserv1
+    
+    This hostname corresponds to the hostname on the command line, i.e. the
+    hostname you used in MON's hostgroup statement.
+    
+      FOO_FAN_RPM   Min 1000  Max 5000  MaxValid 10000  Index 1 2 3 4
+      
+    This example uses almost all options.  It instructs the monitor to
+    retrieve the OID specified under "FOO_FAN_RPM" in the .def file.
+    
+      Min  300		specifies a minimum value, measured >= minimum
+      Max 2000		specifies a maximum value, measured <= maximum
+      EQ  1000		specifies a exact value, measured == maximum
+      NEQ 1000		specifies a exact value, measured != maximum
+      
+    If the measured value is outside of these limits, a failure is reported.
+    To test for "Value = X", use "Min X  Max X".
+      
+      MinValid -1
+      MaxValid 10000
+      
+    Some monitoring hardware occasionally measures garbage.  To avoid
+    triggering an alarm when this happens, you can use MinValid/MaxValid
+    to specify the range (inclusive) of plausible values for this variable.
+    If the measured value exceeds these limits, only a warning will be
+    generated, but no failure will be reported to MON.
+
+      Group Environment
+      
+    Puts this particular variable into the specified group.
+    Groups are used to test a partial set of the variables specified for
+    a host, by using the --groups= command line option.
+
+      Index 1 2 3
+      
+    This tells the monitor which object instances (array elements) to test
+    in case of a non-scalar object.  Since the list of indices can be as
+    long as necessary, the Index option must be the last one on the line
+    (after Min X, Max Y etc.)
+    The list specified as DefaultIndex in the .def file entry for this
+    variable is used unless  Index is pecified here.
+
+    When retrieving a non-scalar value, the snmpvar.monitor will normally
+    display the instances (array elements) by appending their index to the
+    description, as in "Line Status [3]".
+    
+    Often, it is desirable to label individual instances in a more
+    mnemonic way.  To do this, you can add a number of FriendlyName
+    directives after a variable request, like this:
+    
+      Host firewall
+        IF_OPERSTAT		Index 1 2 3
+	    FriendlyName	1	 1: Leased Line
+	    FriendlyName	2	 2: DMZ
+	    FriendlyName	3	 3: Internal Router
+	    
+    In this case, the monitor checks the ifOperStat for interfaces 1, 2,
+    and 3 on host "firewall".  If interface 3 were not "up", the monitor
+    would signal a failure of "Internal Router" instead of "ifOperStat [3]".
+    If the FriendlyName string begins with "@", the Description is
+    substituted for the "@".
+    If all instances of this variable having the same index have the same
+    meaning regardless of what host they are on, you can put the FriendlyName
+    statement into te respective variable definition in the .def file
+    instead. 
+
+
+The snmpopt.cf File:
+
+    This optional file is used to pass parameters to the SNMP library.
+    
+    For SNMPv1, this is generally not necessary unless the target's 
+    SNMP port differs from the default (161).
+
+    Note that SNMPv1 community string, timeout and retries can also be
+    specified on the snmpvar.monitor command line, overriding whatever
+    default or configuration file setting.
+    
+    You will need to edit this file in order to use SNMPv3.
+    
+

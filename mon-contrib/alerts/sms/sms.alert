@@ -1,0 +1,26 @@
+#!/usr/bin/perl
+
+use Getopt::Std;
+getopts ("s:g:h:t:l:u");
+
+$summary=<STDIN>;
+chomp $summary;
+
+$rest="";
+while (<STDIN>) {
+  $rest .= $_;
+}
+
+foreach $number (@ARGV) {
+
+    # system("echo `date` `id` $number $summary >> /tmp/sms.alert.log");
+
+    open (SMS, "| /usr/bin/gnokii --sendsms $number") || die "could not open pipe to sms: $!\n";
+
+    print SMS $summary;
+    print SMS "\n";
+    print SMS $rest;
+
+    close (SMS);
+
+}

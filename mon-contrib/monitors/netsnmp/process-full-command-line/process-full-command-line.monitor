@@ -1,0 +1,127 @@
+#!/usr/bin/perl
+#
+# Monitor snmp processes by reading the full command line.
+# Completely client-side. Do not use prTable but the standard "host" MIB.
+#
+# Arguments are:
+#
+# [-c community] -p regexp-on-the-command-line [-p regexp-on-the-command-line...] host [host ...]
+#
+# $Id: process-full-command-line.monitor,v 1.1.1.1 2005/02/18 17:52:23 trockij Exp $
+#
+#
+#    Copyright (C) 1998, Stephane Bortzmeyer
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use SNMP;
+use Getopt::Long;
+
+GetOptions("c=s" => \$community, "p=s" => \@processes_re, "d+" => \$debug);
+if (! $community) {
+    $community = 'public';
+}
+if (! $#process_re) {
+    die "At least one process name must be specified (reg. exp. are allowed)";
+}
+
+$RETVAL = 0;
+
+foreach $host (@ARGV) {
+    $session = new SNMP::Session(DestHost => $host,
+                                 Community => $community);
+    undef %processes;
+    if (!defined ($session)) {
+    	$RETVAL = ($RETVAL == 1) ? 1 : 2;
+	push @failures, "$host session error";
+	push @longerr, "$host could not get SNMP session";
+	next;
+    }
+
+    my $v = new SNMP::Varbind (["hrSWRunTable"]);
+    $session->getnext ($v);
+
+    while (!$session->{"ErrorStr"} && ($v->tag =~ /^hrSWRun/)) {
+	my @q = $session->get ([
+				["hrSWRunName", $v->iid],
+				["hrSWRunParameters", $v->iid],
+				]);
+	
+	last if ($session->{"ErrorStr"});
+	
+	$command_line = $q[0] . ' ' . $q[1];
+
+	$processes{$command_line}++;
+	
+	$session->getnext ($v);
+    }
+
+    if ($session->{"ErrorStr"}) {
+    	push (@failures, $host);
+	push (@longerr, "$host returned an SNMP error: " . 
+	      $session->{"ErrorStr"});
+	$host_retval = 1;
+	
+    }
+    else {
+	$host_retval = 0;
+	undef $missing_processes;
+      All_regexps:
+	foreach $process_re (@processes_re) {
+	    undef $process_found;
+	  All_processes:
+	    foreach $cl (keys (%processes)) {
+		    if ($debug >= 3) {
+			print STDERR "TEST: \"$cl\" against \"$process_re\" on $host\n";
+		    }
+		if ($cl =~ m!$process_re!) {
+		    $process_found = 1;
+		    if ($debug) {
+			print STDERR "MATCH: \"$cl\" against \"$process_re\" on $host\n";
+		    }
+		    last All_processes;
+		}
+	    }
+	    if (! $process_found) {
+		$host_retval = 1;
+		if ($missing_processes) {
+		    $missing_processes .= (", " . $process_re);
+		}
+		else {
+		    $missing_processes = $process_re;
+		}
+	    }
+	}
+	if ($host_retval != 0) {
+	    push (@failures, $host);
+	    push (@longerr, "$host miss process: " . 
+		  $missing_processes);    
+	}
+    }
+
+    if ($host_retval == 1) {
+	$RETVAL = 1;
+    }
+}
+
+if ($RETVAL == 1) {
+    print join (", ", @failures), "\n", "\n";
+    print join ("\n", @longerr), "\n";
+}
+
+exit $RETVAL;
+
+
+

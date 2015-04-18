@@ -1,0 +1,86 @@
+#!/usr/bin/perl
+#
+# Use Net::Telnet to connect to a list of hosts.
+#
+# -p port        connect to 'port' (defaults to 23)
+# -t secs        set timeout to 'secs' (defaults to 10)
+# -l '/regex/'   wait for /regex/, (defaults to "/ogin:/i")
+#
+# Arguments are "host [host...]"
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: telnet.monitor,v 1.2 2005/04/17 07:42:27 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Net::Telnet;
+use Getopt::Std;
+
+getopts ("l:p:t:");
+
+$TIMEOUT  = $opt_t || 10;
+$PORT     = $opt_p || 23;
+$LOGIN    = $opt_l || "/ogin:/i";
+
+@failures = ();
+
+foreach my $host (@ARGV) {
+    my $t = new Net::Telnet (
+    	Timeout => $TIMEOUT,
+	Port => $PORT,
+    );
+
+    if (!defined $t) {
+    	push @failures, [$host, "could not create new Net::Telnet object"];
+	next;
+    }
+
+    $t->errmode ("return");
+
+    if (!defined $t->open ($host)) {
+    	push @failures, [$host, $t->errmsg];
+	next;
+    }
+
+    my $ok = $t->waitfor (
+	    Match => $LOGIN,
+	    Timeout => $TIMEOUT,
+    );
+
+    if (!defined $ok) {
+	push @failures, [$host, "did not get prompt: ". $t->errmsg];
+    }
+
+    $t->close;
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+for (@failures) {
+    push @l, $_->[0];
+}
+
+print join (" ", sort @l), "\n";
+
+for (@failures) {
+    print "$_->[0]: $_->[1]\n";
+}
+
+exit 1;

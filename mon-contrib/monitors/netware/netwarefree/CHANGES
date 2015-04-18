@@ -1,0 +1,13 @@
+Version 1.2.0
+    P.Holzleitner
+    
+    Changed to numeric OIDs so the MIB file is no longer needed
+    Merged regular and --list processing
+    Made error messages consistent (host[/volume]: problem)
+    Improved error handling, now checks for 'missing' volumes etc.
+    Uses ./netwarefree.cf if present for easy testing
+
+Version 1.1.0
+    P.Holzleitner
+    
+    initial public release

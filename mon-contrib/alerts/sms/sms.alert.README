@@ -1,0 +1,75 @@
+Date: Thu, 28 Jun 2001 13:15:09 +0200
+From: Robert Sander <robert.sander@epigenomics.com>
+To: trockij@transmeta.com
+Subject: sms alert with gnokii
+
+Hi Jim!
+
+I have attached an alert script for mon that we use to send SMS messages
+via gnokii and a Nokia phone. Feel free to do anything with it.
+
+Greetings
+-- 
+Robert Sander
+Computer Scientist                                       Epigenomics AG
+Bioinformatics R&D        www.epigenomics.com         Kastanienallee 24
++493024345330                                              10435 Berlin
+
+
+Received: from localhost (localhost [127.0.0.1])
+	by naghi.nunpa.com (Postfix) with ESMTP id BB36A34063D26
+	for <debian@midworld.net>; Sun, 20 Feb 2011 15:15:08 +0100 (CET)
+Received: from naghi.nunpa.com ([127.0.0.1])
+	by localhost (naghi.nunpa.com [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id iosVyN1ztxcJ for <debian@midworld.net>;
+	Sun, 20 Feb 2011 15:15:05 +0100 (CET)
+Received: from master.debian.org (master.debian.org [70.103.162.29])
+	by naghi.nunpa.com (Postfix) with ESMTPS id 1ECB134063D14
+	for <debian@midworld.net>; Sun, 20 Feb 2011 15:15:04 +0100 (CET)
+Received: from gk-hm.epigenomics.net ([145.253.88.2])
+	by master.debian.org with esmtp (Exim 4.69)
+	(envelope-from <robert.sander@epigenomics.com>)
+	id 1PrA3z-0007jQ-Tv
+	for debian@midworld.net; Sun, 20 Feb 2011 14:15:04 +0000
+Received: (qmail 32567 invoked from network); 20 Feb 2011 14:08:20 -0000
+Received: from kao.epigenomics.epi (192.168.48.82)
+  by salam.epigenomics.epi with ESMTP; 20 Feb 2011 14:08:20 -0000
+Received: from localhost (localhost [127.0.0.1])
+	by kao.epigenomics.epi (Postfix) with ESMTP id F21F73B74144
+	for <midget@debian.org>; Sun, 20 Feb 2011 15:08:20 +0100 (CET)
+X-Virus-Scanned: amavisd-new at epigenomics.com
+Received: from kao.epigenomics.epi ([127.0.0.1])
+	by localhost (kao.epigenomics.epi [127.0.0.1]) (amavisd-new, port 10024)
+	with ESMTP id o3SoTTcU6xsi for <midget@debian.org>;
+	Sun, 20 Feb 2011 15:08:19 +0100 (CET)
+Received: from kao.epigenomics.epi (localhost [127.0.0.1])
+	by kao.epigenomics.epi (Postfix) with ESMTP id 676593B74013
+	for <midget@debian.org>; Sun, 20 Feb 2011 15:08:19 +0100 (CET)
+Date: Sun, 20 Feb 2011 15:08:19 +0100 (CET)
+From: Robert Sander <robert.sander@epigenomics.com>
+To: Dario Minnucci <midget@debian.org>
+Subject: Re: About your contributed software (sms.alert)
+Message-ID: <1472a73b-2884-409e-b6da-12a021d0e9e7@kao>
+In-Reply-To: <4D5EBFA6.1030304@debian.org>
+Content-Type: text/plain; charset=utf-8
+Content-Transfer-Encoding: quoted-printable
+MIME-Version: 1.0
+X-Originating-IP: [88.130.160.160]
+X-Mailer: Zimbra 7.0.0_GA_3077 (ZimbraWebClient - FF3.0 (Linux)/7.0.0_GA_3077)
+X-Greylist: delayed 399 seconds by postgrey-1.31 at master; Sun, 20 Feb 2011 14:15:03 UTC
+
+Dear Dario,
+
+thank you for contacting me about this old script of mine.
+
+As we even do not use mon any more you can consider this simple script
+to be in the public domain.
+
+Regards
+-- 
+Robert Sander                       Senior Manager Information Systems
+Epigenomics AG      Kleine Pr=C3=A4sidentenstr. 1     10178 Berlin, Germany=
+
+phone:+49-30-24345-0                              fax:+49-30-24345-555
+http://www.epigenomics.com               robert.sander@epigenomics.com
+

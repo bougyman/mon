@@ -1,0 +1,135 @@
+#
+# global options
+#
+basedir                = /usr/local/mon-0.38.16
+cfbasedir              = /usr/local/mon-0.38.16/etc
+alertdir               = alert.d
+mondir                 = mon.d
+logdir                 = log.d
+statedir               = state.d
+maxprocs               = 20
+histlength             = 900
+historicfile           = historic.log
+randstart              = 15s
+startupalerts_on_reset = yes
+dtlogging              = yes
+dtlogfile              = dtlogfile.log
+authtype               = userfile
+authfile               = auth-minotaur.cf
+userfile               = userfile
+
+
+
+# NB:  hostgroup and watch entries are terminated with a blank line (or
+# end of file).  Don't forget the blank lines between them or you lose.
+#
+# group definitions (hostnames or IP addresses)
+
+hostgroup Group1
+	localhost 
+	127.0.0.1
+
+hostgroup Group2
+	127.0.0.1 
+
+
+watch Group1
+    service ping
+	description ping servers 
+	interval 4m
+	monitor ping.monitor
+	period wd {Mon-Sun} 
+	    alert test.alert 
+	    upalert test.alert 
+	    startupalert test.alert 
+    service http
+	description http request to servers
+	interval 7m
+	monitor http.monitor
+	period wd {Mon-Sun} 
+	    alert  test.alert
+	    upalert test.alert 
+	    startupalert test.alert 
+    service smtp
+	description smtp request to servers
+	interval 5m
+	monitor smtp.monitor
+	period wd {Mon-Sun} 
+	    alert  test.alert
+	    upalert test.alert 
+	    startupalert test.alert 
+
+watch Group2
+    service ping
+	description ping servers 
+	interval 4m
+	monitor ping.monitor
+	period wd {Mon-Sun} 
+	    alert test.alert 
+	    upalert test.alert 
+	    startupalert test.alert 
+    service http
+	description http request to servers
+	interval 8m
+	monitor http.monitor
+	period wd {Mon-Sun} 
+	    alert  test.alert
+	    upalert test.alert 
+	    startupalert test.alert 
+    service smtp
+	description smtp request to servers
+	interval 4m
+	monitor smtp.monitor
+	period wd {Mon-Sun} 
+	    alert  test.alert
+	    upalert test.alert 
+	    startupalert test.alert 
+
+
+# This is the CrossView section
+# The keyword are "alias", "service", "watch", "service", "items"
+#
+# if <ITEMS> is empty, that means ALL items.
+#
+# The syntax:
+#
+# alias <NAME>
+#     <DESCRIPTION>
+#     service <SERVICE_NAME>
+#          watch <GROUP> service <SERVICE> items <ITEMS>
+#          watch <GROUP> service <SERVICE> items <ITEMS>
+#          ...
+#     service <SERVICE_NAME>
+#          watch <GROUP> service <SERVICE> items <ITEMS>
+#     ...
+
+# You can see that you can make a crossview of everything
+
+alias ping1And2
+        This crossview is red if some hosts
+	in Group1 or Group2
+	failed the ping test
+        service Ping  
+                watch Group1 service ping items
+                watch Group2 service ping items
+
+alias localhost
+        This crossview is red if "localhost" in Group1
+	has a problem (any problem). The problem
+	is not detailed
+        service ALL
+                watch Group1 service ping items localhost
+                watch Group1 service http items localhost
+                watch Group1 service smtp items localhost
+
+alias localhostAgain
+        This crossview is red if "localhost" in Group1
+	has a problem (any problem). You can see what
+	is the problem
+        service Ping
+		watch Group1 service ping items localhost
+        service Http
+		watch Group1 service http items localhost
+        service Smtp
+		watch Group1 service smtp items localhost
+

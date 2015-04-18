@@ -1,0 +1,15 @@
+$Id: README.alerts,v 1.1.1.1 2004/06/09 05:18:06 trockij Exp $
+
+The following alerts are provided with the distribution:
+
+mail.alert
+    Sends an email alert to a list of email addresses. Separate
+    addresses with spaces, not commas.
+
+qpage.alert
+    Calls QuickPage for one or more pagers. Multiple pagers are
+    separated on the command line via spaces.
+
+file.alert
+    Logs alerts to a file, which is specified as the first argument on
+    the command line.

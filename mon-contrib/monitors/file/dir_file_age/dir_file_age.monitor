@@ -1,0 +1,87 @@
+#!/usr/bin/perl
+#
+# mon monitor to watch for "old" files in one or more directories
+# original use was to monitor DNS zone transfers,
+#  but there is nothing DNS specific here except that the directory
+#  is removed from the failure list leaving only the file (zone) name
+#
+
+$RCSid = q{$Id: dir_file_age.monitor,v 1.2 2011/03/10 01:37:52 trockij Exp $};
+#
+#    Author: Jon Meek, originally 25-Dec-2000
+#    Copyright (C) 2011, Jon Meek (meekj at ieee.org)
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+
+
+use Getopt::Long;
+use File::Find;
+
+GetOptions(
+	   "d" => \$opt_d,    # Debug/test flag
+	   "T=f" => \$MaxAge, # Maximum age in days, default is one day
+);
+
+@Failures = ();
+@Dirs = @ARGV; # Directory names are left on the command line after Getopt
+
+$MaxAge = 1 unless $MaxAge;
+
+foreach $d (@Dirs) {
+  $CurrentDir = $d;
+  print "Directory: $d\n" if $opt_d;
+  find(\&wanted, $d);
+
+  foreach $f (sort {$Age{$b} <=> $Age{$a}} keys %Age) {
+    print "dbg: $f  $Age{$f}\n" if $opt_d;
+    if ($Age{$f} > $MaxAge) {
+      push(@Failures, $f);
+    }
+  }
+
+  undef %Size; # Initialize for next directory in list
+}
+
+if (@Failures == 0) { # No "old" files, all is OK
+    exit 0;
+}
+
+print "@Failures\n";
+
+foreach $f (@Failures) {
+    printf "%s %0.1fd\n", $f, $Age{$f};
+}
+print "\n";
+
+exit 1;
+
+sub wanted {
+    my ($rdfile);
+    $rdfile = $File::Find::name;
+    return if (-d $rdfile); # Skip directories
+    return if (-l $rdfile); # Skip symbolic links, for now
+
+    $age = -M $rdfile;
+    $size = -s $rdfile;
+
+    $rdfile =~ s/^$CurrentDir\///; # Remove base directory, may need to be optional
+
+    $Age{$rdfile} = $age;
+    $Size{$rdfile} = $size; # Used to track the files, will be undef'ed between dirs
+#    $FileCount++;
+  }
+

@@ -1,0 +1,25 @@
+#
+#
+#
+filer uranium
+    tree /home
+	kb_warn 10kb
+	kb_emerg 5kb
+	file_warn 200
+	file_emerg 50
+
+    tree /project-mis
+	kb_warn 10kb
+	kb_emerg 5kb
+	file_warn 200
+	file_emerg 50
+
+    user trockij
+	kb_warn 5gb
+	kb_emerg 1gb
+	file_warn 250
+	file_emerg 100
+
+filer plutonium
+    tree /project
+	kb_warn 50kb

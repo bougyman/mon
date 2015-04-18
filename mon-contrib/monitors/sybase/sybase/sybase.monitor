@@ -1,0 +1,243 @@
+#!/usr/bin/perl
+#
+#####################################################################
+##                                                                 ##
+##  sybase.monitor                                  Version 1.1.0  ##
+##                                                  1999-09-13     ##
+##  Copyright (C) 1999                                             ##
+##  Peter Holzleitner (P.Holzleitner@computer.org)                 ##
+##                                                                 ##
+#####################################################################
+#
+# A MON plug-in monitor to determine if a Sybase database server is
+# operational and whether there is enough free space in the database(s).
+#
+# Arguments:
+#
+#  [-username=uid] [-password=pwd] [-config=configfile] [-list] serverlist
+#
+#   Note that the server names correspond to the entries in the Sybase
+#   "interfaces" file and may be different from the DNS hostnames.
+#   The server name lookup is case sensitive in Sybase.
+#
+# Requirements:
+#
+#   This monitor requires the perl5 DBI and DBD::Sybase modules,
+#   available from CPAN (http://www.cpan.org)
+#
+# License:
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software Foundation,
+#    Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA
+#
+# History:
+#
+#	1.1.0  add check for infected and log-suspended processes
+#       1.0.0  initial release
+
+
+use DBI;
+use Getopt::Long;
+
+sub readcf;
+
+GetOptions( \%opt, "username=s", "password=s", "config=s", "list" );
+die "no host arguments\n" if (@ARGV == 0);
+
+$RET = 0;
+@ERRS = ();
+@SERVERS = ();
+
+$CONFIG = $opt{"config"} || (-d "/etc/mon" ? "/etc/mon" : "/usr/lib/mon/etc")
+	. "/sybase.cf";
+
+readcf ($CONFIG) || die "could not read config: $!\n";
+
+#
+# SQL text of the queries to be executed
+#
+
+$free_q =  q{
+select
+  dbname  = d.name,
+  usage   = vl.name,
+  free_M  = convert(int, 
+            sum(curunreservedpgs(u.dbid, u.lstart, u.unreservedpgs))
+	         / 
+            (select 1048576. / low from master.dbo.spt_values 
+            where number = 1 and type = 'E') )
+from
+  master.dbo.sysdatabases d,
+  master.dbo.syslogins l,
+  master.dbo.sysusages u,
+  master.dbo.sysdevices v,
+  master.dbo.spt_values vl
+where
+  d.suid = l.suid    and
+  d.dbid = u.dbid    and
+  v.low <= u.vstart  and 
+  u.vstart <= v.high and
+  vl.type = 'S'      and
+  vl.number = u.segmap & 7
+group by
+  d.name, vl.name
+ };
+
+$proc_q =  q{
+select
+  p.spid,
+  p.status,
+  p.hostname,
+  p.program_name,
+  d.name as dbname,
+  l.name as username
+from
+  master..sysprocesses p,
+  master..syslogins l,
+  master..sysdatabases d
+where
+  p.suid = l.suid and
+  p.dbid = d.dbid and
+  p.status in ('infected', 'log suspend')
+};
+
+
+foreach $server (@ARGV) {
+    next if (!defined $UID{$server});	# need credentials from cfg file!
+
+    #
+    # log in to database server
+    #
+    if(!defined($dbh = DBI->connect("dbi:Sybase:server=$server",
+                     $UID{"$server"}, $PWD{"$server"},
+                     {PrintError => 0, RaiseError => 0, AutoCommit => 1}) )) {
+	$RET = ($RET == 1) ? 1 : 2;
+	push (@SERVERS, $server);
+	push (@ERRS, "could not connect to $server: " . $DBI::errstr);
+	next;
+    }
+
+    #
+    # query free space on databases, compare to limits read from cfg file
+    #
+    if(!defined($sth = $dbh->prepare($free_q)) or !defined($sth->execute) ) {
+	$RET = ($RET == 1) ? 1 : 2;
+	push (@SERVERS, $server);
+	push (@ERRS, "could not execute query on $server: " . $DBI::errstr);
+        $sth->finish;
+        $dbh->disconnect; 
+	next;
+    }
+
+    while (($database, $dbusage, $free) = $sth->fetchrow_array) {
+        $required = $REQUIRED{$server}{$database}{$dbusage};
+        if ($required eq '')  {
+	    $err = '?';
+    	    write if ($opt{"list"});
+	    }
+	else {
+    	    $err = $free < $required ? 'LOW!' : 'ok';
+    	    write if ($opt{"list"});
+
+	    if ( $free < $required ) {
+		push (@SERVERS, $server);
+		push (@ERRS, sprintf ("%dMB free on %s (%s)", 
+	                          $free, $database, $dbusage));
+		$RET = 1;
+	    }
+	}
+    }
+    $sth->finish;
+    
+    #
+    # query for un-healthy processes
+    #
+    if(!defined($sth = $dbh->prepare($proc_q)) or !defined($sth->execute) ) {
+	$RET = ($RET == 1) ? 1 : 2;
+	push (@SERVERS, $server);
+	push (@ERRS, "could not execute query on $server: " . $DBI::errstr);
+        $sth->finish;
+        $dbh->disconnect; 
+	next;
+    }
+    $phdr = 0;
+    while (($spid, $stat, $hst, $prg, $db, $usr) = $sth->fetchrow_array) {
+        if($phdr == 0)
+    	    {
+	    push (@SERVERS, $server);
+	    push (@ERRS, sprintf (" spid status       clienthost clientprog     dbname       username"));
+	    $phdr = 1;
+	    }
+	push (@ERRS, sprintf ("%5d %-12.12s %-10.10s %-14.14s %-12.12s %s",
+		$spid, $stat, $hst, $prg, $db, $usr));
+		$RET = 1;
+       }    
+    $sth->finish;
+      
+    #
+    # disconnect from this server
+    #
+    $dbh->disconnect;
+}
+
+if ($RET) {
+    print "@SERVERS\n";
+    print "\n";
+    print join("\n", @ERRS), "\n";
+}
+
+exit $RET;
+
+
+
+#
+# read configuration file
+#
+sub readcf {
+    my ($f) = @_;
+    my ($l, $tag, $server, $uid, $pwd, $database, $dbusage, $required);
+
+    open (CF, $f) || return undef;
+    while (<CF>) {
+    	next if (/^\s*#/ || /^\s*$/);
+	chomp;
+        if (/^SERVER/)
+	  {
+	  ($tag, $server, $uid, $pwd) = split;
+          $UID{"$server"} = $uid;
+          $PWD{"$server"} = $pwd;
+	  next;
+	  }
+	($database, $dbusage, $required) = split;
+	$dbusage  =~ s/_/ /g;
+	$required =~ /^(\d+)mb/i; $required = $1;
+
+	if (!defined ($REQUIRED{$server}{$database}{$dbusage} = $required)) {
+	    die "error in free space spec, config $f, line $.\n";
+	}
+    }
+    close (CF);
+}
+
+
+format STDOUT_TOP =
+Server           Database                 Usage            MB free  Status
+--------------------------------------------------------------------------
+.
+
+format STDOUT =
+@<<<<<<<<<<<<<<  @<<<<<<<<<<<<<<<<<<<<<<  @<<<<<<<<<<<<<  @>>>>>>>  @<<<<<
+$server,         $database,               $dbusage,       $free,    $err
+.
+

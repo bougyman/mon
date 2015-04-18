@@ -1,0 +1,86 @@
+#!/usr/bin/perl
+#
+# $Id: postgresql.monitor,v 1.1.1.1 2005/02/18 17:52:24 trockij Exp $ 
+# $Revision: 1.1.1.1 $ 
+# $Author: trockij $ 
+#
+#Usage:  postresql.monitor [options]
+#
+#   --database=<Databasename>  indicates the database to which is connected
+#   --username=<Username>      DB-User which is used to connect to the DB
+#   --password=<Password>      DB-Password which is used to connect to the DB
+#   --host=<Databasehost>      Host of the Database (optional,default=localhost)
+#   --port=<Portnumber>        Port on which you want to connect (optional,default=5432)
+#
+# a monitor to determine if a PostgreSQL database server is operational
+#
+# Rather than use tcp.monitor to ensure that your SQL server is responding
+# on the proper port, this attempts to connect to and list the databases
+# on a given database server.
+#
+# This monitor requires the perl5 DBI, DBD::mSQL and DBD::mysql modules,
+# available from CPAN (http://www.cpan.org)
+#
+#    Copyright (C) 2001, CubIT IT Solutions
+#    Written by Severin Luftensteiner <severin.luftensteiner@cubit.at>
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+
+use DBI;
+use Getopt::Long;
+
+GetOptions( \%options,"port=s", "username=s", "password=s", "database=s", "host=s" );
+
+# uncomment these two lines and provide suitable information if you don't
+# want to pass sensitive information on the command line
+#$options{username} ||= "username";
+#$options{password} ||= "password";
+
+$mode="Pg";
+if ($options{host} eq ""){
+  $options{"host"=>"localhost"};
+}
+if ($options{port} eq ""){
+  $options{"port"=>"5432"};
+}  
+
+if (($options{username} eq "") || ($options{password} eq "") || ($options{database} eq "")){
+print <<EOP1;
+Usage:  postresql.monitor [options]
+
+   --database=<Databasename>  indicates the database to which is connected
+   --username=<Username>      DB-User which is used to connect to the DB
+   --password=<Password>      DB-Password which is used to connect to the DB
+   --host=<Databasehost>      Host of the Database (optional,default=localhost)
+   --port=<Portnumber>        Port on which you want to connect (optional,default=5432)
+EOP1
+    die(); 
+}
+
+
+my( $dbh ) = DBI->connect( "DBI:$mode:dbname=$options{database};$options{host};$options{port}", $options{username}, $options{password} );
+if( ! $dbh ) {
+  push( @failures, "Could not connect to $mode server $host: " . $DBI::errstr );
+}
+if (@failures) {
+    print join (", ", @failures), "\n";
+    exit 1;
+};
+if ($dbh){
+  $dbh->disconnect();
+}
+
+exit 0;

@@ -1,0 +1,33 @@
+Subject: tcpch.monitor - tcp ports with rudimentary chat
+To: mon@linux.kernel.org
+Date: Sat, 22 Sep 2001 01:34:18 -0400 (EDT)
+From: Ed Ravin <eravin@panix.com>
+
+Attached is tcpch.monitor, which is like the regular tcp.monitor
+included with mon except that it has some rudimentary "chat script"
+abilities.  The code is rather rough since this is the first cut,
+but it seems to work so I thought I would pass it around.
+
+This monitor can be used to test arbitrary TCP services, though
+it daemons that communicate in ASCII.  You can supply a "send
+string", data that gets sent as soon as the socket is open, a
+regexp to parse for the response from the server, and a "quit
+string" that gets sent before closing the socket (so to avoid
+error messages from some daemons that are fussy).
+
+
+# Options are
+#   -p <port-num>
+#   -t <connect-timeout-in-seconds> (default 15)
+#   -s <string to send upon connecting to provoke some output>
+#   -e <Perl regexp to expect in response>
+#   -q <string to send before closing after parsing response>
+#   -d <string to use as line delimiter for regexp matching>
+
+# without /-s/-e/-q/, just checks that the socket can be opened
+# and closed.
+
+# smtp:    tcpch.monitor -p 25  -e '^220\b' -q 'QUIT\r\n'
+# web:     tcpch.monitor -p 80  -s 'GET / HTTP/1.0\r\n' -e '^HTTP.*200 OK'
+
+Known bugs: -t timeout actually specifies all timeouts, not just connect.

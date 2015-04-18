@@ -1,0 +1,366 @@
+.\" $Id: moncmd.1,v 1.2 2005/04/17 07:42:27 trockij Exp $
+.TH moncmd 1 "$Date: 2005/04/17 07:42:27 $" Linux "moncmd"
+.SH NAME
+moncmd \- send commands to mon daemon and show the results.
+.SH SYNOPSIS
+.B moncmd
+.RB [ \-a ]
+.RB [ \-d ]
+.RB [ \-l
+.IR username ]
+.RB [ \-f
+.IR file ]
+.RB [ \-s
+.IR server ]
+.RB [ \-p
+.IR port ]
+.RB [ command ]
+.SH DESCRIPTION
+.B moncmd
+sends commands to the
+.B mon
+server.
+.SH OPTIONS
+.TP
+.B \-a
+Authenticate with the server.
+.TP
+.B \-d
+enable debugging, which is the same as
+.B \-s
+.IR localhost .
+.TP
+.BI "-f " file
+Read and execute commands from
+.IR file .
+.TP
+.BI "-l " username
+Supply
+.I username
+as the username while authenticating to the server.
+.TP
+.BI \-s\  server
+Connect to
+.IR server .
+.TP
+.BI \-p\  port
+Use TCP port
+.I port
+when connecting to the server, instead of the
+default of 32777.
+
+.SH MONITOR HOST
+.B moncmd
+will use the host specified by the
+.B \-s
+parameter as the server.  If there is no
+.B \-s
+parameter it will use the host specified in the MONHOST environment
+variable.  If there is no host in either of these locations it will exit
+with an error.
+
+.SH BATCH OPERATION
+If no commands are supplied to
+.B moncmd
+on the command line, then commands will
+be taken from either standard input, or from
+the file specified by the -f parameter.
+If standard input is connected
+to a TTY and the -a option is supplied,
+then it will prompt for a password.
+If the -a option is supplied without the -f
+option and standard input is not a TTY, then
+the username and password are read from
+standard input using the syntax "USER=username" and
+"PASS=password". The remaining input lines are
+interpreted as commands to send to the server.
+.B moncmd
+will not take usernames or passwords from a file,
+for obvious security reasons.
+
+If the username is neither supplied by the -l parameter
+or through standard input,
+it is taken from the effective user ID of the
+current process.
+
+.SH COMMANDS
+The following is a list of the commands that
+the server understands.
+.\"
+.\"
+.TP
+.BI "enable | disable service " group " " servicename
+Enables/disables alerts for
+.I group
+and
+.IR servicename .
+All disabled states are automatically saved to the
+state file, which may optionally be re-loaded upon
+restarting or initial startup of the server.
+
+.TP
+.BI "ack " "group service comment"
+Acknowledge a failure condition. This will store
+.I comment
+in the state of service (queryable by doing a
+.I "list opstatus"
+command), and will surppress further alerts for
+the service. Once the service returns to a non-failure
+state, then the acknowledgement is reset.
+
+.TP
+.B "version"
+Displays the protocol version in the form of
+"version
+.BR num """
+where
+.B num
+is the protocol version number.
+
+.TP
+.BI "list aliases"
+Lists aliases.
+
+.TP
+.BI "list aliasgroups"
+Lists alias groups.
+
+.TP
+.B savestate
+Save the state of the server. Currently, the only state which
+is saved is the host/watches/services which are disabled.
+
+.TP
+.B loadstate
+Load the state of the server. Currently, the only state which
+is loaded is the host/watches/services which are disabled.
+
+.TP
+.BI "enable | disable host " hostname
+Enables/disables host
+.I hostname
+in all groups. When the monitor is called, this
+hostname will not be included in the list of
+hostnames sent to the monitor. If a group has only
+one hostname in it, then the
+.BI "enable | disable watch"
+command should be used instead.
+
+.TP
+.BI "enable | disable watch " watchgroup
+Enables/disables an entire watch for
+.IR watchgroup ,
+as defined in
+the configuration file. Disabling a watch not only
+stops alerts from happening, but it stops the actual
+monitor processes from being scheduled.
+
+.TP
+.BI "reset"
+Resets the server, forcing it to re-read the configuration file,
+kill off currently running monitors,
+restart all monitoring, and reset all counters.
+This command is only accessible if
+.B moncmd
+connects from the host which is running the
+.B mon
+server.
+.TP
+.BI "reset stopped"
+Resets the server and immediately stops the scheduler.
+This is an atomic version of the commands
+.B "reset"
+and
+.BR "stop" .
+
+.TP
+.BI "reload auth"
+Reloads the auth.cf file in order to incorporate any new changes.
+The auth table is completely re-generated; it is not merged.
+
+.TP
+.BI "reset keepstate"
+If the word "keepstate" comes after the reset command,
+the server will do a "loadstate" right after the reset,
+before the scheduler kicks back in.
+
+.TP
+.BI "stop"
+Stops the scheduler, but continues to allow
+client connections.
+
+.TP
+.BI "start"
+Re-starts the scheduler after it has been
+stopped.
+
+.TP
+.BI "test monitor " group " " servicename
+Triggers a test for
+.I "group"
+and
+.I "service"
+immediately by
+setting the service's countdown timer to zero.
+
+.TP
+.BI "test (alert | upalert | startupalert) " group " " servicename " " retval " " period
+Triggers a test alert, upalert, or startupalert for
+.I group
+and
+.IR servicename .
+.I retval
+is the integer exit value to pass to the alert via
+the MON_RETVAL environment variable. You must also
+specify the
+.I period
+as it appears in the configuration file.
+All alerts of the given type in that period will be triggered,
+but the alert will not be logged.
+
+.TP
+.BI "servertime"
+Returns the current time of the server as seconds since Jan 1, 1970.
+
+.TP
+.BI "list group " groupname
+Lists the members of group
+.IR groupname .
+
+.TP
+.B "list descriptions"
+List the descriptions of each service, as defined
+in the configuration file. If a service description
+is undefined, then it is not listed.
+
+.TP
+.BI "list alerthist"
+Lists the last alarms triggered for each service of each
+watch group, in addition to the summary output. The number
+of alerts to keep in memory is bounded by the
+.I maxkeep
+variable, configurable on the
+.B mon
+command line at startup, and expandable with the
+.B set
+command during runtime.
+
+.TP
+.BI "list failurehist"
+Lists the last failures, in addition to the summary output.
+This is also limited by the
+.I maxkeep
+variable.
+
+.TP
+.BI "list opstatus"
+Lists operational status of all services. Reports whether the last time
+a service group was tested resulted in success or failure. The output
+is:
+
+.nf
+group service untested
+group service time timeleft succeeded
+group service time timeleft failed output
+.fi
+
+where
+.I output
+is the first line of output from the monitor script
+which failed,
+.I time
+is the time that the condition was last noticed in
+.BR time (2)
+format, and
+.I timeleft
+is the number of seconds left until the service is tested
+again.
+
+.TP
+.BI "list successes"
+Generates the same output as the
+.B "list opstatus"
+command, but only shows the services that
+have succeeded the last time they were tested.
+
+.TP
+.BI "list failures"
+Generates the same output as the
+.B "list opstatus"
+command, but only shows the services that
+have failed the last time they were tested.
+
+.TP
+.BI "list disabled"
+Lists all hosts and services which have been disabled by the
+.B "disable host|service"
+command.
+
+.TP
+.BI "list pids"
+Shows the currently active watch groups/services along with their
+process IDs, and it process ID of the server daemon.
+
+.TP
+.BI "list watch"
+Lists all watches and services.
+
+.TP
+.BI "list state"
+Lists the state of the scheduler.
+
+.TP
+.BI "set " group " " service " " variable " " value
+Sets a variable to value. Useful for temporarily changing an interval
+or alertevery value. Be careful, because this can just set any
+value in the %watch hash, and some values that are specified in
+the configuration file like "10m" or "35s" are converted and stored as
+just plain integer seconds (e.g. "alertevery").
+
+.TP
+.BI "get " group " " service " " variable
+Displays the value of group service variable.
+
+.TP
+.BI "set " variable " " value
+Assigns
+.I value
+to the global variable
+.IR variable .
+
+.TP
+.BI "set opstatus " group " " service " " value
+Sets the opstatus value for
+.I group
+and
+.I service.
+
+.TP
+.BI "get " variable
+Shows the value of global variable
+.IR variable .
+
+.TP
+.BI "term"
+Terminates the server.
+This command is only accessible if
+.B moncmd
+connects from the host which is running the
+.B mon
+server.
+
+.SH "ENVIRONMENT VARIABLES"
+
+.IP MONSERVER
+The hostname of the server which runs the
+.B mon
+process.
+.IP MONPORT
+The port number to connect to.
+
+.SH SEE ALSO
+mon(8)
+.SH BUGS
+Report bugs to the email address below.
+.SH AUTHOR
+Jim Trocki <trockij@arctic.org>

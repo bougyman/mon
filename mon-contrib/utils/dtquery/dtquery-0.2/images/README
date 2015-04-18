@@ -1,0 +1,7 @@
+When dtquery can't draw a picture, it throws up an image called 
+'failed.gif'. Cricket users will recognize this because it's the
+same image :) It's included here for posterity. The 'no image
+available' error should be rare, but we include it here anyway.
+
+Set the value of the variable in dtquery to:
+$main::failure_image = "/url/path/to/failed.gif"

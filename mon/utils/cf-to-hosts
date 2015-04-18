@@ -1,0 +1,174 @@
+#!/usr/bin/perl
+#
+# Convert hostgroup entries in a mon configuration file
+# into a local hosts file
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: cf-to-hosts,v 1.2 2005/04/17 07:42:27 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+use strict;
+
+sub resolve_hosts;
+sub print_hosts;
+sub read_cf;
+
+use Getopt::Std;
+use Socket;
+
+my %resolved;
+
+my %opt;
+getopts ("hM", \%opt);
+
+if ($opt{"h"})
+{
+    print <<EOF;
+usage: cf-to-hosts [-M] mon.cf
+  -M    pre-process with m4
+
+EOF
+    exit;
+}
+
+my $f = shift;
+
+die "supply config file\n" if ($f eq "");
+
+if ((my $e = read_cf ($f)) ne "")
+{
+    die "error reading $f: $e\n";
+}
+
+print_hosts;
+
+exit;
+
+
+sub print_hosts
+{
+    foreach my $host (keys %resolved)
+    {
+    	print "$resolved{$host}\t$host\n";
+    }
+}
+
+
+sub resolve_hosts
+{
+    my ($hosts) = @_;
+
+    my $err = 0;
+
+    foreach my $host (split (/\s+/, $hosts))
+    {
+	next if (defined $resolved{$host});
+
+	my $ip = gethostbyname ($host);
+
+	if (!defined ($ip))
+	{
+	    print STDERR "could not look up $host\n";
+	    $err++;
+	}
+	
+	else
+	{
+	    $resolved{$host} = inet_ntoa ($ip);
+	}
+    }
+
+    $err;
+}
+
+
+sub read_cf
+{
+    my $f = shift;
+
+    if ($opt{"M"} || $f =~ /\.m4$/i)
+    {
+	open (IN, "m4 $f |") || return "$!";
+    }
+
+    else
+    {
+	open (IN, "$f") || return "$!";
+    }
+
+    my $linepart = "";
+    my $l = "";
+    my $acc_line = undef;
+    my $ingroup = 0;
+
+    for (;;)
+    {
+	last if (!defined ($linepart = <IN>));
+
+	next if $linepart =~ /^\s*#/;
+
+	#
+	# accumulate multi-line lines (ones which are \-escaped)
+	#
+	if (!defined $acc_line) { $linepart =~ s/^\s*//; }
+
+	if ($linepart =~ /^(.*)\\\s*$/)
+	{
+	    $acc_line .= $1;
+	    chomp $acc_line;
+	    next;
+	}
+
+	else
+	{
+	    $acc_line .= $linepart;
+	}
+
+	$l = $acc_line;
+	$acc_line = undef;
+
+	chomp $l;
+	$l =~ s/^\s*//;
+	$l =~ s/\s*$//;
+
+	$linepart = "";
+
+	if ($l eq "")
+	{
+	    $ingroup = 0;
+	    next;
+	}
+
+	if ($l =~ /^hostgroup\s+(\S+)\s+(.*)/)
+	{
+		$ingroup = 1;
+		resolve_hosts ($2);
+		next;
+	}
+	
+	elsif ($ingroup)
+	{
+	    resolve_hosts ($l);
+	    next;
+	}
+    }
+
+    close (IN);
+
+    return "";
+}

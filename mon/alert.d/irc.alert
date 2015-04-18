@@ -1,0 +1,192 @@
+#!/usr/bin/perl
+#
+# irc.alert - irc alert for "mon"
+#
+# options are:
+#     -s service
+#     -g group
+#     -h "host1 host2 host3..."
+#     -t tmnow
+#     -u (if upalert)
+#     -T (if trap)
+#     -O (if traptimeout)
+#
+#     -j          join the channel before doing PRIVMSG
+#                 (some channel modes prevent PRIVMSG from
+#                 user who hasn't joined the channel)
+#     -c channel  name of the channel (without leading #)
+#     -S server   irc server
+#     -U user     user for irc server
+#     -n nick     nick
+#     -d          post alert detail to irc channel
+#     -N num      try num different nicks before giving up
+#     -p secs     when showing detail, pause secs between
+#                 sending each line. secs may be fractional.
+#
+# Jim Trocki, trockij@arctic.org
+#
+# $Id: irc.alert,v 1.2 2005/04/17 07:42:26 trockij Exp $
+#
+#    Copyright (C) 1998, Jim Trocki
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use strict;
+use IO::Socket::INET;
+use Getopt::Std;
+use English;
+
+my %opt;
+getopts ("s:g:h:t:uTOjc:S:U:n:dN:p:", \%opt);
+
+my $CHAN = $opt{"c"} || "mon";
+my $NICK = $opt{"n"} || "mon";
+my $USER = $opt{"U"} || $NICK;
+my $SERVER = $opt{"S"} || die "must supply server via -S\n";
+my $NICK_TRIES = $opt{"N"} || 5;
+my $PAUSE = $opt{"p"} || 0;
+my $TIMEOUT = 10;
+
+#
+# read in what the mon server sends us about the alert
+#
+my $summary = <>;
+
+$summary = "UNKNOWN" if ($summary eq "");
+
+my @details;
+
+while (<>)
+{
+    chomp;
+    push @details, $_;
+}
+
+eval
+{
+    local $SIG{ALRM} = sub { die "Timeout Alarm" };
+    alarm $TIMEOUT;
+
+    #
+    # make the connection
+    #
+    my $s = new IO::Socket::INET (
+	"PeerAddr" => "$SERVER:6667",
+	"Proto" => "tcp",
+	"Timeout" => 10,
+    );
+
+    die if (!defined $s);
+
+    #
+    # register with the irc server
+    #
+    print $s "NICK $NICK\r\n";
+    print $s "USER $USER uplift.transmeta.com $USER :$USER\r\n";
+
+    my $nick_tries = 0;
+
+    #
+    # if we get in, there will be a "001" reply
+    # from the server. deal with nick collisions.
+    #
+    while (<$s>)
+    {
+	s/\r\n//;
+
+	#
+	# we're in
+	#
+	last if (/^:\S+\s+001\s/);
+
+	#
+	# nick already in use, pick a new one
+	#
+	if (/^:\S+\s+433\s/ || /^:\S+\s+432\s/)
+	{
+	    if (++$nick_tries >= $NICK_TRIES)
+	    {
+		print $s "QUIT\r\n";
+		die "could not get an unused nick, giving up\n";
+	    }
+
+	    my ($nick, $num) = ($NICK, 0);
+
+	    if ($NICK =~ /_/)
+	    {
+		($nick, $num) = split (/_/, $NICK);
+	    }
+
+	    $NICK = "$nick" . "_" . ++$num;
+	    print $s "NICK $NICK\r\n";
+	}
+    }
+
+    #
+    # /join the channel if requested
+    #
+    if ($opt{"j"})
+    {
+	print $s "JOIN #$CHAN\r\n";
+    }
+
+    my @t = split (/\s+/, scalar (localtime ($opt{"t"} ? $opt{"t"} : time)));
+    my $t = "$t[2]-$t[1] $t[3]";
+
+    my $alert = $opt{"u"} ? "UPALERT" : "ALERT";
+
+    print $s "PRIVMSG #$CHAN :$alert $t ($opt{g}/$opt{s}): $summary\r\n";
+
+    #
+    # print out the detail if requested
+    #
+    if ($opt{"d"})
+    {
+	foreach my $detail (@details)
+	{
+	    print $s "PRIVMSG #$CHAN :      $t ($opt{g}/$opt{s}): $detail\r\n";
+
+	    if ($PAUSE)
+	    {
+		my ($rin, $win, $ein);
+		select ($rin, $win, $ein, $PAUSE);
+	    }
+	}
+    }
+
+    #
+    # /leave the channel
+    #
+    if ($opt{"j"})
+    {
+	print $s "PART #$CHAN\r\n";
+    }
+
+    print $s "QUIT :byebye\r\n";
+
+    while (<$s>)
+    {
+	# whatever
+    }
+
+    close $s;
+
+    alarm 0;
+};
+
+if ($EVAL_ERROR)
+{
+    die "$EVAL_ERROR";
+}

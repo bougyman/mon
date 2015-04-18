@@ -1,0 +1,92 @@
+#!/usr/bin/perl 
+#
+# Use try to connect to a http server.
+# For use with "mon".
+#
+# Arguments are "port@host [port@host...]"
+#
+# Requires lmstat (you can get it from http://www.flexlm.com/)
+#
+# Adapted from "nis.monitor" by
+# Juha Ylitalo <jylitalo@iki.fi>
+#
+# nis.monitor written by me
+#
+#    Copyright (C) 1999, Juha Ylitalo
+#
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not, write to the Free Software
+#    Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+#
+use Getopt::Std;
+use English;
+
+getopts ("t:");
+$LMSTAT = "/usr/local/bin/lmstat -a -c ";
+$TIMEOUT = $opt_t || 30;
+
+@failures = ();
+@report = ();
+
+foreach $lmfile ( @ARGV ) {
+    &flexlm_poll( $lmfile );
+}
+
+if (@failures == 0) {
+    exit 0;
+}
+
+print "@failures\n";
+print "@report";
+exit 1;
+
+
+sub flexlm_poll {
+    my ( $lmfile ) = @_;
+    my( $ServerOK );
+
+###############################################################
+    eval {
+
+        local $SIG{ALRM} = sub { die "Timeout Alarm" };
+        alarm $TIMEOUT;
+
+        $ServerOK = -1;
+        @lines = `$LMSTAT $lmfile`;
+        foreach $line ( @lines ) {
+            # print "$line\n";
+            if ( $line =~ /: UP/ && $ServerOK == -1 ) {
+                $ServerOK = 1;
+            } elsif ( $line =~ /: DOWN/ 
+                      || $line =~ /\(Total of 0 licenses available\)/
+                      || $line =~ /daemon is down/
+                      || $line =~ /unsupported by licensed server/ ) {
+                $ServerOK = 0;
+                $line =~ s/[ \t]+/ /g;
+                push @report , "$line";
+            }
+        }
+        if ( $ServerOK == -1 ) {
+            push @report , "No response from server.";
+            $ServerOK = 0;
+        }
+        if ( $ServerOK == 0 ) {
+            push @failures , $lmfile;
+        }
+        alarm 0; # Cancel the alarm
+    };
+    if ($EVAL_ERROR and ($EVAL_ERROR eq 'Timeout Alarm')) {
+        push @failures , "**** Time Out\n";
+    }
+    return @failures;
+}
